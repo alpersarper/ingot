@@ -48,6 +48,8 @@ export interface ColorCluster {
   count: number
   /** Observation count per channel. */
   channels: Record<ColorChannel, number>
+  /** Capture ids that contributed observations on each channel, sorted. */
+  channelCaptureIds: Record<ColorChannel, string[]>
   captureIds: string[]
   members: Array<{ hex: string; count: number; captureIds: string[] }>
 }
@@ -91,6 +93,7 @@ interface Bucket {
   captureIds: Set<string>
   oklch: Oklch
   channels: Record<ColorChannel, number>
+  channelCaptureIds: Record<ColorChannel, Set<string>>
 }
 
 /**
@@ -113,12 +116,14 @@ export function clusterColors(observations: readonly ColorObservation[]): ColorC
         captureIds: new Set(),
         oklch: observation.oklch,
         channels: { background: 0, foreground: 0, border: 0 },
+        channelCaptureIds: { background: new Set(), foreground: new Set(), border: new Set() },
       }
       buckets.set(observation.hex, bucket)
     }
     bucket.count += 1
     bucket.captureIds.add(observation.captureId)
     bucket.channels[observation.channel] += 1
+    bucket.channelCaptureIds[observation.channel].add(observation.captureId)
   }
 
   const ordered = [...buckets.values()].sort(
@@ -149,14 +154,16 @@ export function clusterColors(observations: readonly ColorObservation[]): ColorC
         ),
       )[0] as Bucket
       const channels: Record<ColorChannel, number> = { background: 0, foreground: 0, border: 0 }
+      const channelIds: Record<ColorChannel, Set<string>> = { background: new Set(), foreground: new Set(), border: new Set() }
       const captureIds = new Set<string>()
       let count = 0
       for (const member of members) {
         count += member.count
         for (const id of member.captureIds) captureIds.add(id)
-        channels.background += member.channels.background
-        channels.foreground += member.channels.foreground
-        channels.border += member.channels.border
+        for (const channel of ['background', 'foreground', 'border'] as const) {
+          channels[channel] += member.channels[channel]
+          for (const id of member.channelCaptureIds[channel]) channelIds[channel].add(id)
+        }
       }
       return {
         id: representative.hex,
@@ -165,6 +172,11 @@ export function clusterColors(observations: readonly ColorObservation[]): ColorC
         centroid: roundOklch(centroid),
         count,
         channels,
+        channelCaptureIds: {
+          background: [...channelIds.background].sort(byString),
+          foreground: [...channelIds.foreground].sort(byString),
+          border: [...channelIds.border].sort(byString),
+        },
         captureIds: [...captureIds].sort(byString),
         members: members
           .map((member) => ({

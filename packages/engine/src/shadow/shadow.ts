@@ -262,9 +262,21 @@ export function distillShadows(
   kept.forEach((candidate, index) => {
     const name = names[index] as ShadowStepName
     const observed = tally(candidate.contributions)
+    const decision = decide('dominant-value', candidate.shadow.css, observed, { unit: 'capture' })
+    // `chosen` is the normalized canonical css, which the raw captured strings
+    // rarely match literally, yet every contribution here normalized to this
+    // exact shadow. Restate the record in terms of what actually supported it.
+    const rawList = observed
+      .map((entry) => `${entry.value} x${entry.count}`)
+      .sort(byString)
+      .join(', ')
+    decision.chosenCount = decision.totalCount
+    decision.confidence = 1
+    decision.competitors = []
+    decision.summary = `${decision.totalCount} capture(s) normalised to ${candidate.shadow.css} (${rawList})`
     steps[name] = {
       value: candidate.shadow,
-      provenance: provenance(observed, decide('dominant-value', candidate.shadow.css, observed, { unit: 'capture' })),
+      provenance: provenance(observed, decision),
     }
   })
 

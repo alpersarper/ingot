@@ -5,7 +5,7 @@
  *   - Pure. No filesystem, no network, no clock, no randomness.
  *   - No DOM, browser or extension APIs. The package must stay runnable in any
  *     JS host, which is what lets the same code run in the extension, in the
- *     panel, and in CI. `test/no-platform-imports.test.ts` enforces this.
+ *     panel, and in CI. `test/purity.test.ts` enforces this.
  *   - Deterministic. `distill(x)` returns a structurally identical document on
  *     every run, and `serializeTokens` turns it into identical bytes.
  *

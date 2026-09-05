@@ -116,10 +116,9 @@ function distillColor(
   const mode = detectMode(clusters)
 
   const assignments = assignRoles(clusters, mode)
-  const withShades = [...assignments, ...deriveInteractionShades(assignments, mode)]
 
   const byRole = new Map<ColorRoleName, RoleAssignment>()
-  for (const assignment of withShades) byRole.set(assignment.role, assignment)
+  for (const assignment of assignments) byRole.set(assignment.role, assignment)
 
   const colors = new Map<ColorRoleName, Oklch>()
   for (const [role, assignment] of byRole) colors.set(role, assignment.color)
@@ -132,57 +131,50 @@ function distillColor(
     const foreground = colors.get(pair.foreground)
     if (foreground === undefined) continue
     const backgrounds = pair.backgrounds
-      .map((role) => ({ path: `color.roles.${role}`, color: colors.get(role) }))
-      .filter((entry): entry is { path: string; color: Oklch } => entry.color !== undefined)
+      .map((role) => ({ role, path: `color.roles.${role}`, color: colors.get(role) }))
+      .filter((entry): entry is { role: ColorRoleName; path: string; color: Oklch } => entry.color !== undefined)
     if (backgrounds.length === 0) continue
 
     const result = enforceContrast(`color.roles.${pair.foreground}`, foreground, backgrounds, CONTRAST_FLOOR)
     colors.set(pair.foreground, result.color)
     if (result.adjustment) adjustments.set(pair.foreground, result.adjustment)
 
-    if (result.adjustment && !result.adjustment.met && backgrounds.length === 1) {
-      const backgroundRole = pair.backgrounds[0] as ColorRoleName
-      const backgroundColor = colors.get(backgroundRole)
-      if (backgroundColor) {
-        const nudged = enforceContrastOnBackground(
-          `color.roles.${backgroundRole}`,
-          backgroundColor,
-          { path: `color.roles.${pair.foreground}`, color: result.color },
-          CONTRAST_FLOOR,
-        )
-        colors.set(backgroundRole, nudged.color)
-        if (nudged.adjustment) adjustments.set(backgroundRole, nudged.adjustment)
+    const survivor = backgrounds[0]
+    if (result.adjustment && !result.adjustment.met && backgrounds.length === 1 && survivor) {
+      const backgroundRole = survivor.role
+      const nudged = enforceContrastOnBackground(
+        `color.roles.${backgroundRole}`,
+        survivor.color,
+        { path: `color.roles.${pair.foreground}`, color: result.color },
+        CONTRAST_FLOOR,
+      )
+      colors.set(backgroundRole, nudged.color)
+      if (nudged.adjustment) adjustments.set(backgroundRole, nudged.adjustment)
 
-        if (nudged.adjustment?.met) {
-          // The foreground had nowhere to go, so its own record would claim an
-          // unmet floor that the background move has since closed. Drop the
-          // no-op record; keep it only if the foreground genuinely moved.
-          if (result.adjustment.deltaL === 0) {
-            adjustments.delete(pair.foreground)
-          } else {
-            result.adjustment.ratioAfter = nudged.adjustment.ratioAfter
-            result.adjustment.met = true
-            result.adjustment.reason += `; ${backgroundRole} then moved to close the remaining gap`
-          }
+      if (nudged.adjustment?.met) {
+        // The foreground had nowhere to go, so its own record would claim an
+        // unmet floor that the background move has since closed. Drop the
+        // no-op record; keep it only if the foreground genuinely moved.
+        if (result.adjustment.deltaL === 0) {
+          adjustments.delete(pair.foreground)
+        } else {
+          result.adjustment.ratioAfter = nudged.adjustment.ratioAfter
+          result.adjustment.met = true
+          result.adjustment.reason += `; ${backgroundRole} then moved to close the remaining gap`
         }
       }
     }
   }
 
-  // Interaction shades are recomputed after their base role may have moved, so
-  // a hover state never drifts away from the colour it is a state of.
-  for (const [shade, base, delta] of [
-    ['surfaceHover', 'surface', 0.03],
-    ['primaryHover', 'primary', 0.04],
-    ['primaryActive', 'primary', 0.08],
-  ] as ReadonlyArray<[ColorRoleName, ColorRoleName, number]>) {
-    const baseColor = colors.get(base)
-    const assignment = byRole.get(shade)
-    if (!baseColor || !assignment) continue
-    const direction = mode === 'dark' ? 1 : -1
-    const next: Oklch = { ...baseColor, l: Math.min(1, Math.max(0, baseColor.l + direction * delta)) }
-    colors.set(shade, next)
-    assignment.detail = `${base} lightness ${direction > 0 ? '+' : '-'}${delta} (${mode} mode moves ${direction > 0 ? 'lighter' : 'darker'} on interaction), yielding ${oklchToHex(next)}`
+  // Interaction shades are derived only now, after contrast enforcement may
+  // have moved their base role, so a hover state never drifts away from the
+  // colour it is a state of.
+  for (const shade of deriveInteractionShades(
+    assignments.map((assignment) => ({ ...assignment, color: colors.get(assignment.role) ?? assignment.color })),
+    mode,
+  )) {
+    byRole.set(shade.role, shade)
+    colors.set(shade.role, shade.color)
   }
 
   // --- final ratios ---------------------------------------------------------

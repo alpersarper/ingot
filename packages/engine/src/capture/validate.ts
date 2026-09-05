@@ -62,6 +62,7 @@ function checkRecord(value: unknown, at: string, issues: string[]): CaptureRecor
     issues.push(`${at}: expected an object`)
     return undefined
   }
+  const issuesBefore = issues.length
 
   if (value['schemaVersion'] !== CAPTURE_SCHEMA_VERSION) {
     issues.push(
@@ -102,7 +103,7 @@ function checkRecord(value: unknown, at: string, issues: string[]): CaptureRecor
     }
   }
 
-  return issues.length === 0 ? (value as unknown as CaptureRecord) : undefined
+  return issues.length === issuesBefore ? (value as unknown as CaptureRecord) : undefined
 }
 
 /** Validate one capture record, throwing {@link CaptureValidationError} on failure. */

@@ -367,18 +367,18 @@ export function assignRoles(clusters: readonly ColorCluster[], mode: Mode): Role
   const primaryCluster = get('primary')?.cluster
 
   // --- primaryForeground ----------------------------------------------------
-  // Prefer a colour actually observed on top of the primary colour; otherwise
-  // pick whichever of black or white reads better on it.
+  // Prefer a colour actually observed on top of the primary colour -- a
+  // foreground observation in a capture whose background resolved to the
+  // primary cluster; otherwise pick whichever of black or white reads better.
+  const primaryBackgroundIds = new Set(primaryCluster?.channelCaptureIds.background ?? [])
+  const onPrimaryCount = (cluster: ColorCluster): number =>
+    cluster.channelCaptureIds.foreground.filter((id) => primaryBackgroundIds.has(id)).length
   const onPrimary = primaryCluster
     ? clusters
-        .filter(
-          (cluster) =>
-            cluster.channels.foreground > 0 &&
-            cluster.id !== primaryCluster.id &&
-            cluster.captureIds.some((id) => primaryCluster.captureIds.includes(id)),
-        )
+        .filter((cluster) => cluster.id !== primaryCluster.id && onPrimaryCount(cluster) > 0)
         .sort(
           chain<ColorCluster>(
+            (a, b) => byNumber(onPrimaryCount(b), onPrimaryCount(a)),
             (a, b) => byNumber(b.channels.foreground, a.channels.foreground),
             (a, b) => byNumber(contrastRatio(b.oklch, primaryColor), contrastRatio(a.oklch, primaryColor)),
             (a, b) => byString(a.hex, b.hex),
@@ -392,7 +392,7 @@ export function assignRoles(clusters: readonly ColorCluster[], mode: Mode): Role
       cluster: onPrimary,
       color: onPrimary.oklch,
       rule: 'observed-on-primary',
-      detail: `observed as the text colour on ${onPrimary.captureIds.filter((id) => primaryCluster?.captureIds.includes(id)).length} capture(s) that use the primary colour as a background`,
+      detail: `observed as the text colour on ${onPrimaryCount(onPrimary)} capture(s) that use the primary colour as a background`,
       derivedFrom: [],
     })
   } else {
