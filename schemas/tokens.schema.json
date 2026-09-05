@@ -1,13 +1,13 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/alpersarper/ingot/schemas/tokens.schema.json",
-  "title": "Ingot tokens document, version 1",
+  "title": "Ingot tokens document, version 2",
   "description": "The distilled design system for one capture set. Stack-agnostic: nothing here names Tailwind, shadcn or CSS variables. Prose documentation: docs/tokens.md",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "engine", "source", "color", "spacing", "border", "radius", "shadow", "typography", "diagnostics"],
+  "required": ["schemaVersion", "engine", "source", "color", "spacing", "border", "radius", "shadow", "typography", "components", "diagnostics"],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "engine": {
       "type": "object",
       "additionalProperties": false,
@@ -63,11 +63,12 @@
         "roles": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Semantic colour roles. background, text, border, primary and primaryForeground are always present; the rest appear only when the captures support them.",
+          "description": "Semantic colour roles. background, surface, surfaceHover, selectedSurface, border, text, textMuted, primary, primaryHover, primaryActive, primaryForeground, disabledSurface and disabledForeground are always present; destructive and destructiveForeground appear only when the captures support them. The state colours are real colours rather than an opacity ramp, so they can be contrast-checked.",
           "properties": {
             "background": { "$ref": "#/definitions/colorToken" },
             "surface": { "$ref": "#/definitions/colorToken" },
             "surfaceHover": { "$ref": "#/definitions/colorToken" },
+            "selectedSurface": { "$ref": "#/definitions/colorToken" },
             "border": { "$ref": "#/definitions/colorToken" },
             "text": { "$ref": "#/definitions/colorToken" },
             "textMuted": { "$ref": "#/definitions/colorToken" },
@@ -76,12 +77,14 @@
             "primaryActive": { "$ref": "#/definitions/colorToken" },
             "primaryForeground": { "$ref": "#/definitions/colorToken" },
             "destructive": { "$ref": "#/definitions/colorToken" },
-            "destructiveForeground": { "$ref": "#/definitions/colorToken" }
+            "destructiveForeground": { "$ref": "#/definitions/colorToken" },
+            "disabledSurface": { "$ref": "#/definitions/colorToken" },
+            "disabledForeground": { "$ref": "#/definitions/colorToken" }
           }
         },
         "contrast": {
           "type": "array",
-          "description": "Every foreground/background pair the engine guarantees, with its final ratio.",
+          "description": "Every foreground/background pair the engine guarantees, with its final ratio and the floor it was held to. Exhaustive: the derived hover, pressed, selected and disabled surfaces are included. floor is 4.5 for text pairs and 3 for the disabled pair, which WCAG 2.1 exempts from 1.4.3.",
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -139,12 +142,14 @@
     "spacing": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["baseUnit", "unit", "snappingRule", "fit", "steps"],
+      "required": ["baseUnit", "unit", "snappingRule", "layoutRule", "fit", "largestObservedMultiple", "steps"],
       "properties": {
         "baseUnit": { "type": "number", "exclusiveMinimum": 0 },
         "unit": { "const": "px" },
         "snappingRule": { "type": "string", "description": "The rule applied, stated in prose, so the exported spec can quote it verbatim." },
+        "layoutRule": { "type": "string", "description": "How the scale was continued past the largest observation, stated in prose, so the exported spec can quote it verbatim." },
         "fit": { "type": "number", "minimum": 0, "maximum": 1, "description": "Fraction of raw observations that were already exact multiples of baseUnit." },
+        "largestObservedMultiple": { "type": "number", "minimum": 0, "description": "Largest multiple any capture supported. Steps at or below it are the component band; anything above it is extrapolated for layout use." },
         "steps": {
           "type": "array",
           "items": {
@@ -156,11 +161,12 @@
                   "value": {
                     "type": "object",
                     "additionalProperties": false,
-                    "required": ["name", "multiple", "px"],
+                    "required": ["name", "multiple", "px", "band"],
                     "properties": {
                       "name": { "type": "string" },
                       "multiple": { "type": "number", "minimum": 0 },
-                      "px": { "type": "number", "minimum": 0 }
+                      "px": { "type": "number", "minimum": 0 },
+                      "band": { "enum": ["component", "layout"], "description": "component: at or below the largest observed length, so backed by evidence. layout: extrapolated past it so page-level rhythm has somewhere on-scale to live." }
                     }
                   }
                 }
@@ -280,6 +286,88 @@
         }
       }
     },
+    "components": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["states", "recipes"],
+      "description": "What a control is. The scales above say which values exist; this says how they compose into a button, a field, a row and a badge, so two consumers of one kit cannot ship two different control scales.",
+      "properties": {
+        "states": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["disabled", "selected", "focusRing"],
+          "description": "Interaction states beyond hover and pressed. Colours are referenced by token path into color.roles rather than duplicated.",
+          "properties": {
+            "disabled": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["surface", "foreground", "ratio", "floor"],
+              "description": "Two real colours, not an opacity ramp: an opacity ramp cannot be contrast-checked and measures 1:1 on a light kit.",
+              "properties": {
+                "surface": { "type": "string", "description": "Token path of the fill." },
+                "foreground": { "type": "string", "description": "Token path of the label colour." },
+                "ratio": { "type": "number", "description": "Final measured ratio of foreground on surface." },
+                "floor": { "type": "number", "description": "The floor that pair was held to. Below the body-text floor on purpose: WCAG 2.1 exempts inactive controls from 1.4.3." }
+              }
+            },
+            "selected": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["surface", "foreground"],
+              "properties": {
+                "surface": { "type": "string", "description": "Token path of the fill." },
+                "foreground": { "type": "string", "description": "Token path of the label colour drawn on it." }
+              }
+            },
+            "focusRing": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["colorRole", "unit", "width", "offset"],
+              "description": "Ring geometry only. The colour is a role that already exists, so only the part every consumer was otherwise inventing lives here.",
+              "properties": {
+                "colorRole": { "type": "string", "description": "Token path of the colour role the ring is drawn in." },
+                "unit": { "const": "px" },
+                "width": { "$ref": "#/definitions/numberToken" },
+                "offset": { "$ref": "#/definitions/numberToken" }
+              }
+            }
+          }
+        },
+        "recipes": {
+          "type": "array",
+          "description": "One entry per control, in a fixed order. Every value carries provenance, so measured geometry, geometry borrowed from another recipe, and an engine default are all distinguishable per value.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "purpose", "colors", "height", "paddingY", "paddingX", "radius", "typeStep", "fontWeight"],
+            "properties": {
+              "name": {
+                "enum": ["button.primary", "button.secondary", "button.ghost", "button.destructive", "input", "select", "table.header", "table.row", "badge"]
+              },
+              "purpose": { "type": "string", "description": "One line on what the recipe is for, written for the consumer." },
+              "colors": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["surface", "foreground", "border", "hoverSurface"],
+                "description": "Which colour roles paint the recipe. Token paths, not values; null where the control has no such colour.",
+                "properties": {
+                  "surface": { "type": ["string", "null"] },
+                  "foreground": { "type": "string" },
+                  "border": { "type": ["string", "null"] },
+                  "hoverSurface": { "type": ["string", "null"] }
+                }
+              },
+              "height": { "$ref": "#/definitions/numberToken", "description": "Total border-box height in px: paddingY x 2 + line box + border x 2." },
+              "paddingY": { "$ref": "#/definitions/numberToken" },
+              "paddingX": { "$ref": "#/definitions/numberToken" },
+              "radius": { "$ref": "#/definitions/stringToken", "description": "Name of the radius step, so the value tracks radius.steps." },
+              "typeStep": { "$ref": "#/definitions/stringToken", "description": "Name of the type step, so size and line height track typography.steps." },
+              "fontWeight": { "$ref": "#/definitions/numberToken" }
+            }
+          }
+        }
+      }
+    },
     "diagnostics": {
       "type": "array",
       "description": "Notes the engine wants the operator to see. warning means a human should look before shipping.",
@@ -333,7 +421,7 @@
       "description": "The machine-readable dominant-choice record. The panel renders this as the decision and uses competitors to offer overrides.",
       "properties": {
         "strategy": {
-          "enum": ["dominant-value", "snapped-scale", "cluster-representative", "role-assignment", "derived"]
+          "enum": ["dominant-value", "snapped-scale", "cluster-representative", "role-assignment", "derived", "sanctioned-default"]
         },
         "chosen": { "type": "string" },
         "chosenCount": { "type": "integer", "minimum": 0 },
@@ -356,7 +444,7 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["method", "from", "detail"],
-          "description": "Present only when strategy is derived.",
+          "description": "Present when strategy is derived or sanctioned-default. sanctioned-default means the captures were silent and nothing else in the document implied the value, so the engine supplied one; derived means the value follows from another token.",
           "properties": {
             "method": { "type": "string", "description": "Stable algorithm identifier, e.g. oklch-lightness-offset." },
             "from": { "type": "array", "items": { "type": "string" }, "description": "Token paths this value was computed from." },

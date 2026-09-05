@@ -116,10 +116,15 @@ describe('provenance completeness', () => {
             if (typeof decision['strategy'] !== 'string') problems.push(`${path}: decision has no strategy`)
             if (typeof decision['summary'] !== 'string') problems.push(`${path}: decision has no summary`)
             if (!Array.isArray(decision['competitors'])) problems.push(`${path}: decision has no competitors list`)
-            if (decision['strategy'] === 'derived' && !decision['derivation']) {
-              problems.push(`${path}: derived decision has no derivation record`)
+            const computed = decision['strategy'] === 'derived' || decision['strategy'] === 'sanctioned-default'
+            if (computed && !decision['derivation']) {
+              problems.push(`${path}: computed decision has no derivation record`)
             }
-            if (decision['strategy'] !== 'derived' && !Array.isArray(provenance['observed'])) {
+            // A value the engine supplied outright must not look like evidence.
+            if (decision['strategy'] === 'sanctioned-default' && (provenance['captureIds'] as unknown[])?.length > 0) {
+              problems.push(`${path}: sanctioned default claims contributing captures`)
+            }
+            if (!computed && !Array.isArray(provenance['observed'])) {
               problems.push(`${path}: observed decision lists no observed values`)
             }
           }

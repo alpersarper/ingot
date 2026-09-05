@@ -63,13 +63,22 @@ provenance looks like when the engine had to work for it.
 
 - **Colour.** Converts to OKLCH, merges perceptual near-duplicates, assigns a
   small semantic role set (`background`, `surface`, `border`, `text`,
-  `textMuted`, `primary`, ...), derives the interaction shades, and enforces a
-  4.5:1 WCAG floor on every text/background pair -- adjusting lightness and
-  recording exactly what it changed.
+  `textMuted`, `primary`, ...), derives the interaction and state shades, and
+  enforces a 4.5:1 WCAG floor on every pair it puts on screen -- the derived
+  hover, pressed and selected surfaces included -- adjusting lightness, then
+  chroma, and recording exactly what it changed.
 - **Spacing.** Picks one base unit from the evidence and snaps every observed
-  length onto it, documenting the rule and flagging how much it had to rewrite.
+  length onto it, then continues the series into a layout band past the largest
+  observation so page rhythm has somewhere on-scale to live. Component steps are
+  measured; layout steps say they are extrapolated.
 - **Radius, shadows, typography.** Dominant-choice selection over the observed
   values, with missing steps derived rather than invented.
+- **Components.** One height, padding pair, radius step, type step and weight for
+  each of button (per variant), input, select, table header and row, and badge,
+  plus the disabled, selected and focus-ring states. Measured from the captures
+  where they reach, borrowed from a sibling recipe where they do not, and stated
+  as a sanctioned default where nothing implies an answer -- distinguishable per
+  value, so nothing is left for a consumer to invent.
 
 Every token records the captures that produced it, every raw value that was
 observed, and a machine-readable dominant-choice record -- `"12 of 28 corners at

@@ -1,5 +1,5 @@
 /**
- * The tokens document, version 1.
+ * The tokens document, version 2.
  *
  * Stack-agnostic on purpose: nothing in here mentions Tailwind, shadcn or CSS
  * variables. Target-specific naming lives entirely in the export layer
@@ -11,7 +11,7 @@
 import type { ContrastAdjustment, ContrastPair } from '../color/contrast'
 import type { Provenance } from '../provenance'
 
-export const TOKENS_SCHEMA_VERSION = 1
+export const TOKENS_SCHEMA_VERSION = 2
 
 /** Base shape shared by every token: a value plus why it has that value. */
 export interface Token<TValue> {
@@ -24,12 +24,19 @@ export interface Token<TValue> {
  * thirty roles has not distilled anything.
  *
  * `background`, `text`, `primary`, `primaryForeground` and `border` are always
- * present. The rest appear only when the captures support them.
+ * present, as are the derived interaction and state surfaces. `destructive` and
+ * `destructiveForeground` appear only when the captures support them.
+ *
+ * The state colours (`selectedSurface`, `disabledSurface`, `disabledForeground`)
+ * are real colours, never an opacity ramp: an opacity ramp cannot be
+ * contrast-checked, and the consumer that reaches for one produces a 1:1
+ * disabled label on a light kit.
  */
 export type ColorRoleName =
   | 'background'
   | 'surface'
   | 'surfaceHover'
+  | 'selectedSurface'
   | 'border'
   | 'text'
   | 'textMuted'
@@ -39,6 +46,8 @@ export type ColorRoleName =
   | 'primaryForeground'
   | 'destructive'
   | 'destructiveForeground'
+  | 'disabledSurface'
+  | 'disabledForeground'
 
 export interface ColorValue {
   /** `oklch(L C H)`, the canonical form. */
@@ -74,11 +83,24 @@ export interface ColorTokens {
   }>
 }
 
+/**
+ * Which half of the scale a step belongs to.
+ *
+ * `component` steps are backed by observation: captures are individual
+ * components, so everything the evidence can reach is component-internal
+ * padding and gap. `layout` steps are extrapolated past the largest observation
+ * to give page-level rhythm somewhere on-scale to live. The distinction is
+ * emitted rather than smoothed over, because a consumer is entitled to know
+ * which numbers came from the sources and which the engine continued.
+ */
+export type SpacingBand = 'component' | 'layout'
+
 export interface SpacingStep {
   /** Step name: the multiplier as a string, so `"2"` is `2 x baseUnit`. */
   name: string
   multiple: number
   px: number
+  band: SpacingBand
 }
 
 export interface SpacingTokens {
@@ -86,8 +108,12 @@ export interface SpacingTokens {
   unit: 'px'
   /** Human-readable statement of the rule the engine applied. */
   snappingRule: string
+  /** Human-readable statement of how the layout band was continued. */
+  layoutRule: string
   /** Fraction of raw observations that were already exact multiples of `baseUnit`. */
   fit: number
+  /** Largest multiple any capture actually supported; the band boundary. */
+  largestObservedMultiple: number
   steps: Array<Token<SpacingStep>>
 }
 
@@ -152,6 +178,106 @@ export interface TypographyTokens {
   steps: Array<Token<TypeStep>>
 }
 
+/**
+ * The controls a kit has to be able to describe before an LLM can build a
+ * screen against it.
+ *
+ * Deliberately a closed list, and deliberately shallow: this is not a component
+ * library, it is the minimum geometry two independent consumers need in order
+ * to draw the same button. Anything not on this list is composed from the
+ * scales above.
+ */
+export type ComponentRecipeName =
+  | 'button.primary'
+  | 'button.secondary'
+  | 'button.ghost'
+  | 'button.destructive'
+  | 'input'
+  | 'select'
+  | 'table.header'
+  | 'table.row'
+  | 'badge'
+
+/** Which colour roles paint a recipe. Token paths, not values. */
+export interface ComponentColors {
+  /** Fill, or `null` when the control is transparent until it is hovered. */
+  surface: string | null
+  foreground: string
+  /** Outline, or `null` when the control draws no border. */
+  border: string | null
+  /** Fill under the pointer, or `null` when the control has no hover state. */
+  hoverSurface: string | null
+}
+
+/**
+ * One control, fully specified.
+ *
+ * Every number here is either observed, derived from another token, or an
+ * engine default -- and the token's own provenance says which, so a reader can
+ * tell "your captures say buttons are 36px tall" from "nothing in your captures
+ * described a badge, so here is a sanctioned one".
+ */
+export interface ComponentRecipe {
+  name: ComponentRecipeName
+  /** One line on what the recipe is for, written for the consumer. */
+  purpose: string
+  colors: ComponentColors
+  /** Total border-box height in px: `paddingY x 2 + line box + border x 2`. */
+  height: Token<number>
+  paddingY: Token<number>
+  paddingX: Token<number>
+  /** Name of the radius step, so the value tracks `radius.steps`. */
+  radius: Token<RadiusStepName>
+  /** Name of the type step, so size and line height track `typography.steps`. */
+  typeStep: Token<TypeStepName>
+  fontWeight: Token<number>
+}
+
+/**
+ * Focus ring geometry. The colour is a role that already exists, so only the
+ * geometry -- the part every consumer was otherwise inventing -- lives here.
+ */
+export interface FocusRingTokens {
+  /** Token path of the colour role the ring is drawn in. */
+  colorRole: string
+  unit: 'px'
+  width: Token<number>
+  offset: Token<number>
+}
+
+/** The interaction states a control can be in, beyond hover and pressed. */
+export interface StateTokens {
+  /**
+   * Disabled controls. Two real colours held to a stated floor against each
+   * other -- not an opacity ramp, which cannot be contrast-checked and which
+   * measures 1:1 on a light kit.
+   */
+  disabled: {
+    /** Token path of the fill. */
+    surface: string
+    /** Token path of the label colour. */
+    foreground: string
+    /** Final measured ratio of `foreground` on `surface`. */
+    ratio: number
+    /** The floor that pair was held to. Below the body-text floor on purpose. */
+    floor: number
+  }
+  /** The selected row / active nav item fill. */
+  selected: {
+    /** Token path of the fill. */
+    surface: string
+    /** Token path of the label colour drawn on it. */
+    foreground: string
+  }
+  focusRing: FocusRingTokens
+}
+
+export interface ComponentTokens {
+  states: StateTokens
+  /** Sorted by {@link ComponentRecipeName} so the document key order is fixed. */
+  recipes: ComponentRecipe[]
+}
+
 /** Severity of a distillation note. `warning` means a human should look. */
 export type DiagnosticLevel = 'info' | 'warning'
 
@@ -185,6 +311,7 @@ export interface TokensDocument {
   radius: RadiusTokens
   shadow: ShadowTokens
   typography: TypographyTokens
+  components: ComponentTokens
   diagnostics: Diagnostic[]
 }
 

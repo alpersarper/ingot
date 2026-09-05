@@ -14,6 +14,7 @@ import { round } from '../util/num'
 import type {
   ColorRoleName,
   ColorToken,
+  ComponentRecipe,
   RadiusStepName,
   ShadowStepName,
   TokensDocument,
@@ -44,6 +45,9 @@ const SHADCN_VARIABLES: ReadonlyArray<[ColorRoleName, string, string]> = [
   ['surfaceHover', '--ingot-surface-hover', 'raw hover surface'],
   ['primaryHover', '--ingot-primary-hover', 'primary hover fill'],
   ['primaryActive', '--ingot-primary-active', 'primary pressed fill'],
+  ['selectedSurface', '--ingot-selected-surface', 'selected row and active nav item fill'],
+  ['disabledSurface', '--ingot-disabled-surface', 'disabled control fill'],
+  ['disabledForeground', '--ingot-disabled-foreground', 'disabled label and icon colour'],
 ]
 
 const RADIUS_ORDER: RadiusStepName[] = ['none', 'sm', 'md', 'lg', 'full']
@@ -79,7 +83,7 @@ function table(headers: readonly string[], rows: ReadonlyArray<readonly string[]
  * environment and no randomness.
  */
 export function renderDesignMarkdown(tokens: TokensDocument): string {
-  const { color, spacing, border, radius, shadow, typography, source } = tokens
+  const { color, spacing, border, radius, shadow, typography, components, source } = tokens
   const out: string[] = []
   const push = (...lines: string[]): void => {
     out.push(...lines)
@@ -177,31 +181,53 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
     '',
   )
 
+  const collapsedStates = ([
+    ['primaryHover', 'primary'],
+    ['primaryActive', 'primaryHover'],
+    ['primaryActive', 'primary'],
+    ['surfaceHover', 'surface'],
+    ['selectedSurface', 'surfaceHover'],
+  ] as Array<[ColorRoleName, ColorRoleName]>).filter(
+    ([shade, base]) => role(shade) !== undefined && hexOf(shade) === hexOf(base),
+  )
+
   push(
     '### Colour rules',
     '',
     `- Text on \`background\` or \`surface\` is \`text\`. De-emphasised text is \`textMuted\`. There is no third text colour.`,
     `- \`primary\` is a fill, not a text colour. Use \`primaryForeground\` for anything drawn on top of it.`,
     `- Hover on an interactive surface goes to \`surfaceHover\`; hover on a primary fill goes to \`primaryHover\`; the pressed state is \`primaryActive\`.`,
+    `- A selected row, tab or nav item is filled with \`selectedSurface\` (${hexOf('selectedSurface')}) and keeps \`text\` on top. Selection reads by hue, hover reads by lightness; do not swap them.`,
+    `- A disabled control is filled with \`disabledSurface\` (${hexOf('disabledSurface')}) and labelled \`disabledForeground\` (${hexOf('disabledForeground')}). Never build a disabled state out of \`opacity\`.`,
     `- Borders are ${border.width.value}px \`border\`. Do not use shadows in place of borders for separation, and do not use \`text\` at reduced opacity as a border.`,
     role('destructive')
-      ? `- \`destructive\` is reserved for irreversible actions and error states. Never use it for emphasis.`
+      ? `- \`destructive\` is reserved for irreversible actions and error states. Never use it for emphasis. It is contrast-checked as a text colour as well as a fill, so error copy may be set in it.`
       : `- This system has no destructive colour. If you need one, add it explicitly rather than reaching for an arbitrary red.`,
     '',
   )
 
+  if (collapsedStates.length > 0) {
+    push(
+      `> **These states render identically:** ${collapsedStates.map(([shade, base]) => `\`${shade}\` and \`${base}\``).join(', ')}. Holding the label at the contrast floor consumed the whole offset, so the fill cannot carry the distinction on this palette. Signal the state with the focus ring, a border, or a transform — not with the fill.`,
+      '',
+    )
+  }
+
   const failing = color.contrast.filter((pair) => !pair.passes)
+  const disabledFloor = components.states.disabled.floor
   push(
     '### Contrast',
     '',
-    `Every pair below is guaranteed at or above **${color.contrast[0]?.floor ?? 4.5}:1** (WCAG 2.1 AA, normal text).`,
+    'This table is exhaustive: every pair the kit puts on screen is measured here, including the derived hover, pressed and selected surfaces. Text pairs are guaranteed at or above **4.5:1** (WCAG 2.1 AA, normal text). The disabled pair is held to ' +
+      `**${disabledFloor}:1** on purpose — WCAG 2.1 exempts inactive controls from 1.4.3, and a disabled label that clears the body-text floor stops reading as disabled.`,
     '',
     ...table(
-      ['Foreground', 'Background', 'Ratio', 'Status'],
+      ['Foreground', 'Background', 'Ratio', 'Floor', 'Status'],
       color.contrast.map((pair) => [
         `\`${pair.foreground.replace('color.roles.', '')}\``,
         `\`${pair.background.replace('color.roles.', '')}\``,
         `${pair.ratio}:1`,
+        `${pair.floor}:1`,
         pair.passes ? 'pass' : 'FAILS',
       ]),
     ),
@@ -213,7 +239,7 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
   )
   if (adjusted.length > 0) {
     push(
-      'The following roles were lightened or darkened away from their captured values to reach that floor. Use the adjusted values; the originals fail accessibility.',
+      'The following roles were moved away from the value they started at to reach their floor — a captured colour for an observed role, the offset the engine computed for a derived one. Use the adjusted values; the originals fail accessibility.',
       '',
     )
     for (const [name, token] of adjusted) {
@@ -262,16 +288,21 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
   )
 
   // --- spacing --------------------------------------------------------------
+  const layoutSteps = spacing.steps.filter((step) => step.value.band === 'layout')
+  const componentSteps = spacing.steps.filter((step) => step.value.band === 'component')
   push(
     '## 4. Spacing',
     '',
     `Base unit **${spacing.baseUnit}px**. ${round(spacing.fit * 100, 1)}% of the captured lengths were already exact multiples of it.`,
     '',
+    'The scale has two bands. **Component** steps are measured: a capture is one component, so the evidence stops at that component\'s own padding. **Layout** steps continue the same multiplier series past the largest observation, because page rhythm has to come from somewhere and inventing it per screen is worse than stating it here.',
+    '',
     ...table(
-      ['Step', 'px', 'Tailwind'],
+      ['Step', 'px', 'Band', 'Tailwind'],
       spacing.steps.map((step) => [
         `\`${step.value.name}\``,
         `${step.value.px}px`,
+        step.value.band,
         step.value.px === 0 ? '`p-0` / `gap-0`' : `\`p-[${step.value.px}px]\` / \`gap-[${step.value.px}px]\``,
       ]),
     ),
@@ -279,6 +310,12 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
     '### Spacing rules',
     '',
     `- Every padding, margin and gap is a multiple of ${spacing.baseUnit}px drawn from the table above.`,
+    componentSteps.length > 0
+      ? `- Inside a control or a card, use the component steps (up to ${componentSteps[componentSteps.length - 1]?.value.px ?? 0}px). They are what the sources actually do.`
+      : '- No component steps were observed; every step in this table is extrapolated.',
+    layoutSteps.length > 0
+      ? `- Between cards, between sections and around the page, use the layout steps (${layoutSteps.map((step) => `${step.value.px}px`).join(', ')}). Do not pad a page with a component step: that is what makes a generated screen read as cramped.`
+      : '- The captures already reach layout range, so no extrapolated steps were needed.',
     `- Snapping rule applied during distillation: ${spacing.snappingRule}`,
     `- Do not use arbitrary values such as \`p-[13px]\` or \`mt-[7px]\`. If a layout seems to need one, pick the nearer step.`,
     '',
@@ -333,14 +370,120 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
     )
   }
 
+
+  // --- components -----------------------------------------------------------
+  // The section the kit did not have. Everything above says which values exist;
+  // this says what a button is. Without it two consumers of one kit ship two
+  // different products, because both have to invent the same numbers alone.
+  const shortRole = (path: string | null): string =>
+    path === null ? '—' : `\`${path.replace('color.roles.', '')}\``
+
+  /**
+   * Where a recipe's geometry came from. Every kind that contributed is named,
+   * so "half measured, half defaulted" never reads as "measured".
+   */
+  const recipeSource = (recipe: ComponentRecipe): string => {
+    const decisions = [recipe.paddingY, recipe.paddingX, recipe.radius, recipe.typeStep, recipe.fontWeight].map(
+      (token) => token.provenance.decision,
+    )
+    const kinds: string[] = []
+    if (decisions.some((decision) => decision.strategy !== 'derived' && decision.strategy !== 'sanctioned-default')) {
+      kinds.push('captured')
+    }
+    const borrowed = decisions.find((decision) => decision.derivation?.method === 'same-geometry-as')
+    if (borrowed) {
+      const from = (borrowed.derivation?.from[0] ?? '').replace('components.recipes.', '').replace(/\.[^.]+$/, '')
+      kinds.push(`like \`${from}\``)
+    }
+    if (decisions.some((decision) => decision.strategy === 'sanctioned-default')) kinds.push('default')
+    return kinds.length > 0 ? kinds.join(' + ') : 'derived'
+  }
+
+  const stepFontSize = (name: string): string => {
+    const step = typography.steps.find((entry) => entry.value.name === name)
+    return step ? `${step.value.fontSize}px/${step.value.lineHeight}` : name
+  }
+
+  push(
+    '## 7. Components',
+    '',
+    'Each control below is fully specified. These are not defaults to adjust — a screen built with a 32px button and a screen built with a 40px button are two different products, and the whole point of this section is that both of you get the same one. Use these numbers.',
+    '',
+    ...table(
+      ['Component', 'Height', 'Padding (y, x)', 'Radius', 'Type', 'Weight', 'From'],
+      components.recipes.map((recipe) => [
+        `\`${recipe.name}\``,
+        `${recipe.height.value}px`,
+        `${recipe.paddingY.value}px, ${recipe.paddingX.value}px`,
+        `\`${recipe.radius.value}\` (${radius.steps[recipe.radius.value]?.value ?? 0}px)`,
+        `\`${recipe.typeStep.value}\` (${stepFontSize(recipe.typeStep.value)})`,
+        `${recipe.fontWeight.value}`,
+        recipeSource(recipe),
+      ]),
+    ),
+    '',
+    'Colours for the same controls:',
+    '',
+    ...table(
+      ['Component', 'Fill', 'Text', 'Border', 'Hover fill', 'What it is for'],
+      components.recipes.map((recipe) => [
+        `\`${recipe.name}\``,
+        shortRole(recipe.colors.surface),
+        shortRole(recipe.colors.foreground),
+        shortRole(recipe.colors.border),
+        shortRole(recipe.colors.hoverSurface),
+        recipe.purpose,
+      ]),
+    ),
+    '',
+    '### Component rules',
+    '',
+    `- Height is the border-box height: \`padding-y x 2 + line box + border x 2\`. Set it explicitly rather than letting content decide, so a button with an icon and a button with a label are the same height.`,
+    `- A control's radius is the step named above, not a px value of your own. Nest smaller radii inside larger ones.`,
+    `- The type step carries its line height with it (see §3). Do not restyle a control's font size away from its step.`,
+    `- \`From\` says where the geometry came from: \`captured\` was measured in the sources, \`like x\` was taken from another recipe, \`default\` is this engine's sanctioned value because nothing described that control. Per-value provenance is in \`tokens.json\` under \`components.recipes\`.`,
+    role('destructive')
+      ? `- \`button.destructive\` has no derived hover fill in this kit. Keep its fill constant on hover and use the focus ring for feedback rather than inventing a darker red.`
+      : `- There is no destructive button in this kit, because there is no destructive colour (see §2). Do not add one from outside the system.`,
+    '',
+    '### States',
+    '',
+    ...table(
+      ['State', 'How to draw it'],
+      [
+        [
+          'hover',
+          `The recipe's hover fill above. On a primary fill that is \`primaryHover\` (${hexOf('primaryHover')}).`,
+        ],
+        ['pressed', `\`primaryActive\` (${hexOf('primaryActive')}) on a primary fill; otherwise keep the hover fill.`],
+        [
+          'focus',
+          `\`${components.states.focusRing.width.value}px solid var(--ring)\` at \`outline-offset: ${components.states.focusRing.offset.value}px\`, on every focusable control. Never remove it.`,
+        ],
+        [
+          'selected',
+          `Fill \`selectedSurface\` (${hexOf('selectedSurface')}), text \`text\`.`,
+        ],
+        [
+          'disabled',
+          `Fill \`disabledSurface\` (${hexOf('disabledSurface')}), text \`disabledForeground\` (${hexOf('disabledForeground')}), measured at ${components.states.disabled.ratio}:1. Keep the border. Do **not** use \`opacity\`.`,
+        ],
+      ],
+    ),
+    '',
+    `\`opacity\` is not a disabled state: on a light kit a 50% label over a 50% fill measures 1:1 and disappears. The two colours above are real, and they are checked (§2).`,
+    '',
+  )
+
   // --- do-not rules ---------------------------------------------------------
   push(
-    '## 7. Do not',
+    '## 8. Do not',
     '',
     '- Do not introduce a colour, size, spacing value, radius or shadow that is not in this document.',
+    '- Do not invent a control height or padding. §7 gives every control both.',
     '- Do not use Tailwind default palette utilities (`bg-slate-900`, `text-gray-500`, `border-zinc-200`). Use the theme variables.',
     '- Do not use `text-white` or `text-black`. Use `text-foreground`, `text-muted-foreground` or `text-primary-foreground`.',
-    `- Do not use opacity to make text quieter. Use \`textMuted\` (${hexOf('textMuted')}), which is contrast-checked.`,
+    `- Do not use opacity to make text quieter or a control inactive. Use \`textMuted\` (${hexOf('textMuted')}) for quiet text and \`disabledForeground\` (${hexOf('disabledForeground')}) on \`disabledSurface\` (${hexOf('disabledSurface')}) for disabled controls. Both are contrast-checked; opacity cannot be.`,
     `- Do not change the values of \`primary\` (${hexOf('primary')}) or \`background\` (${hexOf('background')}) per component.`,
     '- Do not add gradients, glows, or animated colour transitions. Nothing in the captured sources uses them.',
     '- Do not restyle shadcn/ui primitives inline. Change the theme variables above instead.',
@@ -370,7 +513,7 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
     )
     .sort((a, b) => byString(a.path, b.path))
 
-  push('## 8. Where this came from', '')
+  push('## 9. Where this came from', '')
   push(
     ...table(
       ['Origin', 'Captures'],

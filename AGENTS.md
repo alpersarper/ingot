@@ -32,7 +32,24 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
   of that file, never changes to `packages/engine/src/tokens/types.ts`.
 - **Every token carries provenance.** Contributing capture ids, every raw value
   observed, and a machine-readable dominant-choice record. The panel will render
-  these as decisions and overrides, so a token without one is a bug.
+  these as decisions and overrides, so a token without one is a bug. The
+  `strategy` distinguishes measured from computed from `sanctioned-default` --
+  a value the engine supplied because nothing implied one. Keep that three-way
+  split intact: it is what lets a reader know which numbers to argue with.
+- **The kit answers, or says it is guessing -- it never goes quiet.** Silence is
+  what makes two consumers of one kit ship two different products, so a control
+  with no evidence gets a stated default rather than no entry, and a state the
+  palette cannot draw (see `color.state-collapsed`) says so out loud. The one
+  thing the engine will not default is a brand decision: no captured red means
+  no `destructive` and no destructive button.
+- **Contrast coverage is part of the guarantee, not just the maths.** Every pair
+  the kit puts on screen is enforced and reported, derived hover/pressed/selected
+  surfaces included, in two passes -- base roles first, then the shades that only
+  exist afterwards. A derived shade yields to a foreground pinned at a gamut
+  pole; a foreground re-enforced in pass two is re-checked against the union of
+  its old and new backgrounds so an earlier guarantee cannot reopen. Adding a
+  role means asking what it sits on. Full rules:
+  [docs/tokens.md](docs/tokens.md#contrast-floor).
 
 ## Changing a heuristic
 

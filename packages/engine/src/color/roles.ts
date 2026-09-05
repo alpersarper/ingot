@@ -454,23 +454,38 @@ export function assignRoles(clusters: readonly ColorCluster[], mode: Mode): Role
 }
 
 /**
- * Interaction shades for the roles that need them.
+ * Fraction of the distance from `textMuted` to the disabled fill that the
+ * disabled label travels before the contrast floor stops it.
+ *
+ * A disabled control has to read as inactive, and the only honest way to say
+ * "inactive" in a token model is a quieter colour -- so the label moves most of
+ * the way toward its own background and is then held at the floor.
+ */
+const DISABLED_FOREGROUND_FADE = 0.4
+
+/**
+ * Interaction and state shades for the roles that need them.
  *
  * Hover moves a surface one step toward the viewer -- lighter on dark, darker on
  * light -- which is the convention every mainstream kit follows. These are
- * always derived: hover and active states are almost never in a static capture,
- * and guessing them from one stray observation would be worse than computing
- * them consistently.
+ * always derived: hover, pressed, selected and disabled states are almost never
+ * in a static capture, and guessing them from one stray observation would be
+ * worse than computing them consistently.
+ *
+ * Nothing here is contrast-checked yet. The caller runs the guarantee over the
+ * results, because a derived shade that quietly drops its label below AA is the
+ * exact failure this layer exists to prevent.
  */
 export function deriveInteractionShades(
   base: ReadonlyArray<RoleAssignment>,
   mode: Mode,
 ): RoleAssignment[] {
   const forward = forwardDirection(mode)
+  const out: RoleAssignment[] = []
   const find = (role: ColorRoleName): RoleAssignment | undefined =>
+    out.find((assignment) => assignment.role === role) ??
     base.find((assignment) => assignment.role === role)
 
-  const out: RoleAssignment[] = []
   const shade = (
     role: ColorRoleName,
     from: ColorRoleName,
@@ -492,5 +507,50 @@ export function deriveInteractionShades(
   shade('surfaceHover', 'surface', 0.03, 'surface hover state')
   shade('primaryHover', 'primary', 0.04, 'primary hover state')
   shade('primaryActive', 'primary', 0.08, 'primary pressed state')
+  shade('disabledSurface', 'surface', 0.06, 'disabled control fill')
+
+  // --- selectedSurface ------------------------------------------------------
+  // A selected row is a brand tint, not a darker grey: it has to stay
+  // distinguishable from the hover state that sits next to it, and hue is the
+  // only axis hover is not already using. The chroma cap is the engine's own
+  // neutral threshold, so the result is a tinted neutral rather than a second
+  // brand colour.
+  const surface = find('surface')
+  const primary = find('primary')
+  if (surface && primary) {
+    const lightness = clamp(surface.color.l + forward * 0.02, 0, 1)
+    const color: Oklch = {
+      l: lightness,
+      c: Math.min(primary.color.c, NEUTRAL_CHROMA_MAX),
+      h: primary.color.h,
+    }
+    out.push({
+      role: 'selectedSurface',
+      color,
+      rule: 'brand-tinted-surface',
+      detail: `selected row fill: surface lightness ${forward > 0 ? '+' : '-'}0.02 carrying the primary hue (${round(primary.color.h ?? 0, 2)}) at chroma ${round(color.c, 4)}, so selection reads by hue where hover reads by lightness, yielding ${oklchToHex(color)}`,
+      derivedFrom: ['surface', 'primary'],
+    })
+  }
+
+  // --- disabledForeground ---------------------------------------------------
+  const disabledSurface = find('disabledSurface')
+  const textMuted = find('textMuted')
+  if (disabledSurface && textMuted) {
+    const lightness = clamp(
+      textMuted.color.l + (disabledSurface.color.l - textMuted.color.l) * DISABLED_FOREGROUND_FADE,
+      0,
+      1,
+    )
+    const color = withLightness(textMuted.color, lightness)
+    out.push({
+      role: 'disabledForeground',
+      color,
+      rule: 'lightness-interpolation',
+      detail: `disabled label: textMuted moved ${round(DISABLED_FOREGROUND_FADE * 100, 0)}% toward disabledSurface so the control reads inactive, yielding ${oklchToHex(color)}; the contrast floor stops it going further`,
+      derivedFrom: ['textMuted', 'disabledSurface'],
+    })
+  }
+
   return out
 }
