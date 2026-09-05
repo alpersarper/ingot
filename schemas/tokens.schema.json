@@ -1,0 +1,473 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/alpersarper/ingot/schemas/tokens.schema.json",
+  "title": "Ingot tokens document, version 1",
+  "description": "The distilled design system for one capture set. Stack-agnostic: nothing here names Tailwind, shadcn or CSS variables. Prose documentation: docs/tokens.md",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "engine", "source", "color", "spacing", "border", "radius", "shadow", "typography", "diagnostics"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "description": "Which engine produced this document. There is deliberately no timestamp: the output is a pure function of the input, and a clock reading would break byte-identical regeneration.",
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["setId", "name", "description", "captureCount", "origins", "captureIds", "componentTypes"],
+      "properties": {
+        "setId": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "captureCount": { "type": "integer", "minimum": 1 },
+        "origins": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["origin", "captureCount"],
+            "properties": {
+              "origin": { "type": "string" },
+              "captureCount": { "type": "integer", "minimum": 1 }
+            }
+          }
+        },
+        "captureIds": { "type": "array", "items": { "type": "string" } },
+        "componentTypes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "count"],
+            "properties": {
+              "type": { "type": "string" },
+              "count": { "type": "integer", "minimum": 1 }
+            }
+          }
+        }
+      }
+    },
+    "color": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "roles", "contrast", "palette"],
+      "properties": {
+        "mode": { "enum": ["light", "dark"] },
+        "roles": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Semantic colour roles. background, text, border, primary and primaryForeground are always present; the rest appear only when the captures support them.",
+          "properties": {
+            "background": { "$ref": "#/definitions/colorToken" },
+            "surface": { "$ref": "#/definitions/colorToken" },
+            "surfaceHover": { "$ref": "#/definitions/colorToken" },
+            "border": { "$ref": "#/definitions/colorToken" },
+            "text": { "$ref": "#/definitions/colorToken" },
+            "textMuted": { "$ref": "#/definitions/colorToken" },
+            "primary": { "$ref": "#/definitions/colorToken" },
+            "primaryHover": { "$ref": "#/definitions/colorToken" },
+            "primaryActive": { "$ref": "#/definitions/colorToken" },
+            "primaryForeground": { "$ref": "#/definitions/colorToken" },
+            "destructive": { "$ref": "#/definitions/colorToken" },
+            "destructiveForeground": { "$ref": "#/definitions/colorToken" }
+          }
+        },
+        "contrast": {
+          "type": "array",
+          "description": "Every foreground/background pair the engine guarantees, with its final ratio.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["foreground", "background", "ratio", "floor", "passes"],
+            "properties": {
+              "foreground": { "type": "string" },
+              "background": { "type": "string" },
+              "ratio": { "type": "number" },
+              "floor": { "type": "number" },
+              "passes": { "type": "boolean" }
+            }
+          }
+        },
+        "palette": {
+          "type": "array",
+          "description": "Every colour cluster considered, including the ones no role claimed. role is null for unused clusters.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["hex", "oklch", "count", "channels", "captureIds", "mergedFrom", "role"],
+            "properties": {
+              "hex": { "$ref": "#/definitions/hex" },
+              "oklch": { "type": "string" },
+              "count": { "type": "integer", "minimum": 1 },
+              "channels": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["background", "foreground", "border"],
+                "properties": {
+                  "background": { "type": "integer", "minimum": 0 },
+                  "foreground": { "type": "integer", "minimum": 0 },
+                  "border": { "type": "integer", "minimum": 0 }
+                }
+              },
+              "captureIds": { "type": "array", "items": { "type": "string" } },
+              "mergedFrom": {
+                "type": "array",
+                "description": "The distinct raw colours this cluster absorbed. Length > 1 means near-duplicates were merged.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["hex", "count"],
+                  "properties": {
+                    "hex": { "$ref": "#/definitions/hex" },
+                    "count": { "type": "integer", "minimum": 1 }
+                  }
+                }
+              },
+              "role": { "type": ["string", "null"] }
+            }
+          }
+        }
+      }
+    },
+    "spacing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseUnit", "unit", "snappingRule", "fit", "steps"],
+      "properties": {
+        "baseUnit": { "type": "number", "exclusiveMinimum": 0 },
+        "unit": { "const": "px" },
+        "snappingRule": { "type": "string", "description": "The rule applied, stated in prose, so the exported spec can quote it verbatim." },
+        "fit": { "type": "number", "minimum": 0, "maximum": 1, "description": "Fraction of raw observations that were already exact multiples of baseUnit." },
+        "steps": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              { "$ref": "#/definitions/provenanced" },
+              {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["name", "multiple", "px"],
+                    "properties": {
+                      "name": { "type": "string" },
+                      "multiple": { "type": "number", "minimum": 0 },
+                      "px": { "type": "number", "minimum": 0 }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "border": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unit", "width"],
+      "properties": {
+        "unit": { "const": "px" },
+        "width": { "$ref": "#/definitions/numberToken" }
+      }
+    },
+    "radius": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unit", "steps"],
+      "properties": {
+        "unit": { "const": "px" },
+        "steps": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "none": { "$ref": "#/definitions/numberToken" },
+            "sm": { "$ref": "#/definitions/numberToken" },
+            "md": { "$ref": "#/definitions/numberToken" },
+            "lg": { "$ref": "#/definitions/numberToken" },
+            "full": { "$ref": "#/definitions/numberToken" }
+          }
+        }
+      }
+    },
+    "shadow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["steps"],
+      "properties": {
+        "steps": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "none": { "$ref": "#/definitions/shadowToken" },
+            "sm": { "$ref": "#/definitions/shadowToken" },
+            "md": { "$ref": "#/definitions/shadowToken" },
+            "lg": { "$ref": "#/definitions/shadowToken" }
+          }
+        }
+      }
+    },
+    "typography": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["families", "baseSize", "scaleRatio", "weights", "steps"],
+      "properties": {
+        "families": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sans"],
+          "properties": {
+            "sans": { "$ref": "#/definitions/stringToken" },
+            "mono": { "$ref": "#/definitions/stringToken" }
+          }
+        },
+        "baseSize": { "type": "number", "exclusiveMinimum": 0 },
+        "scaleRatio": { "type": "number", "exclusiveMinimum": 0 },
+        "weights": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              { "$ref": "#/definitions/provenanced" },
+              {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["name", "value"],
+                    "properties": {
+                      "name": { "type": "string" },
+                      "value": { "type": "integer" }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              { "$ref": "#/definitions/provenanced" },
+              {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["name", "fontSize", "lineHeight", "fontWeight"],
+                    "properties": {
+                      "name": { "enum": ["xs", "sm", "base", "lg", "xl", "2xl", "3xl", "4xl"] },
+                      "fontSize": { "type": "number", "exclusiveMinimum": 0 },
+                      "lineHeight": { "type": "number", "exclusiveMinimum": 0, "description": "Unitless ratio." },
+                      "fontWeight": { "type": "integer" },
+                      "letterSpacing": { "type": "number", "description": "px. Omitted when every capture at this size reported normal." }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "description": "Notes the engine wants the operator to see. warning means a human should look before shipping.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["level", "code", "message"],
+        "properties": {
+          "level": { "enum": ["info", "warning"] },
+          "code": { "type": "string", "description": "Stable machine-readable identifier, e.g. spacing.low-fit." },
+          "path": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "hex": { "type": "string", "pattern": "^#[0-9a-f]{6}$" },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["captureIds", "observed", "decision"],
+      "description": "Why this token has the value it has. Present on every token in the document.",
+      "properties": {
+        "captureIds": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Every capture that contributed evidence, sorted. Empty for derived tokens."
+        },
+        "observed": {
+          "type": "array",
+          "description": "Every distinct raw value seen, most frequent first.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["value", "count", "captureIds"],
+            "properties": {
+              "value": { "type": "string", "description": "The raw string exactly as captured." },
+              "count": { "type": "integer", "minimum": 1, "description": "Number of individual style declarations carrying this value." },
+              "captureIds": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "decision": { "$ref": "#/definitions/dominantChoice" }
+      }
+    },
+    "dominantChoice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy", "chosen", "chosenCount", "totalCount", "confidence", "competitors", "summary"],
+      "description": "The machine-readable dominant-choice record. The panel renders this as the decision and uses competitors to offer overrides.",
+      "properties": {
+        "strategy": {
+          "enum": ["dominant-value", "snapped-scale", "cluster-representative", "role-assignment", "derived"]
+        },
+        "chosen": { "type": "string" },
+        "chosenCount": { "type": "integer", "minimum": 0 },
+        "totalCount": { "type": "integer", "minimum": 0 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1, "description": "chosenCount / totalCount, 3 decimals. 0 for derived tokens." },
+        "competitors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["value", "count"],
+            "properties": {
+              "value": { "type": "string" },
+              "count": { "type": "integer", "minimum": 1 }
+            }
+          }
+        },
+        "summary": { "type": "string", "description": "Human-readable restatement. Convenience only; the fields above are the contract." },
+        "derivation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["method", "from", "detail"],
+          "description": "Present only when strategy is derived.",
+          "properties": {
+            "method": { "type": "string", "description": "Stable algorithm identifier, e.g. oklch-lightness-offset." },
+            "from": { "type": "array", "items": { "type": "string" }, "description": "Token paths this value was computed from." },
+            "detail": { "type": "string" }
+          }
+        }
+      }
+    },
+    "provenanced": {
+      "type": "object",
+      "required": ["value", "provenance"],
+      "properties": { "provenance": { "$ref": "#/definitions/provenance" } }
+    },
+    "numberToken": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "provenance"],
+      "properties": {
+        "value": { "type": "number" },
+        "provenance": { "$ref": "#/definitions/provenance" }
+      }
+    },
+    "stringToken": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "provenance"],
+      "properties": {
+        "value": { "type": "string" },
+        "provenance": { "$ref": "#/definitions/provenance" }
+      }
+    },
+    "colorToken": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "provenance"],
+      "properties": {
+        "value": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["oklch", "hex", "lightness", "chroma", "hue"],
+          "properties": {
+            "oklch": { "type": "string", "description": "oklch(L C H), the canonical form." },
+            "hex": { "$ref": "#/definitions/hex", "description": "sRGB fallback." },
+            "lightness": { "type": "number", "minimum": 0, "maximum": 1 },
+            "chroma": { "type": "number", "minimum": 0 },
+            "hue": { "type": "number", "minimum": 0, "exclusiveMaximum": 360 }
+          }
+        },
+        "provenance": { "$ref": "#/definitions/provenance" },
+        "contrastAdjustment": { "$ref": "#/definitions/contrastAdjustment" }
+      }
+    },
+    "contrastAdjustment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "against", "from", "to", "deltaL", "ratioBefore", "ratioAfter", "floor", "met", "reason"],
+      "description": "A lightness change applied to meet the WCAG contrast floor.",
+      "properties": {
+        "role": { "type": "string" },
+        "against": { "type": "array", "items": { "type": "string" } },
+        "from": { "$ref": "#/definitions/colorSnapshot" },
+        "to": { "$ref": "#/definitions/colorSnapshot" },
+        "deltaL": { "type": "number" },
+        "ratioBefore": { "type": "number" },
+        "ratioAfter": { "type": "number" },
+        "floor": { "type": "number" },
+        "met": { "type": "boolean", "description": "False when the floor could not be reached even at the gamut boundary." },
+        "reason": { "type": "string" }
+      }
+    },
+    "colorSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hex", "oklch", "lightness"],
+      "properties": {
+        "hex": { "$ref": "#/definitions/hex" },
+        "oklch": { "type": "string" },
+        "lightness": { "type": "number" }
+      }
+    },
+    "shadowToken": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "provenance"],
+      "properties": {
+        "value": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["css", "layers", "elevation"],
+          "properties": {
+            "css": { "type": "string", "description": "Canonical CSS, ready to paste." },
+            "layers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["offsetX", "offsetY", "blur", "spread", "color"],
+                "properties": {
+                  "offsetX": { "type": "number" },
+                  "offsetY": { "type": "number" },
+                  "blur": { "type": "number" },
+                  "spread": { "type": "number" },
+                  "color": { "type": "string", "description": "rgb(R G B / A)." }
+                }
+              }
+            },
+            "elevation": { "type": "number", "description": "Sum of |offsetY| + blur + spread across layers. Orders the steps." }
+          }
+        },
+        "provenance": { "$ref": "#/definitions/provenance" }
+      }
+    }
+  }
+}

@@ -1,0 +1,104 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/alpersarper/ingot/schemas/capture-record.schema.json",
+  "title": "Ingot capture set, version 1",
+  "description": "A coherent group of captured UI components. This is the only input the distillation engine accepts. Prose documentation: docs/capture-record.md",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "name", "description", "captures"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "description": "Slug. Must match the fixture directory name; becomes the examples/ output directory name."
+    },
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string", "minLength": 1 },
+    "captures": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/captureRecord" }
+    }
+  },
+  "definitions": {
+    "captureRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "id", "componentType", "sourceUrl", "capturedAt", "styles"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "description": "Stable, unique within the set. Provenance addresses captures by this id, so it must survive a recapture of the same element."
+        },
+        "componentType": {
+          "enum": ["button", "card", "input", "typography"],
+          "description": "Coarse tag used to weight style observations. Not a component model."
+        },
+        "sourceUrl": { "type": "string", "pattern": "^https?://\\S+$" },
+        "capturedAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{3})?Z$",
+          "description": "ISO 8601 UTC instant. Recorded for the operator; never read by the engine, so it cannot affect output."
+        },
+        "screenshot": {
+          "type": "null",
+          "description": "Reserved for a future screenshot reference. Must be null. The engine never reads pixels."
+        },
+        "notes": { "type": "string", "description": "Free-text human note. Never read by the engine." },
+        "styles": { "$ref": "#/definitions/capturedStyles" }
+      }
+    },
+    "capturedStyles": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Computed style values. Keys mirror CSSOM camelCase property names; values mirror what getComputedStyle returns: resolved strings, never var() references or relative units. Every property is optional; a capture carries only what was relevant to the element.",
+      "properties": {
+        "color": { "$ref": "#/definitions/cssColor" },
+        "backgroundColor": { "$ref": "#/definitions/cssColor" },
+        "fontFamily": { "type": "string" },
+        "fontSize": { "$ref": "#/definitions/cssLength" },
+        "fontWeight": { "type": "string", "pattern": "^[1-9]00$" },
+        "lineHeight": {
+          "type": "string",
+          "description": "An absolute px length, a unitless ratio, or \"normal\". \"normal\" is ignored: its resolved value depends on the font."
+        },
+        "letterSpacing": { "type": "string" },
+        "paddingTop": { "$ref": "#/definitions/cssLength" },
+        "paddingRight": { "$ref": "#/definitions/cssLength" },
+        "paddingBottom": { "$ref": "#/definitions/cssLength" },
+        "paddingLeft": { "$ref": "#/definitions/cssLength" },
+        "marginTop": { "$ref": "#/definitions/cssLength" },
+        "marginRight": { "$ref": "#/definitions/cssLength" },
+        "marginBottom": { "$ref": "#/definitions/cssLength" },
+        "marginLeft": { "$ref": "#/definitions/cssLength" },
+        "gap": { "$ref": "#/definitions/cssLength" },
+        "borderTopWidth": { "$ref": "#/definitions/cssLength" },
+        "borderRightWidth": { "$ref": "#/definitions/cssLength" },
+        "borderBottomWidth": { "$ref": "#/definitions/cssLength" },
+        "borderLeftWidth": { "$ref": "#/definitions/cssLength" },
+        "borderStyle": { "type": "string" },
+        "borderColor": { "$ref": "#/definitions/cssColor" },
+        "borderTopLeftRadius": { "$ref": "#/definitions/cssLength" },
+        "borderTopRightRadius": { "$ref": "#/definitions/cssLength" },
+        "borderBottomRightRadius": { "$ref": "#/definitions/cssLength" },
+        "borderBottomLeftRadius": { "$ref": "#/definitions/cssLength" },
+        "boxShadow": {
+          "type": "string",
+          "description": "\"none\", or one or more comma-separated CSS shadow layers. inset shadows are parsed but excluded from the elevation scale."
+        }
+      }
+    },
+    "cssColor": {
+      "type": "string",
+      "description": "Any CSS colour syntax culori can parse: #rrggbb, rgb()/rgba(), hsl(), oklch(), named colours. Fully transparent values are read as \"no colour\" and contribute nothing."
+    },
+    "cssLength": {
+      "type": "string",
+      "pattern": "^-?\\d+(\\.\\d+)?px$",
+      "description": "Absolute px length. Computed styles always resolve to px, so no other unit is accepted."
+    }
+  }
+}
