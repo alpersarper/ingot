@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.4.1",
   "description": "Design-kit distillation workbench: turn captured UI components into one coherent, token-driven design system.",
   "engines": {
     "node": ">=20"
