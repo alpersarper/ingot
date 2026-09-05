@@ -319,6 +319,10 @@ export function distillComponents(
     const borrowed = (field: string): string[] => [`components.recipes.${draft.like ?? ''}.${field}`]
     const borrow = `nothing described a ${draft.name}; took the ${draft.like ?? 'source'} value`
     const borderPx = draft.colors.border === null ? 0 : border.width.value
+    const missing = (property: string): string =>
+      draft.captures.length === 0
+        ? `no ${draft.name} was captured`
+        : `no captured ${draft.name} carried a ${property}`
 
     const lengthToken = (
       properties: readonly string[],
@@ -334,7 +338,7 @@ export function distillComponents(
           sanction(`${fixedValue}px`, {
             method: 'component-default',
             from: ['spacing.steps'],
-            detail: fixed.paddingDetail ?? `no ${draft.name} was captured; used the ${fixedValue}px step`,
+            detail: fixed.paddingDetail ?? `${missing('padding')}; used the ${fixedValue}px step`,
           }),
         )
       }
@@ -350,7 +354,7 @@ export function distillComponents(
         sanction(`${lastResort}px`, {
           method: 'component-default',
           from: ['spacing.steps'],
-          detail: `nothing in this kit describes a ${draft.name}; used the ${lastResort}px step`,
+          detail: `${draft.captures.length === 0 ? `nothing in this kit describes a ${draft.name}` : `no captured ${draft.name} carried a padding`}; used the ${lastResort}px step`,
         }),
       )
     }
@@ -377,7 +381,7 @@ export function distillComponents(
             sanction(fixed.radius, {
               method: 'component-default',
               from: ['radius.steps'],
-              detail: `no ${draft.name} was captured; \`${fixed.radius}\` is the step this system assigns to that job`,
+              detail: `${missing('corner radius')}; \`${fixed.radius}\` is the step this system assigns to that job`,
             }),
           )
         : stringToken(
@@ -405,7 +409,7 @@ export function distillComponents(
             sanction(fixed.typeStep, {
               method: 'component-default',
               from: ['typography.steps'],
-              detail: `no ${draft.name} was captured; set it at the \`${fixed.typeStep}\` step`,
+              detail: `${missing('font size')}; set it at the \`${fixed.typeStep}\` step`,
             }),
           )
         : stringToken(
@@ -434,7 +438,7 @@ export function distillComponents(
             sanction(String(fixed.fontWeight), {
               method: 'component-default',
               from: ['typography.weights'],
-              detail: `no ${draft.name} was captured; used ${fixed.fontWeight}, which is in this system's weight set`,
+              detail: `${missing('usable font weight')}; used ${fixed.fontWeight}, which is in this system's weight set`,
             }),
           )
         : numberToken(

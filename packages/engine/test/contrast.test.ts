@@ -181,6 +181,16 @@ describe('enforceContrastByChroma', () => {
     expect(result.adjustment?.reason).toContain('could not reach')
   })
 
+  it('stops at the plateau instead of saturating to the chroma ceiling when the floor is unreachable', () => {
+    const result = enforceContrastByChroma('bg', oklch('#6976e0'), white)
+    expect(result.color.c).toBeLessThan(0.4)
+    const oneStepFurther = { ...result.color, c: result.color.c + 0.005 }
+    expect(contrastRatio(white.color, oneStepFurther)).toBeLessThanOrEqual(
+      contrastRatio(white.color, result.color),
+    )
+    expect(result.adjustment?.ratioAfter ?? 0).toBeGreaterThan(result.adjustment?.ratioBefore ?? 21)
+  })
+
   it('is a no-op on an achromatic colour, which has no chroma axis to move', () => {
     const result = enforceContrastByChroma('bg', oklch('#999999'), white)
     expect(result.adjustment).toBeUndefined()

@@ -219,20 +219,21 @@ export function enforceContrastByChroma(
   if (Math.max(up, down) <= ratioBefore) return { color: background }
   const direction = up >= down ? 1 : -1
 
+  // The ratio is measured on the gamut-clamped hex, so it plateaus at the sRGB
+  // gamut edge; a step that buys no further contrast ends the walk, otherwise
+  // the oklch value would drift away from the hex the document ships beside it.
   let current = background
   let ratio = ratioBefore
   let chroma = background.c
   while (ratio < floor) {
-    const next = round(chroma + direction * CHROMA_STEP, 4)
-    if (next <= 0 || next >= CHROMA_MAX) {
-      chroma = direction > 0 ? CHROMA_MAX : 0
-      current = at(chroma)
-      ratio = contrastRatio(foreground.color, current)
-      break
-    }
+    const next = round(clamp(chroma + direction * CHROMA_STEP, 0, CHROMA_MAX), 4)
+    if (next === chroma) break
+    const candidate = at(next)
+    const candidateRatio = contrastRatio(foreground.color, candidate)
+    if (candidateRatio <= ratio) break
     chroma = next
-    current = at(chroma)
-    ratio = contrastRatio(foreground.color, current)
+    current = candidate
+    ratio = candidateRatio
   }
 
   const met = ratio >= floor

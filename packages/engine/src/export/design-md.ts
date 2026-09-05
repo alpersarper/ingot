@@ -181,15 +181,19 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
     '',
   )
 
-  const collapsedStates = ([
-    ['primaryHover', 'primary'],
-    ['primaryActive', 'primaryHover'],
-    ['primaryActive', 'primary'],
-    ['surfaceHover', 'surface'],
-    ['selectedSurface', 'surfaceHover'],
-  ] as Array<[ColorRoleName, ColorRoleName]>).filter(
-    ([shade, base]) => role(shade) !== undefined && hexOf(shade) === hexOf(base),
+  // The list of collapsed shade/base pairings is owned by the distiller, which
+  // reports it in the `color.state-collapsed` diagnostic as `<shade> and <base>`
+  // entries joined by `;` ahead of "render as the same colour". Reading it back
+  // keeps this a pure function of the document with one owner of the pairings.
+  const collapsedDiagnostic = tokens.diagnostics.find(
+    (diagnostic) => diagnostic.code === 'color.state-collapsed',
   )
+  const collapsedStates =
+    collapsedDiagnostic === undefined
+      ? []
+      : (collapsedDiagnostic.message.split(' render as the same colour')[0] ?? '')
+          .split('; ')
+          .map((entry) => entry.split(' and ') as [string, string])
 
   push(
     '### Colour rules',
