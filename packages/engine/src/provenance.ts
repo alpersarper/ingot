@@ -1,0 +1,191 @@
+/**
+ * Provenance: why a token has the value it has.
+ *
+ * Every token in a tokens document carries one of these. The future panel
+ * renders it as "4 of 5 captures at 8px -- runner-up 12px (1)" with a link back
+ * to the contributing captures, and uses `competitors` to offer one-click
+ * overrides. That is why the record is machine-readable rather than a sentence:
+ * the sentence in `summary` is a convenience, `strategy`/`chosen`/`competitors`
+ * are the contract.
+ */
+import { byNumber, byString, chain } from './util/sort'
+
+/**
+ * How a token's value was picked.
+ *
+ * - `dominant-value`  -- the most frequently observed raw value won outright.
+ * - `snapped-scale`   -- observed values were snapped onto a base scale and
+ *                        this step is where they landed.
+ * - `cluster-representative` -- perceptually near-duplicate values were merged
+ *                        and the most frequent member represents the cluster.
+ * - `role-assignment` -- a colour cluster was assigned a semantic role by the
+ *                        role heuristics.
+ * - `derived`         -- nothing suitable was observed; the value was computed
+ *                        from another token. `derivation` says how.
+ */
+export type DecisionStrategy =
+  | 'dominant-value'
+  | 'snapped-scale'
+  | 'cluster-representative'
+  | 'role-assignment'
+  | 'derived'
+
+/** A distinct value that was observed, and how often. */
+export interface ObservedValue {
+  /** The raw string exactly as captured, e.g. `"8px"` or `"#5e6ad2"`. */
+  value: string
+  /** Number of individual style declarations carrying this value. */
+  count: number
+  /** Ids of the captures that contributed it, sorted. */
+  captureIds: string[]
+}
+
+/**
+ * The dominant-choice record.
+ *
+ * `chosenCount` of `totalCount` observations in this decision's population
+ * supported `chosen`. `competitors` lists what lost, most popular first, so a
+ * reviewer can see how close the call was.
+ */
+export interface DominantChoice {
+  strategy: DecisionStrategy
+  /** The winning value, in the same notation as {@link ObservedValue.value}. */
+  chosen: string
+  chosenCount: number
+  totalCount: number
+  /**
+   * `chosenCount / totalCount`, rounded to 3 decimals. Below ~0.5 the decision
+   * is a plurality rather than a majority and is worth surfacing for review.
+   */
+  confidence: number
+  competitors: Array<{ value: string; count: number }>
+  /** Human-readable restatement, e.g. `"4 of 5 observations at 8px"`. */
+  summary: string
+  /** Present only when `strategy` is `derived`. */
+  derivation?: Derivation
+}
+
+/** How a value was computed when it could not be observed. */
+export interface Derivation {
+  /** Stable identifier for the algorithm, e.g. `"oklch-lightness-offset"`. */
+  method: string
+  /** Token paths this value was computed from, e.g. `["color.roles.primary"]`. */
+  from: string[]
+  /** The exact operation, e.g. `"L += 0.04 (dark mode hover lift)"`. */
+  detail: string
+}
+
+/** The full provenance attached to a token. */
+export interface Provenance {
+  /** Every capture that contributed evidence, sorted. */
+  captureIds: string[]
+  /** Every distinct raw value seen, most frequent first. */
+  observed: ObservedValue[]
+  decision: DominantChoice
+}
+
+/** An input to {@link tally}: one observation of one value. */
+export interface Contribution {
+  value: string
+  captureId: string
+}
+
+/**
+ * Group contributions by value into a deterministic, frequency-ordered list.
+ *
+ * Ordering: count descending, then value ascending by byte order. The byte-order
+ * tie-break is what makes an even split reproducible rather than
+ * insertion-ordered.
+ */
+export function tally(contributions: readonly Contribution[]): ObservedValue[] {
+  const byValue = new Map<string, Set<string>>()
+  const counts = new Map<string, number>()
+
+  for (const { value, captureId } of contributions) {
+    counts.set(value, (counts.get(value) ?? 0) + 1)
+    let ids = byValue.get(value)
+    if (!ids) {
+      ids = new Set()
+      byValue.set(value, ids)
+    }
+    ids.add(captureId)
+  }
+
+  return [...counts.entries()]
+    .map(([value, count]) => ({
+      value,
+      count,
+      captureIds: [...(byValue.get(value) ?? [])].sort(byString),
+    }))
+    .sort(chain<ObservedValue>((a, b) => byNumber(b.count, a.count), (a, b) => byString(a.value, b.value)))
+}
+
+/** Sorted union of the capture ids across a set of observed values. */
+export function captureIdsOf(observed: readonly ObservedValue[]): string[] {
+  const ids = new Set<string>()
+  for (const entry of observed) for (const id of entry.captureIds) ids.add(id)
+  return [...ids].sort(byString)
+}
+
+function pluralise(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`
+}
+
+/**
+ * Build a {@link DominantChoice} for `chosen` given the full observed tally.
+ *
+ * `chosen` need not be the most frequent value -- the caller may have applied
+ * an ordering rule such as "closest to the median" -- but it must be one of the
+ * observed values, or `strategy` must be `derived`.
+ */
+export function decide(
+  strategy: Exclude<DecisionStrategy, 'derived'>,
+  chosen: string,
+  observed: readonly ObservedValue[],
+  options: { unit?: string } = {},
+): DominantChoice {
+  const total = observed.reduce((sum, entry) => sum + entry.count, 0)
+  const winner = observed.find((entry) => entry.value === chosen)
+  const chosenCount = winner?.count ?? 0
+  const competitors = observed
+    .filter((entry) => entry.value !== chosen)
+    .map((entry) => ({ value: entry.value, count: entry.count }))
+
+  const unit = options.unit ?? 'observation'
+  const summary =
+    total === 0
+      ? `no observations supported ${chosen}`
+      : `${chosenCount} of ${pluralise(total, unit)} at ${chosen}` +
+        (competitors.length > 0 && competitors[0]
+          ? ` (runner-up ${competitors[0].value}, ${competitors[0].count})`
+          : '')
+
+  return {
+    strategy,
+    chosen,
+    chosenCount,
+    totalCount: total,
+    confidence: total === 0 ? 0 : Math.round((chosenCount / total) * 1000) / 1000,
+    competitors,
+    summary,
+  }
+}
+
+/** Build a {@link DominantChoice} for a value that was computed, not observed. */
+export function derive(chosen: string, derivation: Derivation): DominantChoice {
+  return {
+    strategy: 'derived',
+    chosen,
+    chosenCount: 0,
+    totalCount: 0,
+    confidence: 0,
+    competitors: [],
+    summary: `derived: ${derivation.detail}`,
+    derivation,
+  }
+}
+
+/** Assemble a {@link Provenance} from an observed tally and a decision. */
+export function provenance(observed: readonly ObservedValue[], decision: DominantChoice): Provenance {
+  return { captureIds: captureIdsOf(observed), observed: [...observed], decision }
+}

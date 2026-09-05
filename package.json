@@ -1,0 +1,32 @@
+{
+  "name": "ingot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.4.1",
+  "description": "Design-kit distillation workbench: turn captured UI components into one coherent, token-driven design system.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "skeleton": "tsx scripts/skeleton.ts",
+    "skeleton:check": "tsx scripts/skeleton.ts --check"
+  },
+  "dependencies": {
+    "@ingot/engine": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "ajv": "^8.17.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

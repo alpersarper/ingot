@@ -1,0 +1,404 @@
+/**
+ * `design.md` generator, targeting Tailwind CSS v4 + shadcn/ui.
+ *
+ * This is the only layer in the engine that knows Tailwind or shadcn exists.
+ * The token model above it is stack-agnostic; adding a second target means
+ * adding a sibling module here, never touching `tokens/types.ts`.
+ *
+ * The reader is an LLM being asked to write code against this kit, so the
+ * output is written for one: concrete values, imperative rules, explicit
+ * prohibitions, no rationale it cannot act on and no marketing prose.
+ */
+import { byString } from '../util/sort'
+import { round } from '../util/num'
+import type {
+  ColorRoleName,
+  ColorToken,
+  RadiusStepName,
+  ShadowStepName,
+  TokensDocument,
+} from '../tokens/types'
+
+/**
+ * Role -> shadcn CSS variable. Roles with no shadcn counterpart get an
+ * `--ingot-*` variable so nothing is silently dropped.
+ */
+const SHADCN_VARIABLES: ReadonlyArray<[ColorRoleName, string, string]> = [
+  ['background', '--background', 'page background'],
+  ['text', '--foreground', 'default text on --background'],
+  ['surface', '--card', 'panel/card background; also --popover'],
+  ['text', '--card-foreground', 'text on --card; also --popover-foreground'],
+  ['primary', '--primary', 'brand fill: primary buttons, active states'],
+  ['primaryForeground', '--primary-foreground', 'text/icons on --primary'],
+  ['surface', '--secondary', 'secondary button fill'],
+  ['text', '--secondary-foreground', 'text on --secondary'],
+  ['surface', '--muted', 'muted block background'],
+  ['textMuted', '--muted-foreground', 'de-emphasised text, placeholders, captions'],
+  ['surfaceHover', '--accent', 'hover fill for rows, menu items, ghost buttons'],
+  ['text', '--accent-foreground', 'text on --accent'],
+  ['border', '--border', 'all 1px separators and control outlines'],
+  ['border', '--input', 'input outlines'],
+  ['primary', '--ring', 'focus ring'],
+  ['destructive', '--destructive', 'destructive fill and destructive text'],
+  ['destructiveForeground', '--destructive-foreground', 'text on --destructive'],
+  ['surfaceHover', '--ingot-surface-hover', 'raw hover surface'],
+  ['primaryHover', '--ingot-primary-hover', 'primary hover fill'],
+  ['primaryActive', '--ingot-primary-active', 'primary pressed fill'],
+]
+
+const RADIUS_ORDER: RadiusStepName[] = ['none', 'sm', 'md', 'lg', 'full']
+const SHADOW_ORDER: ShadowStepName[] = ['none', 'sm', 'md', 'lg']
+
+/** `1 origin` / `5 origins`, so the spec never reads like a template. */
+function plural(count: number, noun: string, plural?: string): string {
+  return `${count} ${count === 1 ? noun : (plural ?? `${noun}s`)}`
+}
+
+function pad(value: string, width: number): string {
+  return value.length >= width ? value : value + ' '.repeat(width - value.length)
+}
+
+/** Render a GitHub-flavoured markdown table with aligned columns. */
+function table(headers: readonly string[], rows: ReadonlyArray<readonly string[]>): string[] {
+  const widths = headers.map((header, index) =>
+    Math.max(header.length, ...rows.map((row) => (row[index] ?? '').length)),
+  )
+  const line = (cells: readonly string[]): string =>
+    `| ${cells.map((cell, index) => pad(cell, widths[index] as number)).join(' | ')} |`
+  return [
+    line(headers),
+    `| ${widths.map((width) => '-'.repeat(width)).join(' | ')} |`,
+    ...rows.map((row) => line(row)),
+  ]
+}
+
+/**
+ * Render the whole-library design specification for a tokens document.
+ *
+ * Deterministic: the output depends only on `tokens`, with no clock, no
+ * environment and no randomness.
+ */
+export function renderDesignMarkdown(tokens: TokensDocument): string {
+  const { color, spacing, border, radius, shadow, typography, source } = tokens
+  const out: string[] = []
+  const push = (...lines: string[]): void => {
+    out.push(...lines)
+  }
+
+  const role = (name: ColorRoleName): ColorToken | undefined => color.roles[name]
+  const hexOf = (name: ColorRoleName): string => role(name)?.value.hex ?? 'n/a'
+
+  // --- header ---------------------------------------------------------------
+  push(
+    `# ${source.name} — design system`,
+    '',
+    `Distilled by ${tokens.engine.name} ${tokens.engine.version} from ${plural(source.captureCount, 'captured component')} across ${plural(source.origins.length, 'origin')}.`,
+    '',
+    `${source.description}`,
+    '',
+    'You are implementing UI against this system. Use only the values below. When a value you need is not here, compose it from the tokens that are — do not introduce a new one.',
+    '',
+    `- Colour mode: **${color.mode}**`,
+    `- Stack: Tailwind CSS v4 + shadcn/ui`,
+    `- Spacing base unit: **${spacing.baseUnit}px**`,
+    `- Border width: **${border.width.value}px**`,
+    `- Type base size: **${typography.baseSize}px**, scale ratio ${typography.scaleRatio}`,
+    '',
+  )
+
+  // --- theme block ----------------------------------------------------------
+  push(
+    '## 1. Theme variables',
+    '',
+    `Paste this into your global stylesheet. Values are OKLCH, matching the shadcn/ui default theme format. The mode is \`${color.mode}\`; place it under \`${color.mode === 'dark' ? '.dark' : ':root'}\` and keep the counterpart mode's values as they were.`,
+    '',
+    '```css',
+    color.mode === 'dark' ? '.dark {' : ':root {',
+  )
+  for (const [roleName, variable, purpose] of SHADCN_VARIABLES) {
+    const token = role(roleName)
+    if (!token) continue
+    push(`  ${variable}: ${token.value.oklch}; /* ${token.value.hex} — ${purpose} */`)
+  }
+  const mdRadius = radius.steps.md
+  if (mdRadius) push(`  --radius: ${mdRadius.value}px;`)
+  push('}', '```', '')
+
+  push(
+    'Tailwind v4 theme mapping:',
+    '',
+    '```css',
+    '@theme inline {',
+    '  --color-background: var(--background);',
+    '  --color-foreground: var(--foreground);',
+    '  --color-card: var(--card);',
+    '  --color-card-foreground: var(--card-foreground);',
+    '  --color-primary: var(--primary);',
+    '  --color-primary-foreground: var(--primary-foreground);',
+    '  --color-muted: var(--muted);',
+    '  --color-muted-foreground: var(--muted-foreground);',
+    '  --color-accent: var(--accent);',
+    '  --color-accent-foreground: var(--accent-foreground);',
+    '  --color-border: var(--border);',
+    '  --color-input: var(--input);',
+    '  --color-ring: var(--ring);',
+  )
+  if (role('destructive')) {
+    push('  --color-destructive: var(--destructive);', '  --color-destructive-foreground: var(--destructive-foreground);')
+  }
+  push(
+    `  --radius-sm: ${radius.steps.sm?.value ?? 2}px;`,
+    `  --radius-md: ${radius.steps.md?.value ?? 6}px;`,
+    `  --radius-lg: ${radius.steps.lg?.value ?? 12}px;`,
+    '}',
+    '```',
+    '',
+  )
+
+  // --- colour roles ---------------------------------------------------------
+  push(
+    '## 2. Colour roles',
+    '',
+    'Every colour in the UI must come from this table. There are no other colours in this system.',
+    '',
+  )
+  push(
+    ...table(
+      ['Role', 'Hex', 'OKLCH', 'Use it for'],
+      Object.keys(color.roles)
+        .filter((key): key is ColorRoleName => color.roles[key as ColorRoleName] !== undefined)
+        .map((name) => {
+          const token = color.roles[name] as ColorToken
+          const purpose =
+            SHADCN_VARIABLES.find(([roleName]) => roleName === name)?.[2] ?? 'supporting role'
+          return [`\`${name}\``, token.value.hex, token.value.oklch, purpose]
+        }),
+    ),
+    '',
+  )
+
+  push(
+    '### Colour rules',
+    '',
+    `- Text on \`background\` or \`surface\` is \`text\`. De-emphasised text is \`textMuted\`. There is no third text colour.`,
+    `- \`primary\` is a fill, not a text colour. Use \`primaryForeground\` for anything drawn on top of it.`,
+    `- Hover on an interactive surface goes to \`surfaceHover\`; hover on a primary fill goes to \`primaryHover\`; the pressed state is \`primaryActive\`.`,
+    `- Borders are ${border.width.value}px \`border\`. Do not use shadows in place of borders for separation, and do not use \`text\` at reduced opacity as a border.`,
+    role('destructive')
+      ? `- \`destructive\` is reserved for irreversible actions and error states. Never use it for emphasis.`
+      : `- This system has no destructive colour. If you need one, add it explicitly rather than reaching for an arbitrary red.`,
+    '',
+  )
+
+  const failing = color.contrast.filter((pair) => !pair.passes)
+  push(
+    '### Contrast',
+    '',
+    `Every pair below is guaranteed at or above **${color.contrast[0]?.floor ?? 4.5}:1** (WCAG 2.1 AA, normal text).`,
+    '',
+    ...table(
+      ['Foreground', 'Background', 'Ratio', 'Status'],
+      color.contrast.map((pair) => [
+        `\`${pair.foreground.replace('color.roles.', '')}\``,
+        `\`${pair.background.replace('color.roles.', '')}\``,
+        `${pair.ratio}:1`,
+        pair.passes ? 'pass' : 'FAILS',
+      ]),
+    ),
+    '',
+  )
+
+  const adjusted = Object.entries(color.roles).filter(
+    ([, token]) => (token as ColorToken).contrastAdjustment !== undefined,
+  )
+  if (adjusted.length > 0) {
+    push(
+      'The following roles were lightened or darkened away from their captured values to reach that floor. Use the adjusted values; the originals fail accessibility.',
+      '',
+    )
+    for (const [name, token] of adjusted) {
+      const adjustment = (token as ColorToken).contrastAdjustment
+      if (!adjustment) continue
+      push(
+        `- \`${name}\`: ${adjustment.from.hex} → ${adjustment.to.hex} (${adjustment.ratioBefore}:1 → ${adjustment.ratioAfter}:1). ${adjustment.reason}.`,
+      )
+    }
+    push('')
+  }
+  if (failing.length > 0) {
+    push(
+      `> **Unresolved:** ${failing.length} pair(s) still fall below the floor and could not be fixed by lightness alone. Do not use them for body text.`,
+      '',
+    )
+  }
+
+  // --- typography -----------------------------------------------------------
+  push(
+    '## 3. Typography',
+    '',
+    `- Body font stack: \`${typography.families.sans.value}\``,
+    typography.families.mono ? `- Monospace stack: \`${typography.families.mono.value}\`` : '- No monospace font is defined. Use the browser default `ui-monospace, monospace` for code.',
+    `- Base size: ${typography.baseSize}px. Adjacent steps differ by roughly ${typography.scaleRatio}x.`,
+    '',
+    ...table(
+      ['Step', 'font-size', 'line-height', 'font-weight', 'letter-spacing', 'Tailwind'],
+      typography.steps.map((step) => [
+        `\`${step.value.name}\``,
+        `${step.value.fontSize}px`,
+        `${step.value.lineHeight}`,
+        `${step.value.fontWeight}`,
+        step.value.letterSpacing !== undefined ? `${step.value.letterSpacing}px` : 'normal',
+        `text-[${step.value.fontSize}px]/[${step.value.lineHeight}]`,
+      ]),
+    ),
+    '',
+    '### Type rules',
+    '',
+    `- Use only these ${typography.steps.length} sizes. Do not interpolate between them.`,
+    `- Every size carries the line height listed with it. Do not pair a size with a different line height.`,
+    `- Weights in this system: ${typography.weights.map((weight) => `${weight.value.value} (${weight.value.name})`).join(', ')}. Use no others.`,
+    `- Body copy is \`base\` at weight ${typography.steps.find((step) => step.value.name === 'base')?.value.fontWeight ?? 400}.`,
+    '',
+  )
+
+  // --- spacing --------------------------------------------------------------
+  push(
+    '## 4. Spacing',
+    '',
+    `Base unit **${spacing.baseUnit}px**. ${round(spacing.fit * 100, 1)}% of the captured lengths were already exact multiples of it.`,
+    '',
+    ...table(
+      ['Step', 'px', 'Tailwind'],
+      spacing.steps.map((step) => [
+        `\`${step.value.name}\``,
+        `${step.value.px}px`,
+        step.value.px === 0 ? '`p-0` / `gap-0`' : `\`p-[${step.value.px}px]\` / \`gap-[${step.value.px}px]\``,
+      ]),
+    ),
+    '',
+    '### Spacing rules',
+    '',
+    `- Every padding, margin and gap is a multiple of ${spacing.baseUnit}px drawn from the table above.`,
+    `- Snapping rule applied during distillation: ${spacing.snappingRule}`,
+    `- Do not use arbitrary values such as \`p-[13px]\` or \`mt-[7px]\`. If a layout seems to need one, pick the nearer step.`,
+    '',
+  )
+
+  // --- radius ---------------------------------------------------------------
+  push(
+    '## 5. Radius',
+    '',
+    ...table(
+      ['Step', 'px', 'Tailwind', 'Use it for'],
+      RADIUS_ORDER.filter((name) => radius.steps[name] !== undefined).map((name) => {
+        const token = radius.steps[name]
+        const px = token?.value ?? 0
+        const usage =
+          name === 'none'
+            ? 'flush edges, table cells, full-bleed sections'
+            : name === 'sm'
+              ? 'inputs, badges, small controls'
+              : name === 'md'
+                ? 'buttons and most controls'
+                : name === 'lg'
+                  ? 'cards, panels, modals'
+                  : 'pills and avatars'
+        const utility = name === 'full' ? '`rounded-full`' : px === 0 ? '`rounded-none`' : `\`rounded-[${px}px]\``
+        return [`\`${name}\``, `${px}px`, utility, usage]
+      }),
+    ),
+    '',
+    `- Default to \`md\` (${radius.steps.md?.value ?? 6}px). Nest smaller radii inside larger ones, never the reverse.`,
+    `- Every border in this system is \`${border.width.value}px solid var(--border)\`. Do not vary border width.`,
+    '',
+  )
+
+  // --- shadows --------------------------------------------------------------
+  push('## 6. Elevation', '')
+  const shadowSteps = SHADOW_ORDER.filter((name) => shadow.steps[name] !== undefined)
+  if (shadowSteps.length <= 1) {
+    push(
+      'This system uses no shadows. Separate surfaces with `border` and `surface`, not elevation.',
+      '',
+    )
+  } else {
+    push(
+      ...table(
+        ['Step', 'box-shadow'],
+        shadowSteps.map((name) => [`\`${name}\``, `\`${shadow.steps[name]?.value.css ?? 'none'}\``]),
+      ),
+      '',
+      '- `sm` is for resting controls, `md` for cards, `lg` for overlays and popovers. Do not stack shadows.',
+      '',
+    )
+  }
+
+  // --- do-not rules ---------------------------------------------------------
+  push(
+    '## 7. Do not',
+    '',
+    '- Do not introduce a colour, size, spacing value, radius or shadow that is not in this document.',
+    '- Do not use Tailwind default palette utilities (`bg-slate-900`, `text-gray-500`, `border-zinc-200`). Use the theme variables.',
+    '- Do not use `text-white` or `text-black`. Use `text-foreground`, `text-muted-foreground` or `text-primary-foreground`.',
+    `- Do not use opacity to make text quieter. Use \`textMuted\` (${hexOf('textMuted')}), which is contrast-checked.`,
+    `- Do not change the values of \`primary\` (${hexOf('primary')}) or \`background\` (${hexOf('background')}) per component.`,
+    '- Do not add gradients, glows, or animated colour transitions. Nothing in the captured sources uses them.',
+    '- Do not restyle shadcn/ui primitives inline. Change the theme variables above instead.',
+    '',
+  )
+
+  // --- provenance appendix --------------------------------------------------
+  // Only winner-take-all slots belong here. A scale step that "won" 8 of 28
+  // corners did not beat a rival for its slot -- it *is* its slot -- so listing
+  // it as a close call would train the reader to ignore this section.
+  const contested = [
+    ...Object.entries(color.roles).map(([name, token]) => ({
+      path: `color.roles.${name}`,
+      decision: (token as ColorToken).provenance.decision,
+    })),
+    { path: 'typography.families.sans', decision: typography.families.sans.provenance.decision },
+    ...(typography.families.mono
+      ? [{ path: 'typography.families.mono', decision: typography.families.mono.provenance.decision }]
+      : []),
+    { path: 'border.width', decision: border.width.provenance.decision },
+  ]
+    .filter(
+      (entry) =>
+        entry.decision.strategy !== 'derived' &&
+        entry.decision.competitors.length > 0 &&
+        entry.decision.confidence < 0.6,
+    )
+    .sort((a, b) => byString(a.path, b.path))
+
+  push('## 8. Where this came from', '')
+  push(
+    ...table(
+      ['Origin', 'Captures'],
+      source.origins.map((entry) => [entry.origin, String(entry.captureCount)]),
+    ),
+    '',
+    `Component types captured: ${source.componentTypes.map((entry) => `${entry.type} (${entry.count})`).join(', ')}.`,
+    '',
+  )
+
+  if (contested.length > 0) {
+    push(
+      'These tokens beat a close rival. Check them against the sources before relying on them:',
+      '',
+      ...contested.map((entry) => `- \`${entry.path}\`: ${entry.decision.summary}`),
+      '',
+    )
+  }
+
+  const warnings = tokens.diagnostics.filter((diagnostic) => diagnostic.level === 'warning')
+  if (warnings.length > 0) {
+    push('Warnings raised during distillation:', '', ...warnings.map((diagnostic) => `- **${diagnostic.code}**: ${diagnostic.message}`), '')
+  }
+
+  push(
+    'Full provenance for every token — contributing capture ids, raw observed values, and the machine-readable dominant-choice record behind each decision — is in `tokens.json` next to this file.',
+    '',
+  )
+
+  return `${out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()}\n`
+}

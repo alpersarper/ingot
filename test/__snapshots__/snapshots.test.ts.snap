@@ -1,0 +1,523 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`linear-dark > distils to the expected decisions 1`] = `
+{
+  "borderWidth": "1px",
+  "contrast": [
+    "text on background = 18.73:1 pass",
+    "text on surface = 17.18:1 pass",
+    "textMuted on background = 6.13:1 pass",
+    "textMuted on surface = 5.63:1 pass",
+    "primaryForeground on primary = 4.7:1 pass",
+  ],
+  "diagnostics": [
+    "info color.unassigned",
+    "info spacing.snapped",
+  ],
+  "mergedColors": [],
+  "mode": "dark",
+  "radius": {
+    "lg": "12px",
+    "md": "8px",
+    "none": "0px",
+    "sm": "6px",
+  },
+  "roles": {
+    "background": {
+      "decision": "role-assignment",
+      "from": [
+        "linear-card-sidebar",
+      ],
+      "hex": "#08090a",
+      "oklch": "oklch(0.1390 0.0029 246.26)",
+    },
+    "border": {
+      "decision": "role-assignment",
+      "from": [
+        "linear-btn-secondary",
+        "linear-card-issue",
+        "linear-card-sidebar",
+        "linear-input-search",
+        "linear-input-textarea",
+      ],
+      "hex": "#26282c",
+      "oklch": "oklch(0.2764 0.0079 264.44)",
+    },
+    "primary": {
+      "decision": "role-assignment",
+      "from": [
+        "linear-btn-primary",
+      ],
+      "hex": "#5e6ad2",
+      "oklch": "oklch(0.5674 0.1585 275.21)",
+    },
+    "primaryActive": {
+      "decision": "derived",
+      "from": [],
+      "hex": "#7483ed",
+      "oklch": "oklch(0.6474 0.1585 275.21)",
+    },
+    "primaryForeground": {
+      "decision": "role-assignment",
+      "from": [
+        "linear-btn-primary",
+      ],
+      "hex": "#ffffff",
+      "oklch": "oklch(1.0000 0.0000 0.00)",
+    },
+    "primaryHover": {
+      "decision": "derived",
+      "from": [],
+      "hex": "#6976e0",
+      "oklch": "oklch(0.6074 0.1585 275.21)",
+    },
+    "surface": {
+      "decision": "role-assignment",
+      "from": [
+        "linear-card-issue",
+        "linear-input-textarea",
+      ],
+      "hex": "#141516",
+      "oklch": "oklch(0.1950 0.0026 247.96)",
+    },
+    "surfaceHover": {
+      "decision": "derived",
+      "from": [],
+      "hex": "#1b1c1d",
+      "oklch": "oklch(0.2250 0.0026 247.96)",
+    },
+    "text": {
+      "decision": "role-assignment",
+      "from": [
+        "linear-btn-secondary",
+        "linear-card-issue",
+        "linear-input-search",
+        "linear-input-textarea",
+        "linear-type-heading",
+        "linear-type-label",
+      ],
+      "hex": "#f7f8f8",
+      "oklch": "oklch(0.9784 0.0011 197.14)",
+    },
+    "textMuted": {
+      "decision": "role-assignment",
+      "from": [
+        "linear-btn-ghost",
+        "linear-card-sidebar",
+        "linear-type-body",
+      ],
+      "hex": "#8a8f98",
+      "oklch": "oklch(0.6488 0.0146 262.36)",
+    },
+  },
+  "shadow": {
+    "lg": "0px 2.5px 5px 0px rgb(0 0 0 / 0.368)",
+    "md": "0px 1px 2px 0px rgb(0 0 0 / 0.32)",
+    "none": "none",
+    "sm": "0px 0.5px 1px 0px rgb(0 0 0 / 0.224)",
+  },
+  "spacing": {
+    "baseUnit": 4,
+    "fit": 0.882,
+    "steps": [
+      "0: 0px",
+      "1: 4px",
+      "2: 8px",
+      "3: 12px",
+      "4: 16px",
+      "5: 20px",
+      "6: 24px",
+    ],
+  },
+  "typography": {
+    "baseSize": 13,
+    "mono": null,
+    "sans": ""Inter Variable", Inter, -apple-system, BlinkMacSystemFont, sans-serif",
+    "scaleRatio": 1.241,
+    "steps": [
+      "sm: 11px/1.455 @500",
+      "base: 13px/1.538 @400",
+      "lg: 15px/1.6 @400",
+      "xl: 21px/1.333 @600 ls-0.37",
+    ],
+    "weights": [
+      "400 regular",
+      "500 medium",
+      "600 semibold",
+    ],
+  },
+  "unusedColors": [
+    "#1c1d1f",
+  ],
+}
+`;
+
+exports[`messy-mixed > distils to the expected decisions 1`] = `
+{
+  "borderWidth": "1px",
+  "contrast": [
+    "text on background = 13.39:1 pass",
+    "text on surface = 12.51:1 pass",
+    "textMuted on background = 4.88:1 pass",
+    "textMuted on surface = 4.56:1 pass",
+    "primaryForeground on primary = 4.5:1 pass",
+    "destructiveForeground on destructive = 4.77:1 pass",
+  ],
+  "diagnostics": [
+    "warning spacing.low-fit",
+    "warning typography.adjacent-sizes",
+    "warning typography.adjacent-sizes",
+    "warning typography.adjacent-sizes",
+    "info color.contrast-adjusted",
+    "info color.contrast-adjusted",
+    "info color.unassigned",
+    "info radius.truncated",
+    "info spacing.snapped",
+  ],
+  "mergedColors": [
+    "#ffffff <- #ffffff + #fdfdfd + #fefefe",
+    "#dddddd <- #dddddd + #e0e0e0",
+    "#2f2f2f <- #2f2f2f + #313131",
+    "#0b76ef <- #0a74ec + #0b76ef",
+  ],
+  "mode": "light",
+  "radius": {
+    "full": "9999px",
+    "lg": "8px",
+    "md": "6px",
+    "none": "0px",
+    "sm": "4px",
+  },
+  "roles": {
+    "background": {
+      "decision": "role-assignment",
+      "from": [
+        "messy-blog-quote",
+        "messy-docs-body",
+        "messy-docs-input",
+        "messy-news-byline",
+        "messy-news-headline",
+        "messy-saas-card",
+        "messy-saas-cta",
+        "messy-saas-pill",
+        "messy-shop-remove",
+      ],
+      "hex": "#ffffff",
+      "oklch": "oklch(1.0000 0.0000 0.00)",
+    },
+    "border": {
+      "decision": "role-assignment",
+      "from": [
+        "messy-blog-quote",
+        "messy-docs-input",
+        "messy-saas-card",
+        "messy-saas-pill",
+        "messy-shop-summary",
+      ],
+      "hex": "#dddddd",
+      "oklch": "oklch(0.8975 0.0000 0.00)",
+    },
+    "destructive": {
+      "decision": "role-assignment",
+      "from": [
+        "messy-shop-remove",
+      ],
+      "hex": "#d93025",
+      "oklch": "oklch(0.5785 0.2063 29.01)",
+    },
+    "destructiveForeground": {
+      "decision": "derived",
+      "from": [],
+      "hex": "#ffffff",
+      "oklch": "oklch(1.0000 0.0000 0.00)",
+    },
+    "primary": {
+      "adjusted": "#0b76ef -> #0373ec",
+      "decision": "role-assignment",
+      "from": [
+        "messy-saas-cta",
+        "messy-saas-pill",
+      ],
+      "hex": "#0373ec",
+      "met": true,
+      "oklch": "oklch(0.5733 0.2017 256.95)",
+      "ratio": "4.33 -> 4.5",
+    },
+    "primaryActive": {
+      "decision": "derived",
+      "from": [],
+      "hex": "#005dc1",
+      "oklch": "oklch(0.4933 0.2017 256.95)",
+    },
+    "primaryForeground": {
+      "decision": "role-assignment",
+      "from": [
+        "messy-blog-quote",
+        "messy-docs-body",
+        "messy-docs-input",
+        "messy-news-byline",
+        "messy-news-headline",
+        "messy-saas-card",
+        "messy-saas-cta",
+        "messy-saas-pill",
+        "messy-shop-remove",
+      ],
+      "hex": "#ffffff",
+      "oklch": "oklch(1.0000 0.0000 0.00)",
+    },
+    "primaryHover": {
+      "decision": "derived",
+      "from": [],
+      "hex": "#0067d7",
+      "oklch": "oklch(0.5333 0.2017 256.95)",
+    },
+    "surface": {
+      "decision": "role-assignment",
+      "from": [
+        "messy-shop-summary",
+      ],
+      "hex": "#f7f7f8",
+      "oklch": "oklch(0.9764 0.0013 286.38)",
+    },
+    "surfaceHover": {
+      "decision": "derived",
+      "from": [],
+      "hex": "#ededee",
+      "oklch": "oklch(0.9464 0.0013 286.38)",
+    },
+    "text": {
+      "decision": "role-assignment",
+      "from": [
+        "messy-blog-quote",
+        "messy-docs-body",
+        "messy-shop-summary",
+      ],
+      "hex": "#2f2f2f",
+      "oklch": "oklch(0.3052 0.0000 0.00)",
+    },
+    "textMuted": {
+      "adjusted": "#999999 -> #717171",
+      "decision": "role-assignment",
+      "from": [
+        "messy-news-byline",
+      ],
+      "hex": "#717171",
+      "met": true,
+      "oklch": "oklch(0.5480 0.0000 0.00)",
+      "ratio": "2.66 -> 4.56",
+    },
+  },
+  "shadow": {
+    "lg": "0px 10px 30px 0px rgb(11 118 239 / 0.276)",
+    "md": "0px 4px 12px 0px rgb(11 118 239 / 0.24)",
+    "none": "none",
+    "sm": "0px 2px 8px 0px rgb(0 0 0 / 0.06)",
+  },
+  "spacing": {
+    "baseUnit": 4,
+    "fit": 0.806,
+    "steps": [
+      "0: 0px",
+      "1: 4px",
+      "2: 8px",
+      "3: 12px",
+      "4: 16px",
+      "5: 20px",
+      "6: 24px",
+    ],
+  },
+  "typography": {
+    "baseSize": 14,
+    "mono": null,
+    "sans": "Inter, system-ui, sans-serif",
+    "scaleRatio": 1.197,
+    "steps": [
+      "sm: 13px/1.538 @400",
+      "base: 14px/1.429 @400",
+      "lg: 15px/1.733 @400",
+      "xl: 16px/1.5 @400",
+      "2xl: 18px/1.667 @400",
+      "3xl: 32px/1.25 @700",
+    ],
+    "weights": [
+      "400 regular",
+      "500 medium",
+      "600 semibold",
+      "700 bold",
+    ],
+  },
+  "unusedColors": [
+    "#333333",
+    "#212121",
+  ],
+}
+`;
+
+exports[`stripe-light > distils to the expected decisions 1`] = `
+{
+  "borderWidth": "1px",
+  "contrast": [
+    "text on background = 16.24:1 pass",
+    "text on surface = 15.37:1 pass",
+    "textMuted on background = 4.78:1 pass",
+    "textMuted on surface = 4.52:1 pass",
+    "primaryForeground on primary = 4.7:1 pass",
+    "destructiveForeground on destructive = 4.8:1 pass",
+  ],
+  "diagnostics": [],
+  "mergedColors": [],
+  "mode": "light",
+  "radius": {
+    "lg": "8px",
+    "md": "6px",
+    "none": "0px",
+    "sm": "4px",
+  },
+  "roles": {
+    "background": {
+      "decision": "role-assignment",
+      "from": [
+        "stripe-btn-primary",
+        "stripe-btn-secondary",
+        "stripe-card-pricing",
+        "stripe-input-card",
+        "stripe-input-email",
+      ],
+      "hex": "#ffffff",
+      "oklch": "oklch(1.0000 0.0000 0.00)",
+    },
+    "border": {
+      "decision": "role-assignment",
+      "from": [
+        "stripe-btn-secondary",
+        "stripe-card-panel",
+        "stripe-card-pricing",
+        "stripe-input-card",
+        "stripe-input-email",
+      ],
+      "hex": "#e3e8ee",
+      "oklch": "oklch(0.9289 0.0097 252.81)",
+    },
+    "destructive": {
+      "decision": "role-assignment",
+      "from": [
+        "stripe-type-error",
+      ],
+      "hex": "#df1b41",
+      "oklch": "oklch(0.5802 0.2214 19.39)",
+    },
+    "destructiveForeground": {
+      "decision": "derived",
+      "from": [],
+      "hex": "#ffffff",
+      "oklch": "oklch(1.0000 0.0000 0.00)",
+    },
+    "primary": {
+      "decision": "role-assignment",
+      "from": [
+        "stripe-btn-primary",
+      ],
+      "hex": "#635bff",
+      "oklch": "oklch(0.5784 0.2346 278.29)",
+    },
+    "primaryActive": {
+      "decision": "derived",
+      "from": [],
+      "hex": "#503fe3",
+      "oklch": "oklch(0.4984 0.2346 278.29)",
+    },
+    "primaryForeground": {
+      "decision": "role-assignment",
+      "from": [
+        "stripe-btn-primary",
+        "stripe-btn-secondary",
+        "stripe-card-pricing",
+        "stripe-input-card",
+        "stripe-input-email",
+      ],
+      "hex": "#ffffff",
+      "oklch": "oklch(1.0000 0.0000 0.00)",
+    },
+    "primaryHover": {
+      "decision": "derived",
+      "from": [],
+      "hex": "#594df1",
+      "oklch": "oklch(0.5384 0.2346 278.29)",
+    },
+    "surface": {
+      "decision": "role-assignment",
+      "from": [
+        "stripe-card-panel",
+        "stripe-type-code",
+      ],
+      "hex": "#f6f9fc",
+      "oklch": "oklch(0.9807 0.0051 247.88)",
+    },
+    "surfaceHover": {
+      "decision": "derived",
+      "from": [],
+      "hex": "#eceff2",
+      "oklch": "oklch(0.9507 0.0051 247.88)",
+    },
+    "text": {
+      "decision": "role-assignment",
+      "from": [
+        "stripe-btn-secondary",
+        "stripe-card-pricing",
+        "stripe-input-card",
+        "stripe-input-email",
+        "stripe-type-heading",
+      ],
+      "hex": "#1a1f36",
+      "oklch": "oklch(0.2467 0.0444 273.42)",
+    },
+    "textMuted": {
+      "decision": "role-assignment",
+      "from": [
+        "stripe-card-panel",
+        "stripe-type-body",
+        "stripe-type-code",
+      ],
+      "hex": "#697386",
+      "oklch": "oklch(0.5540 0.0320 263.30)",
+    },
+  },
+  "shadow": {
+    "lg": "0px 2px 5px -1px rgb(50 50 93 / 0.25), 0px 1px 3px -1px rgb(0 0 0 / 0.3)",
+    "md": "0px 1px 1px 0px rgb(0 0 0 / 0.08)",
+    "none": "none",
+    "sm": "0px 1px 1px 0px rgb(0 0 0 / 0.03)",
+  },
+  "spacing": {
+    "baseUnit": 4,
+    "fit": 1,
+    "steps": [
+      "0: 0px",
+      "1: 4px",
+      "2: 8px",
+      "3: 12px",
+      "4: 16px",
+      "5: 20px",
+      "6: 24px",
+    ],
+  },
+  "typography": {
+    "baseSize": 14,
+    "mono": ""Source Code Pro", Menlo, Consolas, monospace",
+    "sans": ""Sohne Var", "Helvetica Neue", Helvetica, Arial, sans-serif",
+    "scaleRatio": 1.326,
+    "steps": [
+      "sm: 12px/1.333 @500",
+      "base: 14px/1.429 @400",
+      "lg: 16px/1.5 @400",
+      "xl: 28px/1.286 @600 ls-0.2",
+    ],
+    "weights": [
+      "400 regular",
+      "500 medium",
+      "600 semibold",
+    ],
+  },
+  "unusedColors": [],
+}
+`;

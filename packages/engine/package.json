@@ -1,0 +1,17 @@
+{
+  "name": "@ingot/engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic distillation core: capture records in, design tokens out. No DOM, no I/O, no network.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "dependencies": {
+    "culori": "^4.0.1"
+  },
+  "devDependencies": {
+    "@types/culori": "^2.1.1"
+  }
+}
