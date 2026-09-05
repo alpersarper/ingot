@@ -77,7 +77,7 @@ not the number of captures: one card contributes four corner radii.
 "derivation": {
   "method": "oklch-lightness-offset",            // stable algorithm identifier
   "from": ["color.roles.primary"],               // token paths this was computed from
-  "detail": "primary lightness +0.04 (dark mode moves lighter on interaction), yielding #6976e0"
+  "detail": "primary hover state: primary lightness +0.04 (dark mode moves lighter on interaction), yielding #6976e0"
 }
 ```
 
@@ -213,7 +213,10 @@ reported as a `radius.truncated` diagnostic.
 ### `shadow`
 
 Shadows are parsed into layers and normalised to `rgb(R G B / A)` so equivalent
-notations compare equal. `elevation` -- the sum of `|offsetY| + blur + spread`
+notations compare equal. The decision record counts support in those normalised
+terms: `chosen` is the canonical css (like a snapped spacing value, often not a
+string anybody wrote), every raw notation that normalises to it counts as
+support rather than a competitor, and the raw strings stay in `observed`. `elevation` -- the sum of `|offsetY| + blur + spread`
 across layers -- orders the steps. The three most frequently observed shadows are
 kept, then ordered by elevation into `sm`/`md`/`lg`; missing neighbours are
 scaled from `md`. `inset` shadows are excluded: an inner shadow is not a point on
