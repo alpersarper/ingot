@@ -18,6 +18,13 @@ import { fixtureSetIds } from '../scripts/skeleton'
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const setIds = await fixtureSetIds()
 
+/**
+ * The sets held to the "I would ship this" quality bar. `messy-mixed` is
+ * deliberately incoherent and is judged on degrading legibly instead, so it is
+ * not in this list -- see README, "The fixture sets".
+ */
+const COHERENT_SETS = ['ghost-warm', 'linear-dark', 'stripe-light'] as const
+
 async function tokensFor(setId: string): Promise<TokensDocument> {
   return distill(JSON.parse(await readFile(join(ROOT, 'fixtures', setId, 'set.json'), 'utf8')))
 }
@@ -89,6 +96,7 @@ describe('cross-set expectations', () => {
   it('reads the dark fixture as dark and the light ones as light', async () => {
     expect((await tokensFor('linear-dark')).color.mode).toBe('dark')
     expect((await tokensFor('stripe-light')).color.mode).toBe('light')
+    expect((await tokensFor('ghost-warm')).color.mode).toBe('light')
     expect((await tokensFor('messy-mixed')).color.mode).toBe('light')
   })
 
@@ -96,9 +104,32 @@ describe('cross-set expectations', () => {
     const warnings = async (setId: string): Promise<string[]> =>
       (await tokensFor(setId)).diagnostics.filter((d) => d.level === 'warning').map((d) => d.code)
 
-    expect(await warnings('linear-dark')).toEqual([])
-    expect(await warnings('stripe-light')).toEqual([])
+    // The ship bar applies to the coherent sets; messy-mixed is the smoke test
+    // and is expected to warn. See README, "The fixture sets".
+    for (const setId of COHERENT_SETS) expect(await warnings(setId), setId).toEqual([])
     expect((await warnings('messy-mixed')).length).toBeGreaterThan(0)
+  })
+
+  it('keeps the third coherent set a distinct subject rather than a third indigo', async () => {
+    // linear-dark and stripe-light are both cool indigo/violet brands three
+    // degrees apart. ghost-warm exists to give the quality bar a third
+    // *character*, so its brand hue and its neutral temperature both have to
+    // stand clear of them.
+    const primaryHue = async (setId: string): Promise<number> =>
+      (await tokensFor(setId)).color.roles.primary?.value.hue ?? 0
+    const backgroundHue = async (setId: string): Promise<number> =>
+      (await tokensFor(setId)).color.roles.background?.value.hue ?? 0
+
+    const ghost = await primaryHue('ghost-warm')
+    for (const other of ['linear-dark', 'stripe-light']) {
+      const distance = Math.abs(ghost - (await primaryHue(other)))
+      expect(Math.min(distance, 360 - distance), `ghost-warm shares a brand hue with ${other}`).toBeGreaterThan(60)
+    }
+
+    // Warm neutrals sit in the yellow half of the hue circle; the cool greys of
+    // the other light set sit in the blue half.
+    expect(await backgroundHue('ghost-warm')).toBeGreaterThan(45)
+    expect(await backgroundHue('ghost-warm')).toBeLessThan(135)
   })
 
   it('guarantees the contrast floor on every pair of every set', async () => {

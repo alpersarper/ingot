@@ -52,12 +52,20 @@ every example -- regenerate in the same commit.
 
 ## Fixture sets
 
-`fixtures/linear-dark` and `fixtures/stripe-light` are the coherent sets and are
-expected to distil with **zero warning diagnostics**; `fixtures/messy-mixed` is
-deliberately incoherent and carries the interesting failure paths (contrast
-adjustment, near-duplicate merging, off-scale snapping). `test/snapshots.test.ts`
-asserts that split, so a change that makes a coherent set start warning is a
-signal, not noise. Adding a set: [docs/capture-record.md](docs/capture-record.md#adding-a-fixture-set).
+`fixtures/ghost-warm`, `fixtures/linear-dark` and `fixtures/stripe-light` are the
+coherent sets and are expected to distil with **zero warning diagnostics**;
+`fixtures/messy-mixed` is deliberately incoherent and carries the interesting
+failure paths (contrast adjustment, near-duplicate merging, off-scale snapping).
+`test/snapshots.test.ts` asserts that split, so a change that makes a coherent
+set start warning is a signal, not noise. Adding a set:
+[docs/capture-record.md](docs/capture-record.md#adding-a-fixture-set).
+
+**The quality bar is the three coherent sets.** "Would I ship a real page built
+against only this `design.md`?" is asked of `ghost-warm`, `linear-dark` and
+`stripe-light`, which are three deliberately different subjects so no single
+style can carry the engine. `messy-mixed` is exempt by design: it is judged on
+degrading legibly and warning loudly, never on ship quality. Full statement:
+[README.md](README.md#the-quality-bar).
 
 ## Maintaining this file
 
