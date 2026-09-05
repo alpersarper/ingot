@@ -16,7 +16,7 @@ and any LLM integration are **not** here yet.
 
 ```
 packages/engine/   the distillation core -- pure, no DOM, no I/O, no network
-fixtures/          three hand-authored capture sets standing in for real captures
+fixtures/          four hand-authored capture sets standing in for real captures
 examples/          generated tokens.json + design.md, committed as evidence
 schemas/           normative JSON Schema for both formats
 docs/              format documentation
@@ -87,7 +87,24 @@ Hand-authored, no scraping. Each emulates a coherent real-world source style.
 | --- | ----------------- |
 | [`linear-dark`](fixtures/linear-dark/set.json) | A coherent dark product UI. Dark-mode detection, borders doing all the separation, a single brand colour, one shadow extended into a scale. |
 | [`stripe-light`](fixtures/stripe-light/set.json) | A coherent light product UI. A tinted panel surface, layered shadows, a monospace stack, and a red used only for errors becoming `destructive`. |
+| [`ghost-warm`](fixtures/ghost-warm/set.json) | A coherent warm editorial UI. Warm off-white paper and sand panels, an evergreen brand, a reading type scale deliberately larger than the control type scale, near-duplicate sand and border tints that clustering merges, and optical paddings that snapping resolves. |
 | [`messy-mixed`](fixtures/messy-mixed/set.json) | Ten components from five unrelated sites. Near-duplicate greys, a brand blue captured twice, off-scale padding, two serif faces fighting three sans stacks, and two colour pairs that fail WCAG before distillation. |
+
+### The quality bar
+
+Kits are judged by one question: *would I ship a real page built against only
+this `design.md`?* That bar applies to the **three coherent sets** --
+`ghost-warm`, `linear-dark` and `stripe-light`. They are three deliberately
+different subjects (warm editorial, dark dense, light commerce), so a kit that
+only works for one style cannot pass by accident.
+
+`messy-mixed` is **not** held to it. It is the smoke test for incoherent input:
+its job is to degrade legibly and warn loudly -- accurate diagnostics, honest
+provenance, no silent invention -- not to look good. Judging it on ship quality
+measures the fixture, not the engine.
+
+`test/snapshots.test.ts` encodes the split: the coherent sets must distil with
+zero warning diagnostics, `messy-mixed` must produce some.
 
 ## Design constraints
 

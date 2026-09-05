@@ -1,5 +1,179 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`ghost-warm > distils to the expected decisions 1`] = `
+{
+  "borderWidth": "1px",
+  "contrast": [
+    "text on background = 16.69:1 pass",
+    "text on surface = 15.72:1 pass",
+    "textMuted on background = 5.41:1 pass",
+    "textMuted on surface = 5.1:1 pass",
+    "primaryForeground on primary = 5.31:1 pass",
+    "destructiveForeground on destructive = 6.57:1 pass",
+  ],
+  "diagnostics": [
+    "info spacing.snapped",
+  ],
+  "mergedColors": [
+    "#e5e0d6 <- #e5e0d6 + #e3ded4",
+    "#f5f2ec <- #f5f2ec + #f6f3ed",
+  ],
+  "mode": "light",
+  "radius": {
+    "lg": "12px",
+    "md": "6px",
+    "none": "0px",
+    "sm": "4px",
+  },
+  "roles": {
+    "background": {
+      "decision": "role-assignment",
+      "from": [
+        "ghost-btn-secondary",
+        "ghost-input-email",
+        "ghost-input-search",
+      ],
+      "hex": "#faf9f6",
+      "oklch": "oklch(0.9820 0.0041 91.45)",
+    },
+    "border": {
+      "decision": "role-assignment",
+      "from": [
+        "ghost-btn-secondary",
+        "ghost-card-callout",
+        "ghost-card-post",
+        "ghost-input-email",
+        "ghost-input-search",
+      ],
+      "hex": "#e5e0d6",
+      "oklch": "oklch(0.9079 0.0145 84.58)",
+    },
+    "destructive": {
+      "decision": "role-assignment",
+      "from": [
+        "ghost-type-error",
+      ],
+      "hex": "#b42318",
+      "oklch": "oklch(0.5003 0.1821 29.51)",
+    },
+    "destructiveForeground": {
+      "decision": "derived",
+      "from": [],
+      "hex": "#ffffff",
+      "oklch": "oklch(1.0000 0.0000 0.00)",
+    },
+    "primary": {
+      "decision": "role-assignment",
+      "from": [
+        "ghost-btn-primary",
+      ],
+      "hex": "#0f7a5a",
+      "oklch": "oklch(0.5157 0.1030 166.11)",
+    },
+    "primaryActive": {
+      "decision": "derived",
+      "from": [],
+      "hex": "#006146",
+      "oklch": "oklch(0.4357 0.1030 166.11)",
+    },
+    "primaryForeground": {
+      "decision": "role-assignment",
+      "from": [
+        "ghost-btn-primary",
+      ],
+      "hex": "#ffffff",
+      "oklch": "oklch(1.0000 0.0000 0.00)",
+    },
+    "primaryHover": {
+      "decision": "derived",
+      "from": [],
+      "hex": "#006d50",
+      "oklch": "oklch(0.4757 0.1030 166.11)",
+    },
+    "surface": {
+      "decision": "role-assignment",
+      "from": [
+        "ghost-card-callout",
+        "ghost-card-post",
+        "ghost-type-code",
+      ],
+      "hex": "#f5f2ec",
+      "oklch": "oklch(0.9618 0.0086 84.57)",
+    },
+    "surfaceHover": {
+      "decision": "derived",
+      "from": [],
+      "hex": "#ebe8e2",
+      "oklch": "oklch(0.9318 0.0086 84.57)",
+    },
+    "text": {
+      "decision": "role-assignment",
+      "from": [
+        "ghost-btn-secondary",
+        "ghost-card-post",
+        "ghost-input-email",
+        "ghost-input-search",
+        "ghost-type-page-title",
+        "ghost-type-section-heading",
+      ],
+      "hex": "#1a1917",
+      "oklch": "oklch(0.2138 0.0042 84.59)",
+    },
+    "textMuted": {
+      "decision": "role-assignment",
+      "from": [
+        "ghost-card-callout",
+        "ghost-type-code",
+      ],
+      "hex": "#6b665d",
+      "oklch": "oklch(0.5121 0.0152 82.38)",
+    },
+  },
+  "shadow": {
+    "lg": "0px 10px 30px -5px rgb(28 25 23 / 0.115), 0px 5px 10px -5px rgb(28 25 23 / 0.069)",
+    "md": "0px 4px 12px -2px rgb(28 25 23 / 0.1), 0px 2px 4px -2px rgb(28 25 23 / 0.06)",
+    "none": "none",
+    "sm": "0px 1px 2px 0px rgb(28 25 23 / 0.05)",
+  },
+  "spacing": {
+    "baseUnit": 4,
+    "fit": 0.895,
+    "steps": [
+      "0: 0px",
+      "1: 4px",
+      "2: 8px",
+      "3: 12px",
+      "4: 16px",
+      "5: 20px",
+      "6: 24px",
+      "7: 28px",
+      "8: 32px",
+      "9: 36px",
+      "10: 40px",
+    ],
+  },
+  "typography": {
+    "baseSize": 15,
+    "mono": ""JetBrains Mono", Menlo, Consolas, monospace",
+    "sans": ""Untitled Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif",
+    "scaleRatio": 1.211,
+    "steps": [
+      "sm: 13px/1.538 @500",
+      "base: 15px/1.333 @400",
+      "lg: 17px/1.588 @400",
+      "xl: 20px/1.4 @600 ls-0.2",
+      "2xl: 28px/1.214 @600 ls-0.4",
+    ],
+    "weights": [
+      "400 regular",
+      "500 medium",
+      "600 semibold",
+    ],
+  },
+  "unusedColors": [],
+}
+`;
+
 exports[`linear-dark > distils to the expected decisions 1`] = `
 {
   "borderWidth": "1px",

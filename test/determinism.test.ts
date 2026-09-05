@@ -25,7 +25,7 @@ const setIds = await fixtureSetIds()
 
 describe('determinism', () => {
   it('finds the fixture sets', () => {
-    expect(setIds).toEqual(['linear-dark', 'messy-mixed', 'stripe-light'])
+    expect(setIds).toEqual(['ghost-warm', 'linear-dark', 'messy-mixed', 'stripe-light'])
   })
 
   describe.each(setIds)('%s', (setId) => {
