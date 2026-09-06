@@ -454,6 +454,29 @@ export function assignRoles(clusters: readonly ColorCluster[], mode: Mode): Role
 }
 
 /**
+ * Shade/base pairings that are supposed to be visibly different.
+ *
+ * The contrast floor can push a derived shade back onto the colour it was
+ * derived from -- on a dark kit the hover lift moves a brand fill toward its
+ * white label, so holding the label at AA can cost the entire lift. Two tokens
+ * with one value under prose that claims they differ is the failure mode this
+ * list exists to make audible.
+ *
+ * It lives here, beside the derivation that creates the shades, because both
+ * the distiller (which raises `color.state-collapsed`) and the exporter (which
+ * warns the consumer) have to agree on which pairings are load-bearing. One
+ * owner, two readers.
+ */
+export const SHADE_RELATIONS: ReadonlyArray<[ColorRoleName, ColorRoleName]> = [
+  ['primaryHover', 'primary'],
+  ['primaryActive', 'primary'],
+  ['primaryActive', 'primaryHover'],
+  ['surfaceHover', 'surface'],
+  ['selectedSurface', 'surface'],
+  ['selectedSurface', 'surfaceHover'],
+]
+
+/**
  * Fraction of the distance from `textMuted` to the disabled fill that the
  * disabled label travels before the contrast floor stops it.
  *

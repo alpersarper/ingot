@@ -12,7 +12,7 @@ import type { CaptureRecord, CaptureSet } from './capture/types'
 import { readBorderWidths, readRadii, readSpacing } from './capture/read'
 import { clusterColors, readColors } from './color/cluster'
 import type { ColorCluster } from './color/cluster'
-import { assignRoles, deriveInteractionShades, detectMode } from './color/roles'
+import { SHADE_RELATIONS, assignRoles, deriveInteractionShades, detectMode } from './color/roles'
 import type { RoleAssignment } from './color/roles'
 import {
   CONTRAST_FLOOR,
@@ -122,24 +122,6 @@ const DERIVED_PAIRS: ReadonlyArray<GuaranteedPair> = [
     backgrounds: ['disabledSurface'],
     floor: DISABLED_CONTRAST_FLOOR,
   },
-]
-
-/**
- * Shade/base pairings that are supposed to be visibly different.
- *
- * The contrast floor can push a derived shade back onto the colour it was
- * derived from -- on a dark kit the hover lift moves a brand fill toward its
- * white label, so holding the label at AA can cost the entire lift. Two tokens
- * with one value under prose that claims they differ is the failure mode this
- * check exists to make audible.
- */
-const SHADE_RELATIONS: ReadonlyArray<[ColorRoleName, ColorRoleName]> = [
-  ['primaryHover', 'primary'],
-  ['primaryActive', 'primary'],
-  ['primaryActive', 'primaryHover'],
-  ['surfaceHover', 'surface'],
-  ['selectedSurface', 'surface'],
-  ['selectedSurface', 'surfaceHover'],
 ]
 
 /**

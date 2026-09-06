@@ -173,6 +173,45 @@ describe('enforceContrastByChroma', () => {
     )
   })
 
+  it('crosses a dip to reach a floor that is genuinely reachable', () => {
+    // Contrast is not monotonic in chroma. At this lightness one 0.005 step
+    // either way *lowers* the rounded ratio (4.05 and 4.04 against a start of
+    // 4.06), so any local "did that step help" test bails here -- while 4.52:1
+    // is sitting further along the same axis.
+    const before: Oklch = { l: 0.6, c: 0.05, h: 0 }
+    expect(contrastRatio(white.color, before)).toBeLessThan(CONTRAST_FLOOR)
+
+    const result = enforceContrastByChroma('bg', before, white)
+    expect(result.adjustment?.met).toBe(true)
+    expect(contrastRatio(white.color, result.color)).toBeGreaterThanOrEqual(CONTRAST_FLOOR)
+    expect(result.color.l).toBe(before.l)
+    expect(result.color.h).toBe(before.h)
+  })
+
+  it('keeps the best ratio on the axis when the floor is out of reach', () => {
+    // Same dip, but nothing on this axis clears 4.5. The walk must still come
+    // back with the best it found (~3.7:1) rather than the 3.31:1 it started at.
+    const before: Oklch = { l: 0.65, c: 0.05, h: 0 }
+    const result = enforceContrastByChroma('bg', before, white)
+    expect(result.adjustment?.met).toBe(false)
+    expect(result.adjustment?.ratioAfter).toBeGreaterThan(3.6)
+    expect(result.adjustment?.ratioBefore).toBeLessThan(3.4)
+  })
+
+  it('stops at the first chroma reaching its best, never past the gamut edge', () => {
+    // Beyond the sRGB gamut the clamped rendering stops changing, so the ratio
+    // plateaus. Keeping the first chroma to reach it is what stops the emitted
+    // oklch() drifting away from the hex the document ships beside it.
+    const before: Oklch = { l: 0.65, c: 0.05, h: 0 }
+    const result = enforceContrastByChroma('bg', before, white)
+    const chosen = result.color.c
+    expect(chosen).toBeLessThan(0.4)
+    // One step back is genuinely worse: the result is on the rising edge, not
+    // parked out in the clamped plateau.
+    const oneStepBack = contrastRatio(white.color, { ...result.color, c: chosen - 0.005 })
+    expect(contrastRatio(white.color, result.color)).toBeGreaterThan(oneStepBack)
+  })
+
   it('reports met: false rather than pretending, when chroma cannot close the gap', () => {
     // An indigo at this lightness tops out around 4.07:1 against white however
     // saturated it gets, because sRGB runs out of gamut first.

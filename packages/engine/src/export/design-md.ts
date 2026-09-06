@@ -10,6 +10,7 @@
  * prohibitions, no rationale it cannot act on and no marketing prose.
  */
 import { byString } from '../util/sort'
+import { SHADE_RELATIONS } from '../color/roles'
 import { round } from '../util/num'
 import type {
   ColorRoleName,
@@ -181,19 +182,13 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
     '',
   )
 
-  // The list of collapsed shade/base pairings is owned by the distiller, which
-  // reports it in the `color.state-collapsed` diagnostic as `<shade> and <base>`
-  // entries joined by `;` ahead of "render as the same colour". Reading it back
-  // keeps this a pure function of the document with one owner of the pairings.
-  const collapsedDiagnostic = tokens.diagnostics.find(
-    (diagnostic) => diagnostic.code === 'color.state-collapsed',
+  // Which shade/base pairings are supposed to differ is one list, owned by the
+  // colour layer. Reading it and comparing the document's own hexes keeps this a
+  // pure function of the tokens document, and keeps the diagnostic's sentence a
+  // convenience rather than a parsing contract.
+  const collapsedStates = SHADE_RELATIONS.filter(
+    ([shade, base]) => role(shade) !== undefined && role(base) !== undefined && hexOf(shade) === hexOf(base),
   )
-  const collapsedStates =
-    collapsedDiagnostic === undefined
-      ? []
-      : (collapsedDiagnostic.message.split(' render as the same colour')[0] ?? '')
-          .split('; ')
-          .map((entry) => entry.split(' and ') as [string, string])
 
   push(
     '### Colour rules',
