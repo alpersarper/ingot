@@ -294,7 +294,7 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
     '',
     `Base unit **${spacing.baseUnit}px**. ${round(spacing.fit * 100, 1)}% of the captured lengths were already exact multiples of it.`,
     '',
-    'The scale has two bands. **Component** steps are measured: a capture is one component, so the evidence stops at that component\'s own padding. **Layout** steps continue the same multiplier series past the largest observation, because page rhythm has to come from somewhere and inventing it per screen is worse than stating it here.',
+    'The scale has two bands. **Component** steps sit at or below the largest observed length: a capture is one component, so the evidence stops at that component\'s own padding, and each step\'s provenance records whether it was observed or gap-filled. **Layout** steps continue the same multiplier series past the largest observation, because page rhythm has to come from somewhere and inventing it per screen is worse than stating it here.',
     '',
     ...table(
       ['Step', 'px', 'Band', 'Tailwind'],
@@ -310,7 +310,7 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
     '',
     `- Every padding, margin and gap is a multiple of ${spacing.baseUnit}px drawn from the table above.`,
     componentSteps.length > 0
-      ? `- Inside a control or a card, use the component steps (up to ${componentSteps[componentSteps.length - 1]?.value.px ?? 0}px). They are what the sources actually do.`
+      ? `- Inside a control or a card, use the component steps (up to ${componentSteps[componentSteps.length - 1]?.value.px ?? 0}px). They stay within the range the sources actually use.`
       : '- No component steps were observed; every step in this table is extrapolated.',
     layoutSteps.length > 0
       ? `- Between cards, between sections and around the page, use the layout steps (${layoutSteps.map((step) => `${step.value.px}px`).join(', ')}). Do not pad a page with a component step: that is what makes a generated screen read as cramped.`

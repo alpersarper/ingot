@@ -157,7 +157,7 @@ The following roles were moved away from the value they started at to reach thei
 
 Base unit **4px**. 80.6% of the captured lengths were already exact multiples of it.
 
-The scale has two bands. **Component** steps are measured: a capture is one component, so the evidence stops at that component's own padding. **Layout** steps continue the same multiplier series past the largest observation, because page rhythm has to come from somewhere and inventing it per screen is worse than stating it here.
+The scale has two bands. **Component** steps sit at or below the largest observed length: a capture is one component, so the evidence stops at that component's own padding, and each step's provenance records whether it was observed or gap-filled. **Layout** steps continue the same multiplier series past the largest observation, because page rhythm has to come from somewhere and inventing it per screen is worse than stating it here.
 
 | Step | px   | Band      | Tailwind                  |
 | ---- | ---- | --------- | ------------------------- |
@@ -176,7 +176,7 @@ The scale has two bands. **Component** steps are measured: a capture is one comp
 ### Spacing rules
 
 - Every padding, margin and gap is a multiple of 4px drawn from the table above.
-- Inside a control or a card, use the component steps (up to 24px). They are what the sources actually do.
+- Inside a control or a card, use the component steps (up to 24px). They stay within the range the sources actually use.
 - Between cards, between sections and around the page, use the layout steps (32px, 40px, 48px, 64px). Do not pad a page with a component step: that is what makes a generated screen read as cramped.
 - Snapping rule applied during distillation: Each observed padding, margin and gap length is snapped to the nearest multiple of the base unit; exact .5 ties round up. A non-zero length shorter than half the base unit snaps up to one base unit rather than collapsing to 0, because a visible gap must stay visible. Steps are named by their multiplier, so step "3" is 3 x the base unit.
 - Do not use arbitrary values such as `p-[13px]` or `mt-[7px]`. If a layout seems to need one, pick the nearer step.

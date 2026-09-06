@@ -82,11 +82,11 @@ export { NEUTRAL_CHROMA_MAX, assignRoles, deriveInteractionShades, detectMode } 
 export {
   BASE_FIT_THRESHOLD,
   CANDIDATE_BASES,
-  LAYOUT_RULE,
   LAYOUT_TARGETS_PX,
   SNAPPING_RULE,
   baseFit,
   chooseBase,
+  layoutRuleFor,
   snapSpacing,
 } from './spacing/spacing'
 export { parseShadow } from './shadow/shadow'

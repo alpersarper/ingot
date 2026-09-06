@@ -36,12 +36,13 @@ const MAX_FILLED_MULTIPLE = 12
  * Page-level lengths the scale is continued to, in px.
  *
  * A capture is one component, so the largest length the evidence can ever
- * supply is that component's own padding -- 24px across every fixture set. A
- * scale that stops there cannot express a page gutter or the gap between two
- * sections, while the exported spec forbids anything off-scale, so every
- * page-level measurement in every consumer collapses onto the largest component
- * step. These four continue the same multiplier series far enough to separate
- * layout from component internals; they divide exactly by both candidate bases.
+ * supply is that component's own padding. A scale that stops there cannot
+ * express a page gutter or the gap between two sections, while the exported
+ * spec forbids anything off-scale, so every page-level measurement in every
+ * consumer collapses onto the largest component step. These four continue the
+ * same multiplier series far enough to separate layout from component
+ * internals; they divide exactly by both candidate bases. Only the targets
+ * above a document's largest observation are emitted.
  */
 export const LAYOUT_TARGETS_PX = [32, 40, 48, 64] as const
 
@@ -51,12 +52,35 @@ export const SNAPPING_RULE =
   'rather than collapsing to 0, because a visible gap must stay visible. Steps are named by their ' +
   'multiplier, so step "3" is 3 x the base unit.'
 
-export const LAYOUT_RULE =
-  'Steps up to the largest observed length are component steps: a capture is one component, so that is ' +
-  'as far as the evidence reaches. The same multiplier series is then continued past it into layout ' +
-  `steps at ${LAYOUT_TARGETS_PX.join('px, ')}px, which are extrapolated rather than observed. Use ` +
-  'component steps for padding and gaps inside a control, and layout steps for page gutters, section ' +
-  'rhythm and the space between cards.'
+/**
+ * State the two-band split for one document, naming the layout steps that were
+ * actually emitted.
+ *
+ * Built per document rather than kept as a constant because the band boundary
+ * is the largest observed length: a set whose captures already reach into
+ * layout range extrapolates fewer of the {@link LAYOUT_TARGETS_PX} -- or none
+ * at all -- and the prose must agree with the machine-readable `band` field on
+ * every step.
+ */
+export function layoutRuleFor(layoutStepsPx: readonly number[]): string {
+  const componentHalf =
+    'Steps up to the largest observed length are component steps: a capture is one component, so that is ' +
+    'as far as the evidence reaches. '
+  if (layoutStepsPx.length === 0) {
+    return (
+      componentHalf +
+      'The captured lengths already reach layout range, so no extrapolated layout steps were needed. Use ' +
+      'the larger component steps for page gutters, section rhythm and the space between cards.'
+    )
+  }
+  return (
+    componentHalf +
+    'The same multiplier series is then continued past it into layout ' +
+    `steps at ${layoutStepsPx.join('px, ')}px, which are extrapolated rather than observed. Use ` +
+    'component steps for padding and gaps inside a control, and layout steps for page gutters, section ' +
+    'rhythm and the space between cards.'
+  )
+}
 
 /** How well a candidate base fits the observations: the multiple-of-base share. */
 export function baseFit(values: readonly number[], base: number): number {
@@ -224,11 +248,13 @@ export function distillSpacing(
     })
   }
 
+  const layoutStepsPx = [...layoutMultiples].sort(byNumber).map((multiple) => round(multiple * base, 3))
+
   return {
     baseUnit: base,
     unit: 'px',
     snappingRule: SNAPPING_RULE,
-    layoutRule: LAYOUT_RULE,
+    layoutRule: layoutRuleFor(layoutStepsPx),
     fit,
     largestObservedMultiple: maxObserved,
     steps,

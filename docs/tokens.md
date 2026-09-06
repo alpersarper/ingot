@@ -283,19 +283,24 @@ filled steps are marked `derived` with method `scale-gap-fill`.
 Every step carries a `band`, and `largestObservedMultiple` is the boundary.
 
 - **`component`** -- at or below the largest observed length. A capture is one
-  component, so this is as far as the evidence can ever reach: across all three
-  fixture sets the largest observation is a card's own 24px padding.
-- **`layout`** -- extrapolated past it, at `32`, `40`, `48` and `64px`. Both
-  candidate base units divide all four exactly, so the layout band is the same
-  multiplier series continued rather than a second scale. Layout steps carry no
-  `captureIds` and are marked `derived` with method `layout-scale-extension`.
+  component, so component-internal padding and gap is as far as the evidence can
+  ever reach; whether a given step was observed or gap-filled is what its own
+  provenance records.
+- **`layout`** -- extrapolated past it, drawn from the candidate targets `32`,
+  `40`, `48` and `64px`. Both candidate base units divide all four exactly, so
+  the layout band is the same multiplier series continued rather than a second
+  scale. Only the targets above the document's largest observation are emitted
+  as layout steps -- a set whose captures already reach 40px extrapolates only
+  48 and 64. Layout steps carry no `captureIds` and are marked `derived` with
+  method `layout-scale-extension`.
 
 The layout band exists because the exported spec forbids off-scale values while
 the component band tops out at component-internal padding. Without it, page
 gutters, section rhythm and the gap between two cards all collapsed onto the same
-24px, and every generated screen read as flat and cramped. `layoutRule` states
-the split in prose so `design.md` can quote it verbatim, and the exported spec
-tells the consumer which band to reach for where.
+largest component step, and every generated screen read as flat and cramped.
+`layoutRule` states the split in prose, built per document from the layout steps
+that were actually emitted so it always agrees with the `band` field, and the
+exported spec tells the consumer which band to reach for where.
 
 ### `radius`
 

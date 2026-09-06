@@ -86,12 +86,14 @@ export interface ColorTokens {
 /**
  * Which half of the scale a step belongs to.
  *
- * `component` steps are backed by observation: captures are individual
- * components, so everything the evidence can reach is component-internal
- * padding and gap. `layout` steps are extrapolated past the largest observation
- * to give page-level rhythm somewhere on-scale to live. The distinction is
- * emitted rather than smoothed over, because a consumer is entitled to know
- * which numbers came from the sources and which the engine continued.
+ * `component` steps sit at or below the largest observed length: captures are
+ * individual components, so component-internal padding and gap is as far as the
+ * evidence reaches, and each step's own provenance records whether it was
+ * observed or gap-filled. `layout` steps are extrapolated past the largest
+ * observation to give page-level rhythm somewhere on-scale to live. The
+ * distinction is emitted rather than smoothed over, because a consumer is
+ * entitled to know which numbers came from the sources and which the engine
+ * continued.
  */
 export type SpacingBand = 'component' | 'layout'
 

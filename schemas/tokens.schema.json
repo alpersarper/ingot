@@ -166,7 +166,7 @@
                       "name": { "type": "string" },
                       "multiple": { "type": "number", "minimum": 0 },
                       "px": { "type": "number", "minimum": 0 },
-                      "band": { "enum": ["component", "layout"], "description": "component: at or below the largest observed length, so backed by evidence. layout: extrapolated past it so page-level rhythm has somewhere on-scale to live." }
+                      "band": { "enum": ["component", "layout"], "description": "component: at or below the largest observed length; each step's provenance records whether it was observed or gap-filled. layout: extrapolated past it so page-level rhythm has somewhere on-scale to live." }
                     }
                   }
                 }

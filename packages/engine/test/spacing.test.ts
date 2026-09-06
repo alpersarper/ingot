@@ -158,4 +158,20 @@ describe('spacing bands', () => {
     expect(spacing.layoutRule).toContain('layout')
     for (const px of LAYOUT_TARGETS_PX) expect(spacing.layoutRule).toContain(`${px}px`)
   })
+
+  it('names only the layout steps this document actually emitted', () => {
+    // 48px is observed, so it and everything below it are component steps; the
+    // prose must not call them extrapolated.
+    const spacing = distilled('48px')
+    expect(spacing.steps.filter((step) => step.value.band === 'layout').map((s) => s.value.px)).toEqual([64])
+    expect(spacing.layoutRule).toContain('64px')
+    for (const px of [32, 40, 48]) expect(spacing.layoutRule).not.toContain(`${px}px`)
+  })
+
+  it('says so when the captures already cover every layout target', () => {
+    const spacing = distilled('64px')
+    expect(spacing.steps.filter((step) => step.value.band === 'layout')).toHaveLength(0)
+    expect(spacing.layoutRule).toContain('already reach layout range')
+    for (const px of LAYOUT_TARGETS_PX) expect(spacing.layoutRule).not.toContain(`${px}px`)
+  })
 })

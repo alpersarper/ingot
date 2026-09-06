@@ -131,16 +131,20 @@ const DERIVED_PAIRS: ReadonlyArray<GuaranteedPair> = [
  * a derived surface that did not exist on the first pass. Merging keeps the
  * *captured* value as the origin, so the record still answers "what did this
  * colour start as", and reports the whole journey in one reason.
+ *
+ * Returns the record the map actually holds -- `next` itself when the role had
+ * none, the merged record otherwise -- so a caller that needs to amend the
+ * record afterwards amends the stored one rather than a discarded input.
  */
 function recordAdjustment(
   adjustments: Map<ColorRoleName, ContrastAdjustment>,
   role: ColorRoleName,
   next: ContrastAdjustment,
-): void {
+): ContrastAdjustment {
   const existing = adjustments.get(role)
   if (!existing) {
     adjustments.set(role, next)
-    return
+    return next
   }
   existing.against = [...new Set([...existing.against, ...next.against])]
   existing.to = next.to
@@ -148,6 +152,7 @@ function recordAdjustment(
   existing.ratioAfter = next.ratioAfter
   existing.met = next.met
   existing.reason = `${existing.reason}; then ${next.reason}`
+  return existing
 }
 
 function colorToken(assignment: RoleAssignment, color: Oklch, adjustment?: ContrastAdjustment): ColorToken {
@@ -252,10 +257,13 @@ function distillColor(
 
     const result = enforceContrast(pathOf(pair.foreground), foreground, backgrounds, floor)
     colors.set(pair.foreground, result.color)
-    if (result.adjustment) recordAdjustment(adjustments, pair.foreground, result.adjustment)
+    const hadPriorRecord = adjustments.has(pair.foreground)
+    const stored = result.adjustment
+      ? recordAdjustment(adjustments, pair.foreground, result.adjustment)
+      : undefined
 
     const survivor = backgrounds[0]
-    if (result.adjustment && !result.adjustment.met && backgrounds.length === 1 && survivor) {
+    if (result.adjustment && stored && !result.adjustment.met && backgrounds.length === 1 && survivor) {
       const backgroundRole = survivor.role
       const nudged = enforceContrastOnBackground(
         pathOf(backgroundRole),
@@ -269,13 +277,15 @@ function distillColor(
       if (nudged.adjustment?.met) {
         // The foreground had nowhere to go, so its own record would claim an
         // unmet floor that the background move has since closed. Drop the
-        // no-op record; keep it only if the foreground genuinely moved.
-        if (result.adjustment.deltaL === 0) {
+        // record only when this pass created it and it records no movement;
+        // a record merged from an earlier pass carries real history and is
+        // amended instead.
+        if (result.adjustment.deltaL === 0 && !hadPriorRecord) {
           adjustments.delete(pair.foreground)
         } else {
-          result.adjustment.ratioAfter = nudged.adjustment.ratioAfter
-          result.adjustment.met = true
-          result.adjustment.reason += `; ${backgroundRole} then moved to close the remaining gap`
+          stored.ratioAfter = nudged.adjustment.ratioAfter
+          stored.met = true
+          stored.reason += `; ${backgroundRole} then moved to close the remaining gap`
         }
       }
     }
