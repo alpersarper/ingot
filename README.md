@@ -64,13 +64,14 @@ provenance looks like when the engine had to work for it.
 - **Colour.** Converts to OKLCH, merges perceptual near-duplicates, assigns a
   small semantic role set (`background`, `surface`, `border`, `text`,
   `textMuted`, `primary`, ...), derives the interaction and state shades, and
-  enforces a 4.5:1 WCAG floor on every pair it puts on screen -- the derived
-  hover, pressed and selected surfaces included -- adjusting lightness, then
-  chroma, and recording exactly what it changed.
+  enforces a WCAG contrast floor on every pair it puts on screen -- 4.5:1 for
+  text, a stated 3:1 for the disabled pair, the derived hover, pressed and
+  selected surfaces included -- adjusting lightness, then chroma, and recording
+  exactly what it changed.
 - **Spacing.** Picks one base unit from the evidence and snaps every observed
   length onto it, then continues the series into a layout band past the largest
-  observation so page rhythm has somewhere on-scale to live. Component steps are
-  measured; layout steps say they are extrapolated.
+  observation so page rhythm has somewhere on-scale to live. Component steps
+  stop at the largest observed length; layout steps say they are extrapolated.
 - **Radius, shadows, typography.** Dominant-choice selection over the observed
   values, with missing steps derived rather than invented.
 - **Components.** One height, padding pair, radius step, type step and weight for
