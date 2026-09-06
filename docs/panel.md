@@ -91,9 +91,9 @@ Everything except `/api/health` and `/api/pairing*` requires the token.
 | `GET/PUT /api/settings` | Panel settings; stores the LLM key, never returns it. |
 | `GET/POST /api/captures`, `GET/PATCH/DELETE /api/captures/:id` | Capture CRUD. |
 | `POST /api/captures/import` | Bulk import. Accepts a fixture set verbatim, or `{ set }`. |
-| `PUT /api/captures/:id/tags` | Replace a capture's tags. |
+| `PUT /api/captures/:id/tags`, `GET /api/captures/tags` | Replace a capture's tags; list every tag in use. |
 | `PUT/GET /api/captures/:id/screenshot` | Image bytes to the volume, path to the database. |
-| `GET/POST /api/groups`, `PATCH/DELETE /api/groups/:id` | Groups. |
+| `GET/POST /api/groups`, `GET/PATCH/DELETE /api/groups/:id` | Groups. |
 | `POST /api/groups/:id/captures`, `DELETE /api/groups/:id/captures/:captureId` | Membership. |
 | `POST /api/kits` | Run the engine over a group, or over the whole library. |
 | `GET /api/kits`, `GET /api/kits/latest`, `GET /api/kits/:id` | Kit retrieval. |
