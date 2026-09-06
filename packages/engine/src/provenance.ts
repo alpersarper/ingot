@@ -22,6 +22,13 @@ import { byNumber, byString, chain } from './util/sort'
  *                        role heuristics.
  * - `derived`         -- nothing suitable was observed; the value was computed
  *                        from another token. `derivation` says how.
+ * - `sanctioned-default` -- nothing was observed *and* nothing else in the
+ *                        document implies the value, so the engine supplied one
+ *                        of its own. Kept distinct from `derived` because the
+ *                        two carry very different authority: a derived value is
+ *                        a consequence of this kit, a sanctioned default is the
+ *                        engine's house choice, and a reader is entitled to
+ *                        override the second more freely than the first.
  */
 export type DecisionStrategy =
   | 'dominant-value'
@@ -29,6 +36,7 @@ export type DecisionStrategy =
   | 'cluster-representative'
   | 'role-assignment'
   | 'derived'
+  | 'sanctioned-default'
 
 /** A distinct value that was observed, and how often. */
 export interface ObservedValue {
@@ -61,7 +69,7 @@ export interface DominantChoice {
   competitors: Array<{ value: string; count: number }>
   /** Human-readable restatement, e.g. `"4 of 5 observations at 8px"`. */
   summary: string
-  /** Present only when `strategy` is `derived`. */
+  /** Present when `strategy` is `derived` or `sanctioned-default`. */
   derivation?: Derivation
 }
 
@@ -136,10 +144,11 @@ function pluralise(count: number, noun: string): string {
  *
  * `chosen` need not be the most frequent value -- the caller may have applied
  * an ordering rule such as "closest to the median" -- but it must be one of the
- * observed values, or `strategy` must be `derived`.
+ * observed values; a value nobody observed goes through {@link derive} or
+ * {@link sanction} instead.
  */
 export function decide(
-  strategy: Exclude<DecisionStrategy, 'derived'>,
+  strategy: Exclude<DecisionStrategy, 'derived' | 'sanctioned-default'>,
   chosen: string,
   observed: readonly ObservedValue[],
   options: { unit?: string } = {},
@@ -181,6 +190,28 @@ export function derive(chosen: string, derivation: Derivation): DominantChoice {
     confidence: 0,
     competitors: [],
     summary: `derived: ${derivation.detail}`,
+    derivation,
+  }
+}
+
+/**
+ * Build a {@link DominantChoice} for a value the engine supplied outright.
+ *
+ * Use this only when the captures are silent *and* no other token implies the
+ * answer -- nothing in a capture set describes a focus ring or a badge. Emitting
+ * a stated default is better than emitting nothing, because silence is what
+ * makes two consumers of the same kit ship two different products; labelling it
+ * as a default is what stops the reader mistaking it for evidence.
+ */
+export function sanction(chosen: string, derivation: Derivation): DominantChoice {
+  return {
+    strategy: 'sanctioned-default',
+    chosen,
+    chosenCount: 0,
+    totalCount: 0,
+    confidence: 0,
+    competitors: [],
+    summary: `sanctioned default: ${derivation.detail}`,
     derivation,
   }
 }

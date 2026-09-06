@@ -12,9 +12,15 @@ import type { CaptureRecord, CaptureSet } from './capture/types'
 import { readBorderWidths, readRadii, readSpacing } from './capture/read'
 import { clusterColors, readColors } from './color/cluster'
 import type { ColorCluster } from './color/cluster'
-import { assignRoles, deriveInteractionShades, detectMode } from './color/roles'
+import { SHADE_RELATIONS, assignRoles, deriveInteractionShades, detectMode } from './color/roles'
 import type { RoleAssignment } from './color/roles'
-import { CONTRAST_FLOOR, enforceContrast, enforceContrastOnBackground } from './color/contrast'
+import {
+  CONTRAST_FLOOR,
+  DISABLED_CONTRAST_FLOOR,
+  enforceContrast,
+  enforceContrastByChroma,
+  enforceContrastOnBackground,
+} from './color/contrast'
 import type { ContrastAdjustment, ContrastPair } from './color/contrast'
 import { contrastRatio, formatOklch, oklchToHex, roundOklch } from './color/space'
 import type { Oklch } from './color/space'
@@ -24,8 +30,10 @@ import { distillBorder } from './border/border'
 import { distillRadius } from './radius/radius'
 import { distillShadows } from './shadow/shadow'
 import { distillTypography } from './typography/typography'
+import { distillComponents } from './components/components'
 import { ENGINE_NAME, ENGINE_VERSION } from './version'
 import { TOKENS_SCHEMA_VERSION } from './tokens/types'
+import { round } from './util/num'
 import type {
   ColorRoleName,
   ColorToken,
@@ -42,6 +50,7 @@ const ROLE_ORDER: ColorRoleName[] = [
   'background',
   'surface',
   'surfaceHover',
+  'selectedSurface',
   'border',
   'text',
   'textMuted',
@@ -51,20 +60,100 @@ const ROLE_ORDER: ColorRoleName[] = [
   'primaryForeground',
   'destructive',
   'destructiveForeground',
+  'disabledSurface',
+  'disabledForeground',
 ]
 
+/** One pairing the engine guarantees, and which side yields when it fails. */
+interface GuaranteedPair {
+  foreground: ColorRoleName
+  backgrounds: ColorRoleName[]
+  /** Defaults to {@link CONTRAST_FLOOR}. */
+  floor?: number
+  /**
+   * Which colour moves. `foreground` is the default and the house rule -- a
+   * foreground carries less identity than the surface behind it. `background`
+   * is for a foreground already pinned at a gamut pole, where only the surface
+   * has anywhere to go.
+   */
+  move?: 'foreground' | 'background'
+}
+
 /**
- * Foreground/background pairs the engine guarantees meet {@link CONTRAST_FLOOR}.
+ * Pairs enforced against the roles the captures supplied.
  *
  * `text` and `textMuted` must clear both the page background and panel
  * surfaces, because a kit cannot control which one a component lands on.
+ * `destructive` is here as a *foreground*: the exported spec presents it as an
+ * error-text colour as well as a fill, so it has to be legible on the surfaces
+ * that error text lands on. It is enforced before `destructiveForeground` so
+ * that pair sees the settled value rather than the captured one.
  */
-const GUARANTEED_PAIRS: ReadonlyArray<{ foreground: ColorRoleName; backgrounds: ColorRoleName[] }> = [
+const BASE_PAIRS: ReadonlyArray<GuaranteedPair> = [
   { foreground: 'text', backgrounds: ['background', 'surface'] },
   { foreground: 'textMuted', backgrounds: ['background', 'surface'] },
   { foreground: 'primaryForeground', backgrounds: ['primary'] },
+  { foreground: 'destructive', backgrounds: ['background', 'surface'] },
   { foreground: 'destructiveForeground', backgrounds: ['destructive'] },
 ]
+
+/**
+ * Pairs enforced against the derived interaction and state surfaces.
+ *
+ * These are the pairs the engine used to compute and never check. A hover shade
+ * is an offset of a role that already passed, and an offset is not a guarantee:
+ * on a dark kit the hover lift moves the fill *toward* its white label, so
+ * every interaction made the label worse while the exported contrast table
+ * still read as complete.
+ *
+ * The derived surface yields, not the base role, wherever the foreground is
+ * pinned -- a shade exists to serve a role, so it is the shade that gives way.
+ */
+const DERIVED_PAIRS: ReadonlyArray<GuaranteedPair> = [
+  {
+    foreground: 'primaryForeground',
+    backgrounds: ['primaryHover', 'primaryActive'],
+    move: 'background',
+  },
+  { foreground: 'text', backgrounds: ['surfaceHover', 'selectedSurface'] },
+  { foreground: 'textMuted', backgrounds: ['surfaceHover', 'selectedSurface'] },
+  {
+    foreground: 'disabledForeground',
+    backgrounds: ['disabledSurface'],
+    floor: DISABLED_CONTRAST_FLOOR,
+  },
+]
+
+/**
+ * Record a contrast move, folding it into any earlier move of the same role.
+ *
+ * A role can be pushed twice -- once to clear the page surfaces, again to clear
+ * a derived surface that did not exist on the first pass. Merging keeps the
+ * *captured* value as the origin, so the record still answers "what did this
+ * colour start as", and reports the whole journey in one reason.
+ *
+ * Returns the record the map actually holds -- `next` itself when the role had
+ * none, the merged record otherwise -- so a caller that needs to amend the
+ * record afterwards amends the stored one rather than a discarded input.
+ */
+function recordAdjustment(
+  adjustments: Map<ColorRoleName, ContrastAdjustment>,
+  role: ColorRoleName,
+  next: ContrastAdjustment,
+): ContrastAdjustment {
+  const existing = adjustments.get(role)
+  if (!existing) {
+    adjustments.set(role, next)
+    return next
+  }
+  existing.against = [...new Set([...existing.against, ...next.against])]
+  existing.to = next.to
+  existing.deltaL = round(next.to.lightness - existing.from.lightness, 4)
+  existing.ratioAfter = next.ratioAfter
+  existing.met = next.met
+  existing.reason = `${existing.reason}; then ${next.reason}`
+  return existing
+}
 
 function colorToken(assignment: RoleAssignment, color: Oklch, adjustment?: ContrastAdjustment): ColorToken {
   const rounded = roundOklch(color)
@@ -100,6 +189,18 @@ function colorToken(assignment: RoleAssignment, color: Oklch, adjustment?: Contr
     }
   }
 
+  // The decision is built from the value that won the role, which is not
+  // necessarily the value that ships: the contrast floor may have moved it
+  // afterwards. A summary that stops at the winner hands the reader a hex the
+  // rest of the document says is inaccessible, so carry the move into it.
+  if (adjustment) {
+    const direction = adjustment.deltaL < 0 ? 'darkened' : adjustment.deltaL > 0 ? 'lightened' : 'adjusted'
+    const against = adjustment.against.map((path) => path.replace('color.roles.', '')).join(', ')
+    decision.summary +=
+      `; then ${direction} to ${value.hex} for contrast against ${against}` +
+      ` (${adjustment.ratioBefore}:1 -> ${adjustment.ratioAfter}:1)`
+  }
+
   return {
     value,
     provenance: provenance(observed, decision),
@@ -107,10 +208,21 @@ function colorToken(assignment: RoleAssignment, color: Oklch, adjustment?: Contr
   }
 }
 
+/** {@link distillColor}'s output: the emitted tokens plus what later stages need. */
+interface ColorResult {
+  tokens: ColorTokens
+  /**
+   * The role a capture's own background colour resolved to, when any. Lets the
+   * component layer tell a primary-filled button from a secondary one without
+   * re-deriving the clustering.
+   */
+  backgroundRoleByCapture: Map<string, ColorRoleName>
+}
+
 function distillColor(
   captures: readonly CaptureRecord[],
   diagnostics: Diagnostic[],
-): ColorTokens {
+): ColorResult {
   const observations = readColors(captures)
   const clusters = clusterColors(observations)
   const mode = detectMode(clusters)
@@ -127,48 +239,92 @@ function distillColor(
   // Foregrounds move first. Only when a foreground is already pinned at black
   // or white does the brand surface underneath it move instead.
   const adjustments = new Map<ColorRoleName, ContrastAdjustment>()
-  for (const pair of GUARANTEED_PAIRS) {
-    const foreground = colors.get(pair.foreground)
-    if (foreground === undefined) continue
-    const backgrounds = pair.backgrounds
-      .map((role) => ({ role, path: `color.roles.${role}`, color: colors.get(role) }))
+  const pathOf = (role: ColorRoleName): string => `color.roles.${role}`
+  const backgroundsOf = (
+    roles: readonly ColorRoleName[],
+  ): Array<{ role: ColorRoleName; path: string; color: Oklch }> =>
+    roles
+      .map((role) => ({ role, path: pathOf(role), color: colors.get(role) }))
       .filter((entry): entry is { role: ColorRoleName; path: string; color: Oklch } => entry.color !== undefined)
-    if (backgrounds.length === 0) continue
 
-    const result = enforceContrast(`color.roles.${pair.foreground}`, foreground, backgrounds, CONTRAST_FLOOR)
+  /** Move the foreground away from every background it has to clear. */
+  const enforceForeground = (pair: GuaranteedPair, roles: readonly ColorRoleName[]): void => {
+    const foreground = colors.get(pair.foreground)
+    if (foreground === undefined) return
+    const backgrounds = backgroundsOf(roles)
+    if (backgrounds.length === 0) return
+    const floor = pair.floor ?? CONTRAST_FLOOR
+
+    const result = enforceContrast(pathOf(pair.foreground), foreground, backgrounds, floor)
     colors.set(pair.foreground, result.color)
-    if (result.adjustment) adjustments.set(pair.foreground, result.adjustment)
+    const hadPriorRecord = adjustments.has(pair.foreground)
+    const stored = result.adjustment
+      ? recordAdjustment(adjustments, pair.foreground, result.adjustment)
+      : undefined
 
     const survivor = backgrounds[0]
-    if (result.adjustment && !result.adjustment.met && backgrounds.length === 1 && survivor) {
+    if (result.adjustment && stored && !result.adjustment.met && backgrounds.length === 1 && survivor) {
       const backgroundRole = survivor.role
       const nudged = enforceContrastOnBackground(
-        `color.roles.${backgroundRole}`,
+        pathOf(backgroundRole),
         survivor.color,
-        { path: `color.roles.${pair.foreground}`, color: result.color },
-        CONTRAST_FLOOR,
+        { path: pathOf(pair.foreground), color: result.color },
+        floor,
       )
       colors.set(backgroundRole, nudged.color)
-      if (nudged.adjustment) adjustments.set(backgroundRole, nudged.adjustment)
+      if (nudged.adjustment) recordAdjustment(adjustments, backgroundRole, nudged.adjustment)
 
       if (nudged.adjustment?.met) {
         // The foreground had nowhere to go, so its own record would claim an
         // unmet floor that the background move has since closed. Drop the
-        // no-op record; keep it only if the foreground genuinely moved.
-        if (result.adjustment.deltaL === 0) {
+        // record only when this pass created it and it records no movement;
+        // a record merged from an earlier pass carries real history and is
+        // amended instead.
+        if (result.adjustment.deltaL === 0 && !hadPriorRecord) {
           adjustments.delete(pair.foreground)
         } else {
-          result.adjustment.ratioAfter = nudged.adjustment.ratioAfter
-          result.adjustment.met = true
-          result.adjustment.reason += `; ${backgroundRole} then moved to close the remaining gap`
+          stored.ratioAfter = nudged.adjustment.ratioAfter
+          stored.met = true
+          stored.reason += `; ${backgroundRole} then moved to close the remaining gap`
         }
       }
     }
   }
 
-  // Interaction shades are derived only now, after contrast enforcement may
-  // have moved their base role, so a hover state never drifts away from the
-  // colour it is a state of.
+  /**
+   * Move the surface instead, one background at a time.
+   *
+   * Lightness first, because that is the axis the shade was derived on and
+   * walking it back only shortens the offset. When lightness runs out -- a white
+   * label on a mid-brand fill in dark mode has no lighter fill to sit on --
+   * chroma takes over: it changes luminance without touching the lightness
+   * coordinate, and hue, which is the brand, never moves at all.
+   */
+  const enforceSurfaces = (pair: GuaranteedPair): void => {
+    const foreground = colors.get(pair.foreground)
+    if (foreground === undefined) return
+    const floor = pair.floor ?? CONTRAST_FLOOR
+    const against = { path: pathOf(pair.foreground), color: foreground }
+
+    for (const entry of backgroundsOf(pair.backgrounds)) {
+      const nudged = enforceContrastOnBackground(entry.path, entry.color, against, floor)
+      if (!nudged.adjustment) continue
+      colors.set(entry.role, nudged.color)
+      recordAdjustment(adjustments, entry.role, nudged.adjustment)
+
+      if (nudged.adjustment.met) continue
+      const saturated = enforceContrastByChroma(entry.path, nudged.color, against, floor)
+      if (!saturated.adjustment) continue
+      colors.set(entry.role, saturated.color)
+      recordAdjustment(adjustments, entry.role, saturated.adjustment)
+    }
+  }
+
+  for (const pair of BASE_PAIRS) enforceForeground(pair, pair.backgrounds)
+
+  // Interaction and state shades are derived only now, after contrast
+  // enforcement may have moved their base role, so a hover state never drifts
+  // away from the colour it is a state of.
   for (const shade of deriveInteractionShades(
     assignments.map((assignment) => ({ ...assignment, color: colors.get(assignment.role) ?? assignment.color })),
     mode,
@@ -177,23 +333,56 @@ function distillColor(
     colors.set(shade.role, shade.color)
   }
 
+  // Then guarantee the pairs those shades created. A foreground that already
+  // cleared the page surfaces is re-enforced against the union of old and new
+  // backgrounds, so closing the new gap can never reopen an old one.
+  for (const pair of DERIVED_PAIRS) {
+    if (pair.move === 'background') enforceSurfaces(pair)
+    else {
+      const base = BASE_PAIRS.find((entry) => entry.foreground === pair.foreground)
+      enforceForeground(pair, [...(base?.backgrounds ?? []), ...pair.backgrounds])
+    }
+  }
+
   // --- final ratios ---------------------------------------------------------
   const contrast: ContrastPair[] = []
-  for (const pair of GUARANTEED_PAIRS) {
+  const seenPairs = new Set<string>()
+  for (const pair of [...BASE_PAIRS, ...DERIVED_PAIRS]) {
     const foreground = colors.get(pair.foreground)
     if (foreground === undefined) continue
+    const floor = pair.floor ?? CONTRAST_FLOOR
     for (const backgroundRole of pair.backgrounds) {
       const background = colors.get(backgroundRole)
       if (background === undefined) continue
+      const key = `${pair.foreground}|${backgroundRole}`
+      if (seenPairs.has(key)) continue
+      seenPairs.add(key)
       const ratio = contrastRatio(foreground, background)
       contrast.push({
-        foreground: `color.roles.${pair.foreground}`,
-        background: `color.roles.${backgroundRole}`,
+        foreground: pathOf(pair.foreground),
+        background: pathOf(backgroundRole),
         ratio,
-        floor: CONTRAST_FLOOR,
-        passes: ratio >= CONTRAST_FLOOR,
+        floor,
+        passes: ratio >= floor,
       })
     }
+  }
+
+  const collapsed = SHADE_RELATIONS.filter(([shade, base]) => {
+    const a = colors.get(shade)
+    const b = colors.get(base)
+    return a !== undefined && b !== undefined && oklchToHex(a) === oklchToHex(b)
+  })
+  if (collapsed.length > 0) {
+    diagnostics.push({
+      level: 'info',
+      code: 'color.state-collapsed',
+      path: 'color.roles',
+      message:
+        `${collapsed.map(([shade, base]) => `${shade} and ${base}`).join('; ')} render as the same colour: ` +
+        'holding the foreground at the contrast floor consumed the whole offset. The state exists in the ' +
+        'token set but cannot be seen; distinguish it with something other than fill.',
+    })
   }
 
   // Diagnostics are raised from the *final* ratios, so a foreground that could
@@ -252,7 +441,16 @@ function distillColor(
     })
   }
 
-  return { mode, roles, contrast, palette }
+  const backgroundRoleByCapture = new Map<string, ColorRoleName>()
+  for (const cluster of clusters) {
+    const role = roleOfCluster.get(cluster.id)
+    if (role === undefined) continue
+    for (const captureId of cluster.channelCaptureIds.background) {
+      if (!backgroundRoleByCapture.has(captureId)) backgroundRoleByCapture.set(captureId, role)
+    }
+  }
+
+  return { tokens: { mode, roles, contrast, palette }, backgroundRoleByCapture }
 }
 
 /**
@@ -266,12 +464,18 @@ export function distill(input: unknown): TokensDocument {
   const captures = [...set.captures].sort((a, b) => byString(a.id, b.id))
   const diagnostics: Diagnostic[] = []
 
-  const color = distillColor(captures, diagnostics)
+  const { tokens: color, backgroundRoleByCapture } = distillColor(captures, diagnostics)
   const spacing = distillSpacing(readSpacing(captures), diagnostics)
   const border = distillBorder(readBorderWidths(captures))
   const radius = distillRadius(readRadii(captures), diagnostics)
   const shadow = distillShadows(captures, diagnostics)
   const typography = distillTypography(captures, diagnostics)
+  // Last, because a recipe is a sentence written in every scale above it.
+  const components = distillComponents(
+    captures,
+    { color, backgroundRoleByCapture, spacing, border, radius, typography },
+    diagnostics,
+  )
 
   const originCounts = new Map<string, number>()
   for (const capture of captures) {
@@ -316,6 +520,7 @@ export function distill(input: unknown): TokensDocument {
     radius,
     shadow,
     typography,
+    components,
     diagnostics,
   }
 }

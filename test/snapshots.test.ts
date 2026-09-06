@@ -53,7 +53,7 @@ function summarise(tokens: TokensDocument): unknown {
     ),
     contrast: tokens.color.contrast.map(
       (pair) =>
-        `${pair.foreground.replace('color.roles.', '')} on ${pair.background.replace('color.roles.', '')} = ${pair.ratio}:1 ${pair.passes ? 'pass' : 'FAIL'}`,
+        `${pair.foreground.replace('color.roles.', '')} on ${pair.background.replace('color.roles.', '')} = ${pair.ratio}:1 (floor ${pair.floor}) ${pair.passes ? 'pass' : 'FAIL'}`,
     ),
     unusedColors: tokens.color.palette.filter((entry) => entry.role === null).map((entry) => entry.hex),
     mergedColors: tokens.color.palette
@@ -62,7 +62,7 @@ function summarise(tokens: TokensDocument): unknown {
     spacing: {
       baseUnit: tokens.spacing.baseUnit,
       fit: tokens.spacing.fit,
-      steps: tokens.spacing.steps.map((step) => `${step.value.name}: ${step.value.px}px`),
+      steps: tokens.spacing.steps.map((step) => `${step.value.name}: ${step.value.px}px ${step.value.band}`),
     },
     borderWidth: `${tokens.border.width.value}px`,
     radius: Object.fromEntries(
@@ -81,6 +81,23 @@ function summarise(tokens: TokensDocument): unknown {
         (step) =>
           `${step.value.name}: ${step.value.fontSize}px/${step.value.lineHeight} @${step.value.fontWeight}${step.value.letterSpacing !== undefined ? ` ls${step.value.letterSpacing}` : ''}`,
       ),
+    },
+    components: {
+      // The provenance strategy travels with each number: a recipe silently
+      // sliding from "measured" to "defaulted" is exactly the kind of tuning
+      // regression this snapshot exists to surface.
+      recipes: tokens.components.recipes.map(
+        (recipe) =>
+          `${recipe.name}: ${recipe.height.value}px, pad ${recipe.paddingY.value}/${recipe.paddingX.value}, ` +
+          `radius ${recipe.radius.value}, type ${recipe.typeStep.value}@${recipe.fontWeight.value} ` +
+          `[${[recipe.paddingY, recipe.paddingX, recipe.radius, recipe.typeStep, recipe.fontWeight]
+            .map((token) => token.provenance.decision.strategy)
+            .join(',')}]`,
+      ),
+      states: [
+        `disabled: ${tokens.components.states.disabled.ratio}:1 (floor ${tokens.components.states.disabled.floor})`,
+        `focusRing: ${tokens.components.states.focusRing.width.value}px at +${tokens.components.states.focusRing.offset.value}px`,
+      ],
     },
     diagnostics: tokens.diagnostics.map((diagnostic) => `${diagnostic.level} ${diagnostic.code}`),
   }
@@ -132,7 +149,7 @@ describe('cross-set expectations', () => {
     expect(await backgroundHue('ghost-warm')).toBeLessThan(135)
   })
 
-  it('guarantees the contrast floor on every pair of every set', async () => {
+  it('guarantees each pair its own floor in every set', async () => {
     for (const setId of setIds) {
       const tokens = await tokensFor(setId)
       for (const pair of tokens.color.contrast) {
@@ -146,6 +163,7 @@ describe('cross-set expectations', () => {
       'background',
       'surface',
       'surfaceHover',
+      'selectedSurface',
       'border',
       'text',
       'textMuted',
@@ -153,6 +171,8 @@ describe('cross-set expectations', () => {
       'primaryHover',
       'primaryActive',
       'primaryForeground',
+      'disabledSurface',
+      'disabledForeground',
     ]
     for (const setId of setIds) {
       const roles = (await tokensFor(setId)).color.roles

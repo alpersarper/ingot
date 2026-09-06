@@ -30,18 +30,25 @@ export type {
   ColorTokens,
   ColorValue,
   BorderTokens,
+  ComponentColors,
+  ComponentRecipe,
+  ComponentRecipeName,
+  ComponentTokens,
   ContrastAdjustment,
   ContrastPair,
   Diagnostic,
   DiagnosticLevel,
+  FocusRingTokens,
   RadiusStepName,
   RadiusTokens,
   ShadowLayer,
   ShadowStepName,
   ShadowTokens,
   ShadowValue,
+  SpacingBand,
   SpacingStep,
   SpacingTokens,
+  StateTokens,
   Token,
   TokensDocument,
   TypeStep,
@@ -49,6 +56,7 @@ export type {
   TypographyTokens,
 } from './tokens/types'
 
+export { derive, sanction } from './provenance'
 export type {
   Contribution,
   Derivation,
@@ -62,10 +70,25 @@ export { ENGINE_NAME, ENGINE_VERSION } from './version'
 
 // Individual stages, exported so the future panel can re-run one decision
 // (e.g. "what if the base unit were 8px?") without re-running the whole engine.
-export { CONTRAST_FLOOR, enforceContrast } from './color/contrast'
+export {
+  CONTRAST_FLOOR,
+  DISABLED_CONTRAST_FLOOR,
+  enforceContrast,
+  enforceContrastByChroma,
+  enforceContrastOnBackground,
+} from './color/contrast'
 export { CLUSTER_RADIUS, clusterColors, readColors } from './color/cluster'
-export { NEUTRAL_CHROMA_MAX, assignRoles, detectMode } from './color/roles'
-export { BASE_FIT_THRESHOLD, CANDIDATE_BASES, SNAPPING_RULE, baseFit, chooseBase, snapSpacing } from './spacing/spacing'
+export { NEUTRAL_CHROMA_MAX, assignRoles, deriveInteractionShades, detectMode } from './color/roles'
+export {
+  BASE_FIT_THRESHOLD,
+  CANDIDATE_BASES,
+  LAYOUT_TARGETS_PX,
+  SNAPPING_RULE,
+  baseFit,
+  chooseBase,
+  layoutRuleFor,
+  snapSpacing,
+} from './spacing/spacing'
 export { parseShadow } from './shadow/shadow'
 export { colorDistance, contrastRatio, formatOklch, oklchToHex, parseColor } from './color/space'
 export type { Oklch } from './color/space'

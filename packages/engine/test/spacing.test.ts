@@ -5,7 +5,16 @@
  * values, so its edges are pinned here.
  */
 import { describe, expect, it } from 'vitest'
-import { BASE_FIT_THRESHOLD, CANDIDATE_BASES, baseFit, chooseBase, snapSpacing } from '../src/index'
+import {
+  BASE_FIT_THRESHOLD,
+  CANDIDATE_BASES,
+  LAYOUT_TARGETS_PX,
+  baseFit,
+  chooseBase,
+  distill,
+  snapSpacing,
+} from '../src/index'
+import type { CaptureRecord } from '../src/index'
 
 describe('baseFit', () => {
   it('is the share of non-zero observations that are exact multiples', () => {
@@ -69,5 +78,100 @@ describe('snapSpacing', () => {
 
   it('keeps zero at zero', () => {
     expect(snapSpacing(0, 8)).toBe(0)
+  })
+})
+
+/**
+ * The two bands.
+ *
+ * A capture is one component, so the largest length the evidence can supply is
+ * that component's own padding -- 24px across every fixture set. The exported
+ * spec forbids off-scale values, so before the layout band existed every page
+ * gutter in every consumer collapsed onto that same 24px.
+ */
+describe('spacing bands', () => {
+  const capture = (id: string, styles: Record<string, string>): CaptureRecord =>
+    ({
+      schemaVersion: 1,
+      id,
+      componentType: 'card',
+      sourceUrl: 'https://example.com/',
+      capturedAt: '2026-01-01T00:00:00.000Z',
+      styles,
+    }) as CaptureRecord
+
+  const distilled = (padding: string) =>
+    distill({
+      schemaVersion: 1,
+      id: 'demo',
+      name: 'Demo',
+      description: 'Demo.',
+      captures: [
+        capture('card', {
+          color: '#111111',
+          backgroundColor: '#ffffff',
+          fontSize: '16px',
+          fontWeight: '400',
+          lineHeight: '24px',
+          paddingTop: padding,
+          paddingRight: padding,
+          paddingBottom: padding,
+          paddingLeft: padding,
+        }),
+      ],
+    }).spacing
+
+  it('labels everything up to the largest observation as component space', () => {
+    const spacing = distilled('24px')
+    const component = spacing.steps.filter((step) => step.value.band === 'component')
+    expect(component.map((step) => step.value.px)).toEqual([0, 8, 16, 24])
+    expect(spacing.largestObservedMultiple * spacing.baseUnit).toBe(24)
+  })
+
+  it('continues the series into layout range past the largest observation', () => {
+    const layout = distilled('24px').steps.filter((step) => step.value.band === 'layout')
+    expect(layout.map((step) => step.value.px)).toEqual([...LAYOUT_TARGETS_PX])
+  })
+
+  it('marks layout steps as extrapolated, never as evidence', () => {
+    for (const step of distilled('24px').steps.filter((s) => s.value.band === 'layout')) {
+      expect(step.provenance.captureIds).toEqual([])
+      expect(step.provenance.observed).toEqual([])
+      expect(step.provenance.decision.strategy).toBe('derived')
+      expect(step.provenance.decision.derivation?.method).toBe('layout-scale-extension')
+    }
+  })
+
+  it('does not extrapolate a length the captures already reached', () => {
+    // A 48px padding puts 48 in the component band; only the steps above it are
+    // extrapolated, and 48px is never emitted twice.
+    const spacing = distilled('48px')
+    const at48 = spacing.steps.filter((step) => step.value.px === 48)
+    expect(at48).toHaveLength(1)
+    expect(at48[0]?.value.band).toBe('component')
+    expect(spacing.steps.filter((step) => step.value.band === 'layout').map((s) => s.value.px)).toEqual([64])
+  })
+
+  it('states the banding rule in prose the exported spec can quote', () => {
+    const spacing = distilled('24px')
+    expect(spacing.layoutRule).toContain('component steps')
+    expect(spacing.layoutRule).toContain('layout')
+    for (const px of LAYOUT_TARGETS_PX) expect(spacing.layoutRule).toContain(`${px}px`)
+  })
+
+  it('names only the layout steps this document actually emitted', () => {
+    // 48px is observed, so it and everything below it are component steps; the
+    // prose must not call them extrapolated.
+    const spacing = distilled('48px')
+    expect(spacing.steps.filter((step) => step.value.band === 'layout').map((s) => s.value.px)).toEqual([64])
+    expect(spacing.layoutRule).toContain('64px')
+    for (const px of [32, 40, 48]) expect(spacing.layoutRule).not.toContain(`${px}px`)
+  })
+
+  it('says so when the captures already cover every layout target', () => {
+    const spacing = distilled('64px')
+    expect(spacing.steps.filter((step) => step.value.band === 'layout')).toHaveLength(0)
+    expect(spacing.layoutRule).toContain('already reach layout range')
+    for (const px of LAYOUT_TARGETS_PX) expect(spacing.layoutRule).not.toContain(`${px}px`)
   })
 })

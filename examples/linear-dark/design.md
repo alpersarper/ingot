@@ -1,6 +1,6 @@
 # Linear-like dark product UI — design system
 
-Distilled by ingot-engine 0.1.0 from 10 captured components across 1 origin.
+Distilled by ingot-engine 0.2.0 from 10 captured components across 1 origin.
 
 A single dark product surface captured across two pages of one app: near-black page background, one indigo brand colour, tight 13px body type, and 1px borders doing all the separation work.
 
@@ -34,8 +34,11 @@ Paste this into your global stylesheet. Values are OKLCH, matching the shadcn/ui
   --input: oklch(0.2764 0.0079 264.44); /* #26282c — input outlines */
   --ring: oklch(0.5674 0.1585 275.21); /* #5e6ad2 — focus ring */
   --ingot-surface-hover: oklch(0.2250 0.0026 247.96); /* #1b1c1d — raw hover surface */
-  --ingot-primary-hover: oklch(0.6074 0.1585 275.21); /* #6976e0 — primary hover fill */
-  --ingot-primary-active: oklch(0.6474 0.1585 275.21); /* #7483ed — primary pressed fill */
+  --ingot-primary-hover: oklch(0.5774 0.1585 275.21); /* #616dd5 — primary hover fill */
+  --ingot-primary-active: oklch(0.5774 0.1585 275.21); /* #616dd5 — primary pressed fill */
+  --ingot-selected-surface: oklch(0.2150 0.0500 275.21); /* #131730 — selected row and active nav item fill */
+  --ingot-disabled-surface: oklch(0.2550 0.0026 247.96); /* #222324 — disabled control fill */
+  --ingot-disabled-foreground: oklch(0.5363 0.0146 262.36); /* #696e76 — disabled label and icon colour */
   --radius: 8px;
 }
 ```
@@ -67,38 +70,58 @@ Tailwind v4 theme mapping:
 
 Every colour in the UI must come from this table. There are no other colours in this system.
 
-| Role                | Hex     | OKLCH                       | Use it for                                     |
-| ------------------- | ------- | --------------------------- | ---------------------------------------------- |
-| `background`        | #08090a | oklch(0.1390 0.0029 246.26) | page background                                |
-| `surface`           | #141516 | oklch(0.1950 0.0026 247.96) | panel/card background; also --popover          |
-| `surfaceHover`      | #1b1c1d | oklch(0.2250 0.0026 247.96) | hover fill for rows, menu items, ghost buttons |
-| `border`            | #26282c | oklch(0.2764 0.0079 264.44) | all 1px separators and control outlines        |
-| `text`              | #f7f8f8 | oklch(0.9784 0.0011 197.14) | default text on --background                   |
-| `textMuted`         | #8a8f98 | oklch(0.6488 0.0146 262.36) | de-emphasised text, placeholders, captions     |
-| `primary`           | #5e6ad2 | oklch(0.5674 0.1585 275.21) | brand fill: primary buttons, active states     |
-| `primaryHover`      | #6976e0 | oklch(0.6074 0.1585 275.21) | primary hover fill                             |
-| `primaryActive`     | #7483ed | oklch(0.6474 0.1585 275.21) | primary pressed fill                           |
-| `primaryForeground` | #ffffff | oklch(1.0000 0.0000 0.00)   | text/icons on --primary                        |
+| Role                 | Hex     | OKLCH                       | Use it for                                     |
+| -------------------- | ------- | --------------------------- | ---------------------------------------------- |
+| `background`         | #08090a | oklch(0.1390 0.0029 246.26) | page background                                |
+| `surface`            | #141516 | oklch(0.1950 0.0026 247.96) | panel/card background; also --popover          |
+| `surfaceHover`       | #1b1c1d | oklch(0.2250 0.0026 247.96) | hover fill for rows, menu items, ghost buttons |
+| `selectedSurface`    | #131730 | oklch(0.2150 0.0500 275.21) | selected row and active nav item fill          |
+| `border`             | #26282c | oklch(0.2764 0.0079 264.44) | all 1px separators and control outlines        |
+| `text`               | #f7f8f8 | oklch(0.9784 0.0011 197.14) | default text on --background                   |
+| `textMuted`          | #8a8f98 | oklch(0.6488 0.0146 262.36) | de-emphasised text, placeholders, captions     |
+| `primary`            | #5e6ad2 | oklch(0.5674 0.1585 275.21) | brand fill: primary buttons, active states     |
+| `primaryHover`       | #616dd5 | oklch(0.5774 0.1585 275.21) | primary hover fill                             |
+| `primaryActive`      | #616dd5 | oklch(0.5774 0.1585 275.21) | primary pressed fill                           |
+| `primaryForeground`  | #ffffff | oklch(1.0000 0.0000 0.00)   | text/icons on --primary                        |
+| `disabledSurface`    | #222324 | oklch(0.2550 0.0026 247.96) | disabled control fill                          |
+| `disabledForeground` | #696e76 | oklch(0.5363 0.0146 262.36) | disabled label and icon colour                 |
 
 ### Colour rules
 
 - Text on `background` or `surface` is `text`. De-emphasised text is `textMuted`. There is no third text colour.
 - `primary` is a fill, not a text colour. Use `primaryForeground` for anything drawn on top of it.
 - Hover on an interactive surface goes to `surfaceHover`; hover on a primary fill goes to `primaryHover`; the pressed state is `primaryActive`.
+- A selected row, tab or nav item is filled with `selectedSurface` (#131730) and keeps `text` on top. Selection reads by hue, hover reads by lightness; do not swap them.
+- A disabled control is filled with `disabledSurface` (#222324) and labelled `disabledForeground` (#696e76). Never build a disabled state out of `opacity`.
 - Borders are 1px `border`. Do not use shadows in place of borders for separation, and do not use `text` at reduced opacity as a border.
 - This system has no destructive colour. If you need one, add it explicitly rather than reaching for an arbitrary red.
 
+> **These states render identically:** `primaryActive` and `primaryHover`. Holding the label at the contrast floor consumed the whole offset, so the fill cannot carry the distinction on this palette. Signal the state with the focus ring, a border, or a transform — not with the fill.
+
 ### Contrast
 
-Every pair below is guaranteed at or above **4.5:1** (WCAG 2.1 AA, normal text).
+This table is exhaustive: every pair the kit puts on screen is measured here, including the derived hover, pressed and selected surfaces. Text pairs are guaranteed at or above **4.5:1** (WCAG 2.1 AA, normal text). The disabled pair is held to **3:1** on purpose — WCAG 2.1 exempts inactive controls from 1.4.3, and a disabled label that clears the body-text floor stops reading as disabled.
 
-| Foreground          | Background   | Ratio   | Status |
-| ------------------- | ------------ | ------- | ------ |
-| `text`              | `background` | 18.73:1 | pass   |
-| `text`              | `surface`    | 17.18:1 | pass   |
-| `textMuted`         | `background` | 6.13:1  | pass   |
-| `textMuted`         | `surface`    | 5.63:1  | pass   |
-| `primaryForeground` | `primary`    | 4.7:1   | pass   |
+| Foreground           | Background        | Ratio   | Floor | Status |
+| -------------------- | ----------------- | ------- | ----- | ------ |
+| `text`               | `background`      | 18.73:1 | 4.5:1 | pass   |
+| `text`               | `surface`         | 17.18:1 | 4.5:1 | pass   |
+| `textMuted`          | `background`      | 6.13:1  | 4.5:1 | pass   |
+| `textMuted`          | `surface`         | 5.63:1  | 4.5:1 | pass   |
+| `primaryForeground`  | `primary`         | 4.7:1   | 4.5:1 | pass   |
+| `primaryForeground`  | `primaryHover`    | 4.51:1  | 4.5:1 | pass   |
+| `primaryForeground`  | `primaryActive`   | 4.51:1  | 4.5:1 | pass   |
+| `text`               | `surfaceHover`    | 16.04:1 | 4.5:1 | pass   |
+| `text`               | `selectedSurface` | 16.55:1 | 4.5:1 | pass   |
+| `textMuted`          | `surfaceHover`    | 5.25:1  | 4.5:1 | pass   |
+| `textMuted`          | `selectedSurface` | 5.42:1  | 4.5:1 | pass   |
+| `disabledForeground` | `disabledSurface` | 3.07:1  | 3:1   | pass   |
+
+The following roles were moved away from the value they started at to reach their floor — a captured colour for an observed role, the offset the engine computed for a derived one. Use the adjusted values; the originals fail accessibility.
+
+- `primaryHover`: #6976e0 → #616dd5 (3.99:1 → 4.51:1). foreground was already at the gamut boundary, so the background moved instead: 3.99:1 to 4.51:1 by OKLCH lightness -0.03.
+- `primaryActive`: #7483ed → #616dd5 (3.38:1 → 4.51:1). foreground was already at the gamut boundary, so the background moved instead: 3.38:1 to 4.51:1 by OKLCH lightness -0.07.
+- `disabledForeground`: #5c6169 → #696e76 (2.53:1 → 3.07:1). raised contrast from 2.53:1 to 3.07:1 by moving OKLCH lightness +0.045.
 
 ## 3. Typography
 
@@ -124,19 +147,27 @@ Every pair below is guaranteed at or above **4.5:1** (WCAG 2.1 AA, normal text).
 
 Base unit **4px**. 88.2% of the captured lengths were already exact multiples of it.
 
-| Step | px   | Tailwind                  |
-| ---- | ---- | ------------------------- |
-| `0`  | 0px  | `p-0` / `gap-0`           |
-| `1`  | 4px  | `p-[4px]` / `gap-[4px]`   |
-| `2`  | 8px  | `p-[8px]` / `gap-[8px]`   |
-| `3`  | 12px | `p-[12px]` / `gap-[12px]` |
-| `4`  | 16px | `p-[16px]` / `gap-[16px]` |
-| `5`  | 20px | `p-[20px]` / `gap-[20px]` |
-| `6`  | 24px | `p-[24px]` / `gap-[24px]` |
+The scale has two bands. **Component** steps sit at or below the largest observed length: a capture is one component, so the evidence stops at that component's own padding, and each step's provenance records whether it was observed or gap-filled. **Layout** steps continue the same multiplier series past the largest observation, because page rhythm has to come from somewhere and inventing it per screen is worse than stating it here.
+
+| Step | px   | Band      | Tailwind                  |
+| ---- | ---- | --------- | ------------------------- |
+| `0`  | 0px  | component | `p-0` / `gap-0`           |
+| `1`  | 4px  | component | `p-[4px]` / `gap-[4px]`   |
+| `2`  | 8px  | component | `p-[8px]` / `gap-[8px]`   |
+| `3`  | 12px | component | `p-[12px]` / `gap-[12px]` |
+| `4`  | 16px | component | `p-[16px]` / `gap-[16px]` |
+| `5`  | 20px | component | `p-[20px]` / `gap-[20px]` |
+| `6`  | 24px | component | `p-[24px]` / `gap-[24px]` |
+| `8`  | 32px | layout    | `p-[32px]` / `gap-[32px]` |
+| `10` | 40px | layout    | `p-[40px]` / `gap-[40px]` |
+| `12` | 48px | layout    | `p-[48px]` / `gap-[48px]` |
+| `16` | 64px | layout    | `p-[64px]` / `gap-[64px]` |
 
 ### Spacing rules
 
 - Every padding, margin and gap is a multiple of 4px drawn from the table above.
+- Inside a control or a card, use the component steps (up to 24px). They stay within the range the sources actually use.
+- Between cards, between sections and around the page, use the layout steps (32px, 40px, 48px, 64px). Do not pad a page with a component step: that is what makes a generated screen read as cramped.
 - Snapping rule applied during distillation: Each observed padding, margin and gap length is snapped to the nearest multiple of the base unit; exact .5 ties round up. A non-zero length shorter than half the base unit snaps up to one base unit rather than collapsing to 0, because a visible gap must stay visible. Steps are named by their multiplier, so step "3" is 3 x the base unit.
 - Do not use arbitrary values such as `p-[13px]` or `mt-[7px]`. If a layout seems to need one, pick the nearer step.
 
@@ -163,17 +194,66 @@ Base unit **4px**. 88.2% of the captured lengths were already exact multiples of
 
 - `sm` is for resting controls, `md` for cards, `lg` for overlays and popovers. Do not stack shadows.
 
-## 7. Do not
+## 7. Components
+
+Each control below is fully specified. These are not defaults to adjust — a screen built with a 32px button and a screen built with a 40px button are two different products, and the whole point of this section is that both of you get the same one. Use these numbers.
+
+| Component          | Height | Padding (y, x) | Radius       | Type                | Weight | From                   |
+| ------------------ | ------ | -------------- | ------------ | ------------------- | ------ | ---------------------- |
+| `button.primary`   | 36px   | 8px, 12px      | `md` (8px)   | `base` (13px/1.538) | 500    | captured               |
+| `button.secondary` | 38px   | 8px, 12px      | `md` (8px)   | `base` (13px/1.538) | 500    | captured               |
+| `button.ghost`     | 36px   | 8px, 8px       | `sm` (6px)   | `base` (13px/1.538) | 500    | captured               |
+| `input`            | 38px   | 8px, 12px      | `sm` (6px)   | `base` (13px/1.538) | 400    | captured               |
+| `select`           | 38px   | 8px, 12px      | `sm` (6px)   | `base` (13px/1.538) | 400    | like `input`           |
+| `table.header`     | 34px   | 8px, 12px      | `none` (0px) | `sm` (11px/1.455)   | 600    | like `input` + default |
+| `table.row`        | 38px   | 8px, 12px      | `none` (0px) | `base` (13px/1.538) | 400    | like `input` + default |
+| `badge`            | 26px   | 4px, 8px       | `sm` (6px)   | `sm` (11px/1.455)   | 600    | default                |
+
+Colours for the same controls:
+
+| Component          | Fill           | Text                | Border   | Hover fill     | What it is for                                             |
+| ------------------ | -------------- | ------------------- | -------- | -------------- | ---------------------------------------------------------- |
+| `button.primary`   | `primary`      | `primaryForeground` | —        | `primaryHover` | The one call to action on a screen.                        |
+| `button.secondary` | `surface`      | `text`              | `border` | `surfaceHover` | Every other action that is not destructive.                |
+| `button.ghost`     | —              | `text`              | —        | `surfaceHover` | Toolbar and icon actions; transparent until hovered.       |
+| `input`            | `surface`      | `text`              | `border` | —              | Text fields and textareas.                                 |
+| `select`           | `surface`      | `text`              | `border` | —              | Native and custom selects. A text field with a chevron.    |
+| `table.header`     | `surface`      | `textMuted`         | `border` | —              | Column headings. One rule underneath, never a filled band. |
+| `table.row`        | `surface`      | `text`              | `border` | `surfaceHover` | Data rows. Separated by a rule, highlighted on hover.      |
+| `badge`            | `surfaceHover` | `text`              | `border` | —              | Status pills inside tables and cards.                      |
+
+### Component rules
+
+- Height is the border-box height: `padding-y x 2 + line box + border x 2`. Set it explicitly rather than letting content decide, so a button with an icon and a button with a label are the same height.
+- A control's radius is the step named above, not a px value of your own. Nest smaller radii inside larger ones.
+- The type step carries its line height with it (see §3). Do not restyle a control's font size away from its step.
+- `From` says where the geometry came from: `captured` was measured in the sources, `like x` was taken from another recipe, `default` is this engine's sanctioned value because nothing described that control. Per-value provenance is in `tokens.json` under `components.recipes`.
+- There is no destructive button in this kit, because there is no destructive colour (see §2). Do not add one from outside the system.
+
+### States
+
+| State    | How to draw it                                                                                                                        |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| hover    | The recipe's hover fill above. On a primary fill that is `primaryHover` (#616dd5).                                                    |
+| pressed  | `primaryActive` (#616dd5) on a primary fill; otherwise keep the hover fill.                                                           |
+| focus    | `2px solid var(--ring)` at `outline-offset: 2px`, on every focusable control. Never remove it.                                        |
+| selected | Fill `selectedSurface` (#131730), text `text`.                                                                                        |
+| disabled | Fill `disabledSurface` (#222324), text `disabledForeground` (#696e76), measured at 3.07:1. Keep the border. Do **not** use `opacity`. |
+
+`opacity` is not a disabled state: on a light kit a 50% label over a 50% fill measures 1:1 and disappears. The two colours above are real, and they are checked (§2).
+
+## 8. Do not
 
 - Do not introduce a colour, size, spacing value, radius or shadow that is not in this document.
+- Do not invent a control height or padding. §7 gives every control both.
 - Do not use Tailwind default palette utilities (`bg-slate-900`, `text-gray-500`, `border-zinc-200`). Use the theme variables.
 - Do not use `text-white` or `text-black`. Use `text-foreground`, `text-muted-foreground` or `text-primary-foreground`.
-- Do not use opacity to make text quieter. Use `textMuted` (#8a8f98), which is contrast-checked.
+- Do not use opacity to make text quieter or a control inactive. Use `textMuted` (#8a8f98) for quiet text and `disabledForeground` (#696e76) on `disabledSurface` (#222324) for disabled controls. Both are contrast-checked; opacity cannot be.
 - Do not change the values of `primary` (#5e6ad2) or `background` (#08090a) per component.
 - Do not add gradients, glows, or animated colour transitions. Nothing in the captured sources uses them.
 - Do not restyle shadcn/ui primitives inline. Change the theme variables above instead.
 
-## 8. Where this came from
+## 9. Where this came from
 
 | Origin             | Captures |
 | ------------------ | -------- |

@@ -1,4 +1,4 @@
-# Tokens document schema (version 1)
+# Tokens document schema (version 2)
 
 `tokens.json` is the distilled design system for one capture set. It is
 **stack-agnostic**: nothing in it names Tailwind, shadcn or CSS variables. That
@@ -9,6 +9,13 @@ so adding an export target never means changing this shape.
 - Normative machine-readable schema: [`schemas/tokens.schema.json`](../schemas/tokens.schema.json)
 - TypeScript types: [`packages/engine/src/tokens/types.ts`](../packages/engine/src/tokens/types.ts)
 - Worked examples: [`examples/*/tokens.json`](../examples)
+
+Version 2 (engine 0.2.0) added the `components` section, the three state colour
+roles, and the `component`/`layout` banding on the spacing scale. Version 1
+described colour, type, spacing, radius, shadow and border and stopped there,
+which meant `design.md` could not say what a button was even in principle --
+so every consumer invented its own control geometry, its own disabled state and
+its own page rhythm.
 
 ## Determinism
 
@@ -69,7 +76,8 @@ not the number of captures: one card contributes four corner radii.
 | `snapped-scale` | Observed values were snapped onto the base scale; this step is where they landed. `chosen` is the snapped value and is often not one anybody wrote. |
 | `cluster-representative` | Perceptually near-duplicate values were merged; the representative stands for the cluster. |
 | `role-assignment` | A colour cluster was given a semantic role by the role heuristics. `summary` names the rule that fired. |
-| `derived` | Nothing suitable was observed; the value was computed. Carries a `derivation`. |
+| `derived` | Nothing suitable was observed; the value was computed from another token. Carries a `derivation`. |
+| `sanctioned-default` | Nothing was observed **and** nothing else in the document implied the value, so the engine supplied one of its own. Carries a `derivation` and never any `captureIds`. Kept separate from `derived` because the two carry different authority: a derived value is a consequence of this kit, a default is the engine's house choice and is the first thing a reviewer should feel free to override. |
 
 ### Derivations
 
@@ -85,15 +93,16 @@ not the number of captures: one card contributes four corner radii.
 
 ```jsonc
 {
-  "schemaVersion": 1,
-  "engine": { "name": "ingot-engine", "version": "0.1.0" },
+  "schemaVersion": 2,
+  "engine": { "name": "ingot-engine", "version": "0.2.0" },
   "source": { /* set id, name, description, capture ids, origins, component-type counts */ },
   "color":      { "mode", "roles", "contrast", "palette" },
-  "spacing":    { "baseUnit", "unit", "snappingRule", "fit", "steps" },
+  "spacing":    { "baseUnit", "unit", "snappingRule", "layoutRule", "fit", "largestObservedMultiple", "steps" },
   "border":     { "unit", "width" },
   "radius":     { "unit", "steps" },
   "shadow":     { "steps" },
   "typography": { "families", "baseSize", "scaleRatio", "weights", "steps" },
+  "components": { "states", "recipes" },
   "diagnostics": [ /* things a human should look at */ ]
 }
 ```
@@ -105,10 +114,16 @@ not the number of captures: one card contributes four corner radii.
 dark page with a lot of white text is still a dark page.
 
 `roles` is a deliberately small semantic set. `background`, `surface`,
-`surfaceHover`, `border`, `text`, `textMuted`, `primary`, `primaryHover`,
-`primaryActive` and `primaryForeground` are always present. `destructive` and
+`surfaceHover`, `selectedSurface`, `border`, `text`, `textMuted`, `primary`,
+`primaryHover`, `primaryActive`, `primaryForeground`, `disabledSurface` and
+`disabledForeground` are always present. `destructive` and
 `destructiveForeground` appear only when the captures actually contain a red
 signal colour -- inventing one would be inventing a design decision.
+
+`selectedSurface`, `disabledSurface` and `disabledForeground` are **real
+colours, never an opacity ramp**. An opacity ramp cannot be contrast-checked,
+and it is what a consumer reaches for when the kit is silent: `opacity: 0.5` on
+a label over a 50% fill measures 1:1 on a light kit and the label disappears.
 
 Every role value is given as `oklch(L C H)` plus an sRGB `hex` fallback and the
 decomposed `lightness`/`chroma`/`hue`.
@@ -150,10 +165,20 @@ claimed (`"role": null`), with the near-duplicates each cluster absorbed in
    whichever of black or white contrasts better.
 9. `destructive`: a saturated colour in the red hue window, if one was observed.
 10. Anything still missing is derived from what was claimed, and the interaction
-    shades (`surfaceHover`, `primaryHover`, `primaryActive`) are always derived
-    by moving OKLCH lightness toward the viewer -- lighter on dark, darker on
-    light. Hover and pressed states are almost never in a static capture, and
-    computing them consistently beats guessing from one stray observation.
+    and state shades are always derived, because hover, pressed, selected and
+    disabled are almost never in a static capture and computing them
+    consistently beats guessing from one stray observation:
+    - `surfaceHover` (+/-0.03), `primaryHover` (+/-0.04), `primaryActive`
+      (+/-0.08) and `disabledSurface` (+/-0.06) move OKLCH lightness toward the
+      viewer -- lighter on dark, darker on light.
+    - `selectedSurface` moves `surface` by 0.02 and carries the **primary hue**
+      at chroma capped to the neutral threshold, so selection reads by hue where
+      hover reads by lightness and the two stay distinguishable side by side.
+    - `disabledForeground` interpolates `textMuted` 40% toward `disabledSurface`
+      so the control reads inactive, and the contrast floor stops it going
+      further.
+    Derivation happens *after* contrast enforcement has settled the base roles,
+    so a hover state never drifts away from the colour it is a state of.
 
 Chroma at or below `0.05` counts as neutral, which admits a deliberately tinted
 grey like `#1a1f36` (chroma 0.044) while excluding every real brand colour.
@@ -161,21 +186,74 @@ grey like `#1a1f36` (chroma 0.044) while excluding every real brand colour.
 #### Contrast floor
 
 The engine will not emit a text/background pair below **4.5:1** (WCAG 2.1 AA,
-normal text). Guaranteed pairs: `text` and `textMuted` against both `background`
-and `surface`, `primaryForeground` against `primary`, and
-`destructiveForeground` against `destructive`.
+normal text). The guarantee is enforced in two passes, because half of the pairs
+involve colours that do not exist until the first pass has finished.
+
+**Pass one, over the roles the captures supplied:**
+
+| Foreground | Backgrounds |
+| ---------- | ----------- |
+| `text` | `background`, `surface` |
+| `textMuted` | `background`, `surface` |
+| `primaryForeground` | `primary` |
+| `destructive` | `background`, `surface` |
+| `destructiveForeground` | `destructive` |
+
+`destructive` is there as a *foreground*: the exported spec presents it as an
+error-text colour as well as a fill, so it has to be legible on the surfaces
+error text lands on. It is enforced before `destructiveForeground` so that pair
+sees the settled value rather than the captured one.
+
+**Pass two, over the derived interaction and state surfaces**, which are
+computed only after pass one has settled their base roles:
+
+| Foreground | Backgrounds | Floor | Which side moves |
+| ---------- | ----------- | ----- | ---------------- |
+| `primaryForeground` | `primaryHover`, `primaryActive` | 4.5 | the shade |
+| `text` | `surfaceHover`, `selectedSurface` | 4.5 | the foreground |
+| `textMuted` | `surfaceHover`, `selectedSurface` | 4.5 | the foreground |
+| `disabledForeground` | `disabledSurface` | **3** | the foreground |
+
+A derived shade is an offset of a role that already passed, and an offset is not
+a guarantee. On a dark kit the hover lift moves a brand fill *toward* its white
+label, so before pass two existed every interaction made the label worse:
+linear-dark measured 3.99:1 on hover and 3.38:1 when pressed, under a heading
+claiming 4.5:1.
+
+A foreground moved in pass two is re-enforced against the **union** of its old
+and new backgrounds, so closing a new gap can never reopen an old one, and the
+`contrastAdjustment` records merge -- the record still names the captured value
+as its origin and reports the whole journey in one reason.
+
+The disabled pair is held to **3:1**, not 4.5:1. WCAG 2.1 exempts inactive
+controls from 1.4.3, and a disabled label that clears the body-text floor stops
+reading as disabled. 3:1 is WCAG's own non-text threshold and is far above the
+1:1 an opacity ramp produces.
 
 When a pair fails, the foreground's OKLCH lightness walks away from the
 background in 0.005 steps until the pair passes -- hue and chroma never move. If
 the foreground reaches the gamut boundary without clearing the floor (white on a
 mid-blue, for instance), the *background* moves instead, which preserves the
-brand hue at the cost of a small lightness nudge. If neither works, the
-adjustment records `"met": false` and a `color.contrast-unmet` warning is
-raised rather than the failure being hidden.
+brand hue at the cost of a small lightness nudge. If lightness runs out there
+too, **chroma** takes over: it changes luminance without touching the lightness
+coordinate, and hue, which is the brand, still never moves. If none of that
+works, the adjustment records `"met": false` and a `color.contrast-unmet`
+warning is raised rather than the failure being hidden.
+
+Holding a shade at the floor can consume the whole offset it was derived with.
+When that leaves a shade rendering identically to its base -- linear-dark's
+`primaryHover` and `primaryActive` both land on the same hex, because a white
+label on that indigo has no room to move -- a `color.state-collapsed` diagnostic
+says so, and `design.md` tells the consumer to signal that state with something
+other than the fill. The alternative was two tokens with one value under prose
+claiming they differ.
 
 Every change is recorded on the token as `contrastAdjustment` (before, after,
 both ratios, the delta, and a prose reason), and `color.contrast` reports the
-final ratio of every guaranteed pair.
+final ratio and the floor of every guaranteed pair. The decision `summary` names
+the shipped value too: a role that won its slot as `#0b76ef` and was then
+darkened to `#0373ec` says both, so provenance never hands the reader a hex the
+rest of the document calls inaccessible.
 
 ### `spacing`
 
@@ -199,6 +277,30 @@ Snapping *is* the clustering: lengths that land on the same multiple are the sam
 step, and each step's `observed` lists the raw values it absorbed. Gaps in the
 resulting sequence are filled (up to multiple 12) so the scale is contiguous;
 filled steps are marked `derived` with method `scale-gap-fill`.
+
+#### The two bands
+
+Every step carries a `band`, and `largestObservedMultiple` is the boundary.
+
+- **`component`** -- at or below the largest observed length. A capture is one
+  component, so component-internal padding and gap is as far as the evidence can
+  ever reach; whether a given step was observed or gap-filled is what its own
+  provenance records.
+- **`layout`** -- extrapolated past it, drawn from the candidate targets `32`,
+  `40`, `48` and `64px`. Both candidate base units divide all four exactly, so
+  the layout band is the same multiplier series continued rather than a second
+  scale. Only the targets above the document's largest observation are emitted
+  as layout steps -- a set whose captures already reach 40px extrapolates only
+  48 and 64. Layout steps carry no `captureIds` and are marked `derived` with
+  method `layout-scale-extension`.
+
+The layout band exists because the exported spec forbids off-scale values while
+the component band tops out at component-internal padding. Without it, page
+gutters, section rhythm and the gap between two cards all collapsed onto the same
+largest component step, and every generated screen read as flat and cramped.
+`layoutRule` states the split in prose, built per document from the layout steps
+that were actually emitted so it always agrees with the `band` field, and the
+exported spec tells the consumer which band to reach for where.
 
 ### `radius`
 
@@ -235,6 +337,54 @@ each other raise a `typography.adjacent-sizes` warning.
 Line heights are converted to unitless ratios. Font families are split into
 `sans` and an optional `mono` by name.
 
+### `components`
+
+The section that turns a palette document into a design-system document. The
+scales above say which values exist; this says how they compose, so two
+independent consumers of one kit cannot ship two different control scales.
+
+#### `recipes`
+
+One entry per control, in a fixed order: `button.primary`, `button.secondary`,
+`button.ghost`, `button.destructive` (only when the kit has a destructive
+colour), `input`, `select`, `table.header`, `table.row`, `badge`.
+
+Each carries `height`, `paddingY`, `paddingX`, `radius` (a step **name**, so the
+value tracks `radius.steps`), `typeStep` (likewise, so size and line height stay
+together), `fontWeight`, and a `colors` object of token paths into
+`color.roles`. `height` is the border-box sum -- `paddingY x 2 + line box +
+border x 2` -- and is recomputable from the recipe's own parts, so a consumer
+that adds them up lands on the stated number.
+
+Three sources of authority, distinguishable **per value** from the token's own
+`provenance.decision.strategy`:
+
+| Where it came from | Strategy | Example |
+| ------------------ | -------- | ------- |
+| measured in the captures | `snapped-scale` / `dominant-value` | button padding: captured buttons carry padding and font size |
+| borrowed from another recipe | `derived`, method `same-geometry-as` | `select` takes the geometry of `input`; a table cell takes its padding, because a cell is a text container at the same optical density |
+| supplied by the engine | `sanctioned-default`, method `component-default` | badge padding, table radius: nothing in a capture set describes either |
+
+Padding is snapped onto the spacing scale with the same rule the scale itself
+used, so a recipe can never name an off-scale length. `design.md` prints the mix
+per recipe in a `From` column.
+
+Where derivation is impossible the engine emits a stated default rather than
+silence, because silence is what makes two consumers ship two products. The one
+exception is `button.destructive`, which is omitted when the kit has no
+destructive colour: geometry can be defaulted, a brand decision cannot.
+
+#### `states`
+
+`focusRing` carries the geometry every consumer was otherwise inventing --
+`width` (twice the border width, floored at 2px) and `offset` (2px, a house
+value) -- and names the colour role via `colorRole` rather than duplicating the
+colour.
+
+`disabled` and `selected` likewise reference `color.roles` by path. `disabled`
+also reports the final measured `ratio` and the `floor` it was held to, so the
+pair a consumer would otherwise have built from `opacity: 0.5` is a checked one.
+
 ### `diagnostics`
 
 Notes for the operator, sorted warnings-first then by code. `warning` means a
@@ -243,9 +393,11 @@ is worth knowing. Codes are stable identifiers:
 
 | Code | Level | Meaning |
 | ---- | ----- | ------- |
-| `color.contrast-adjusted` | info | A role's lightness moved to meet the floor. |
-| `color.contrast-unmet` | warning | A pair still fails the floor after both escape hatches. |
+| `color.contrast-adjusted` | info | A role's lightness or chroma moved to meet its floor. |
+| `color.contrast-unmet` | warning | A pair still fails its floor after every escape hatch. |
+| `color.state-collapsed` | info | Holding a pair at its floor left a derived shade rendering identically to the role it came from. |
 | `color.unassigned` | info | Captured colours that no role claimed. |
+| `components.defaulted` | info | Controls nothing in the captures or the rest of the kit described; each carries a sanctioned default. |
 | `spacing.low-fit` | warning | No base unit fit well; how much snapping rewrote. |
 | `spacing.snapped` | info | Which lengths moved, largest moves first. |
 | `radius.truncated` | info | Radii dropped to keep the scale at three steps. |
