@@ -23,6 +23,7 @@ export function Topbar({ settings, onSaveLlmKey, onUnpair }: TopbarProps): React
   const [editingKey, setEditingKey] = useState(false)
   const [key, setKey] = useState('')
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   function toggleTheme(): void {
     const next = dark ? 'light' : 'dark'
@@ -31,7 +32,13 @@ export function Topbar({ settings, onSaveLlmKey, onUnpair }: TopbarProps): React
   }
 
   async function saveKey(): Promise<void> {
-    await onSaveLlmKey(key.trim())
+    setSaveError(null)
+    try {
+      await onSaveLlmKey(key.trim())
+    } catch (cause) {
+      setSaveError(cause instanceof Error ? cause.message : 'Could not save the key.')
+      return
+    }
     setKey('')
     setEditingKey(false)
     setSaved(true)
@@ -53,6 +60,11 @@ export function Topbar({ settings, onSaveLlmKey, onUnpair }: TopbarProps): React
       <div className="flex items-center gap-1">
         {editingKey ? (
           <div className="flex items-center gap-1.5">
+            {saveError === null ? null : (
+              <span className="max-w-52 truncate text-xs text-destructive" title={saveError} role="alert">
+                {saveError}
+              </span>
+            )}
             <Label htmlFor="topbar-llm-key" className="sr-only">
               LLM API key
             </Label>
@@ -68,7 +80,14 @@ export function Topbar({ settings, onSaveLlmKey, onUnpair }: TopbarProps): React
             <Button size="sm" onClick={() => void saveKey()} disabled={key.trim() === ''}>
               Save
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => setEditingKey(false)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setEditingKey(false)
+                setSaveError(null)
+              }}
+            >
               Cancel
             </Button>
           </div>

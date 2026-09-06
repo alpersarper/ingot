@@ -105,13 +105,13 @@ export function captureRoutes(context: AppContext): Hono<AppEnv> {
     }
 
     const tags = optionalStringArray(body, 'tags')
-    const capture = await store.captures.upsert({ record, ...(tags === undefined ? {} : { tags }) })
-
     const groupId = optionalString(body, 'groupId')
-    if (groupId !== undefined) {
-      if ((await store.groups.get(groupId)) === null) throw ApiError.notFound(`no group with id ${groupId}`)
-      await store.groups.addCaptures(groupId, [capture.id])
+    if (groupId !== undefined && (await store.groups.get(groupId)) === null) {
+      throw ApiError.notFound(`no group with id ${groupId}`)
     }
+
+    const capture = await store.captures.upsert({ record, ...(tags === undefined ? {} : { tags }) })
+    if (groupId !== undefined) await store.groups.addCaptures(groupId, [capture.id])
     return c.json({ capture: serialise(capture) }, 201)
   })
 

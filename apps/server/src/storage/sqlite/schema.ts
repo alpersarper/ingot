@@ -18,9 +18,11 @@ const MIGRATIONS: string[][] = [
        value      TEXT NOT NULL,
        updated_at TEXT NOT NULL
      )`,
-    // seq is the insertion order and the library-wide capture order. AUTOINCREMENT
-    // rather than plain rowid so a deleted capture's position is never reused,
-    // which keeps the order total even across deletes.
+    // seq is the insertion order and the library-wide capture order, fed from
+    // MAX(seq) + 1 on insert. A new row always sorts after every live row, so
+    // the order of live rows stays total across deletes; the seq of a deleted
+    // maximum row may be reused, which is fine because seq orders live rows
+    // rather than naming a row for all time.
     `CREATE TABLE captures (
        id              TEXT PRIMARY KEY,
        seq             INTEGER NOT NULL UNIQUE,
@@ -61,12 +63,16 @@ const MIGRATIONS: string[][] = [
        PRIMARY KEY (group_id, capture_id)
      )`,
     `CREATE UNIQUE INDEX group_captures_position ON group_captures (group_id, position)`,
-    // group_id NULL means a whole-library kit. version is unique per scope, but
-    // SQLite treats NULLs as distinct in unique indexes, so the two partial
-    // indexes below cover the grouped and library scopes separately.
+    // scope, not group_id, is what defines whether a kit distils one group or
+    // the whole library. group_id is ON DELETE SET NULL, so a deleted group's
+    // kit survives as an orphaned group kit: group_id becomes NULL, scope stays
+    // 'group', and the kit never turns into the library's. Version uniqueness
+    // keys on scope; SQLite treats NULLs as distinct in unique indexes, so
+    // orphaned group kits never collide with each other.
     `CREATE TABLE kits (
        id             TEXT PRIMARY KEY,
        group_id       TEXT REFERENCES groups (id) ON DELETE SET NULL,
+       scope          TEXT NOT NULL CHECK (scope IN ('group', 'library')),
        version        INTEGER NOT NULL,
        set_id         TEXT NOT NULL,
        name           TEXT NOT NULL,
@@ -77,8 +83,8 @@ const MIGRATIONS: string[][] = [
        warning_count  INTEGER NOT NULL,
        created_at     TEXT NOT NULL
      )`,
-    `CREATE UNIQUE INDEX kits_group_version ON kits (group_id, version) WHERE group_id IS NOT NULL`,
-    `CREATE UNIQUE INDEX kits_library_version ON kits (version) WHERE group_id IS NULL`,
+    `CREATE UNIQUE INDEX kits_group_version ON kits (group_id, version) WHERE scope = 'group'`,
+    `CREATE UNIQUE INDEX kits_library_version ON kits (version) WHERE scope = 'library'`,
   ],
 ]
 

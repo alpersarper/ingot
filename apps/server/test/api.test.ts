@@ -226,6 +226,21 @@ describe('captures, groups and tags', () => {
     expect(inGroup.captures.map((capture) => capture.id)).toEqual([first, second])
   })
 
+  it('refuses an unknown group without creating the capture', async () => {
+    const record = {
+      schemaVersion: 1,
+      id: 'stray-button',
+      componentType: 'button',
+      sourceUrl: 'https://example.com/',
+      capturedAt: '2026-02-11T09:14:22.000Z',
+      styles: { backgroundColor: '#3355ff', color: '#ffffff' },
+    }
+    const response = await harness.call('/api/captures', body({ record, groupId: 'no-such-group' }))
+    expect(response.status).toBe(404)
+    // The 404 is a pure failure: the capture must not have been created.
+    expect((await harness.call('/api/captures/stray-button')).status).toBe(404)
+  })
+
   it('refuses a duplicate group slug and an unknown capture id', async () => {
     await harness.call('/api/groups', body({ slug: 'my-kit', name: 'My kit' }))
     expect((await harness.call('/api/groups', body({ slug: 'my-kit', name: 'Again' }))).status).toBe(409)
@@ -303,6 +318,49 @@ describe('kit generation', () => {
 
   it('refuses an export before anything has been generated', async () => {
     expect((await harness.call('/api/export/design.md')).status).toBe(409)
+  })
+
+  it('never serves a deleted group\'s kit as the library export', async () => {
+    const imported = (await (await harness.call('/api/captures/import', body(await ghostWarmSet()))).json()) as {
+      group: { id: string }
+    }
+    await harness.call('/api/kits', body({ groupId: imported.group.id }))
+    expect((await harness.call(`/api/groups/${imported.group.id}`, { method: 'DELETE' })).status).toBe(204)
+
+    // No library kit exists, so the library scope must refuse rather than
+    // answer with the orphaned group kit.
+    expect((await harness.call('/api/export/design.md')).status).toBe(409)
+    expect((await harness.call('/api/kits/latest')).status).toBe(404)
+  })
+
+  it('survives deleting a group whose kit shares a version with the library kit', async () => {
+    const imported = (await (await harness.call('/api/captures/import', body(await ghostWarmSet()))).json()) as {
+      group: { id: string }
+    }
+    const library = (await (await harness.call('/api/kits', body({}))).json()) as {
+      kit: { id: string; version: number; scope: string }
+    }
+    const grouped = (await (await harness.call('/api/kits', body({ groupId: imported.group.id }))).json()) as {
+      kit: { id: string; version: number; scope: string }
+    }
+    expect(library.kit.scope).toBe('library')
+    expect(grouped.kit.scope).toBe('group')
+    // Both scopes are at version 1: the delete below is the collision case.
+    expect([library.kit.version, grouped.kit.version]).toEqual([1, 1])
+
+    expect((await harness.call(`/api/groups/${imported.group.id}`, { method: 'DELETE' })).status).toBe(204)
+
+    // The library export still answers with the library kit, byte for byte.
+    const libraryDesign = await harness.call(`/api/kits/${library.kit.id}/design.md`)
+    expect(await (await harness.call('/api/export/design.md')).text()).toBe(await libraryDesign.text())
+
+    // Both kits survive and stay distinguishable by scope.
+    const { kits } = await harness.json<{
+      kits: Array<{ id: string; scope: string; groupId: string | null }>
+    }>('/api/kits')
+    const orphan = kits.find((kit) => kit.id === grouped.kit.id)
+    expect(orphan).toEqual(expect.objectContaining({ scope: 'group', groupId: null }))
+    expect(kits.find((kit) => kit.id === library.kit.id)).toEqual(expect.objectContaining({ scope: 'library' }))
   })
 })
 

@@ -98,9 +98,17 @@ than corrupted. Never edit a migration that has shipped; add the next one.
 
 Two details worth knowing:
 
-- `captures.seq` is `INTEGER NOT NULL UNIQUE` fed from `MAX(seq) + 1` rather than
-  a rowid alias, so a deleted capture's position is never reused and library
-  order stays total across deletes.
-- `kits.group_id` is `NULL` for a whole-library kit. SQLite treats NULLs as
-  distinct in a unique index, so the per-scope version uniqueness needs two
-  partial indexes rather than one.
+- `captures.seq` is `INTEGER NOT NULL UNIQUE` fed from `MAX(seq) + 1`. A new
+  capture always sorts after every live one, which is what keeps the library
+  order of live rows total across deletes -- and it is the whole guarantee: the
+  seq of a deleted maximum row may be reused, so a seq value orders live rows
+  rather than naming a row for all time. An adapter that keeps new rows sorting
+  last satisfies the contract.
+- `kits.scope` (`'group'` or `'library'`) is what defines what a kit distils;
+  it is never inferred from `group_id`. `group_id` is `ON DELETE SET NULL`, so
+  a deleted group's kit survives as an orphaned group kit -- `group_id` becomes
+  `NULL`, `scope` stays `'group'` -- and never becomes the library's. Version
+  uniqueness keys on scope, via two partial unique indexes:
+  `(group_id, version) WHERE scope = 'group'` and
+  `(version) WHERE scope = 'library'` (SQLite treats NULLs as distinct in a
+  unique index, so orphaned group kits never collide).

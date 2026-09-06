@@ -128,9 +128,19 @@ export interface GroupPatch {
  */
 export interface Kit {
   id: string
-  /** The group this kit distils, or `null` for a whole-library kit. */
+  /**
+   * The group this kit distilled, or `null`. NULL alone does not mean the
+   * library: a deleted group's kit keeps `scope: 'group'` with a `null`
+   * `groupId`. `scope` is the field that says what a kit is.
+   */
   groupId: string | null
-  /** 1-based, monotonic within `groupId`. Kits are versioned, never overwritten. */
+  /**
+   * What the kit distils: one group, or the whole library. Explicit rather
+   * than inferred from `groupId`, so a kit orphaned by a group deletion stays
+   * a group kit instead of silently becoming the library's.
+   */
+  scope: 'group' | 'library'
+  /** 1-based, monotonic within its scope. Kits are versioned, never overwritten. */
   version: number
   /** Set id handed to the engine; `tokens.source.setId` in the output. */
   setId: string
@@ -192,7 +202,11 @@ export interface GroupRepository {
   getBySlug(slug: string): Promise<Group | null>
   create(input: GroupInput): Promise<Group>
   update(id: string, patch: GroupPatch): Promise<Group | null>
-  /** Removes the group and its memberships. The captures themselves stay. */
+  /**
+   * Removes the group and its memberships. The captures themselves stay, and
+   * so do the group's kits -- orphaned, with a `null` `groupId` and their
+   * `scope` still `'group'`.
+   */
   delete(id: string): Promise<boolean>
   /**
    * Appends captures, in the order given, skipping ones already in the group.
@@ -209,14 +223,23 @@ export interface KitRepository {
   /**
    * Kits, newest first.
    *
-   * `groupId: null` selects whole-library kits specifically; omitting the query
-   * returns every kit.
+   * `groupId: null` selects kits with `scope: 'library'` specifically -- never
+   * a group kit orphaned by its group's deletion; omitting the query returns
+   * every kit.
    */
   list(query?: { groupId?: string | null }): Promise<KitSummary[]>
   get(id: string): Promise<Kit | null>
-  /** The highest-versioned kit for this scope, or `null` if none exists. */
+  /**
+   * The highest-versioned kit for this scope, or `null` if none exists.
+   * `null` means the library scope (`scope: 'library'`), which an orphaned
+   * group kit never satisfies.
+   */
   latest(groupId: string | null): Promise<Kit | null>
-  /** Assigns the next version within `groupId` and stores the kit. */
+  /**
+   * Assigns the next version within the kit's scope and stores it. The scope
+   * is derived here: a `null` `groupId` creates a library kit, anything else a
+   * group kit -- an orphaned group kit can only arise from a group deletion.
+   */
   create(input: KitInput): Promise<Kit>
 }
 

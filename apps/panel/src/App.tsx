@@ -81,15 +81,24 @@ export function App(): ReactNode {
   // has, so switching groups shows that group's system rather than a stale one.
   useEffect(() => {
     if (phase !== 'ready') return
+    // The cancelled flag keeps a slow response for a previous scope from
+    // landing on top of the one the user has since switched to.
+    let cancelled = false
     void (async () => {
       try {
-        setCaptures(await api.captures(selectedGroupId ?? undefined))
-        setKit(await api.latestKit(selectedGroupId))
+        const nextCaptures = await api.captures(selectedGroupId ?? undefined)
+        const nextKit = await api.latestKit(selectedGroupId)
+        if (cancelled) return
+        setCaptures(nextCaptures)
+        setKit(nextKit)
         setKitError(null)
       } catch (error) {
-        setKitError(handle(error))
+        if (!cancelled) setKitError(handle(error))
       }
     })()
+    return () => {
+      cancelled = true
+    }
   }, [phase, selectedGroupId, handle])
 
   async function onPaired(): Promise<void> {
@@ -163,8 +172,14 @@ export function App(): ReactNode {
       <Topbar
         settings={settings}
         onSaveLlmKey={async (key) => {
-          await api.saveLlmKey(key)
-          setSettings(await api.settings())
+          try {
+            await api.saveLlmKey(key)
+            setSettings(await api.settings())
+          } catch (error) {
+            // handle() routes a 401 back to pairing; the message goes to the
+            // topbar so the failure is visible where the user typed the key.
+            throw new Error(handle(error))
+          }
         }}
         onUnpair={onUnpair}
       />

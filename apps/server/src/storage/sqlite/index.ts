@@ -61,6 +61,7 @@ interface GroupRow {
 interface KitRow {
   id: string
   group_id: string | null
+  scope: string
   version: number
   set_id: string
   name: string
@@ -126,6 +127,7 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
     return {
       id: row.id,
       groupId: row.group_id,
+      scope: row.scope === 'library' ? 'library' : 'group',
       version: row.version,
       setId: row.set_id,
       name: row.name,
@@ -381,13 +383,15 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
     },
   }
 
-  const KIT_SUMMARY_COLUMNS = `id, group_id, version, set_id, name, engine_version, capture_ids,
+  const KIT_SUMMARY_COLUMNS = `id, group_id, scope, version, set_id, name, engine_version, capture_ids,
        '' AS tokens_json, '' AS design_md, warning_count, created_at`
 
   const kits: KitRepository = {
     async list(query = {}) {
       const hasScope = 'groupId' in query
-      const where = hasScope ? (query.groupId === null ? 'WHERE group_id IS NULL' : 'WHERE group_id = ?') : ''
+      // The library scope is selected by the scope column, never by group_id
+      // being NULL: an orphaned group kit also has a NULL group_id.
+      const where = hasScope ? (query.groupId === null ? "WHERE scope = 'library'" : 'WHERE group_id = ?') : ''
       const params = hasScope && query.groupId !== null && query.groupId !== undefined ? [query.groupId] : []
       const rows = db
         .prepare<unknown[], KitRow>(
@@ -408,7 +412,7 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
     async latest(groupId) {
       const row =
         groupId === null
-          ? db.prepare<[], KitRow>('SELECT * FROM kits WHERE group_id IS NULL ORDER BY version DESC LIMIT 1').get()
+          ? db.prepare<[], KitRow>("SELECT * FROM kits WHERE scope = 'library' ORDER BY version DESC LIMIT 1").get()
           : db
               .prepare<[string], KitRow>('SELECT * FROM kits WHERE group_id = ? ORDER BY version DESC LIMIT 1')
               .get(groupId)
@@ -417,11 +421,12 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
 
     async create(input: KitInput) {
       return db.transaction(() => {
+        const scope = input.groupId === null ? 'library' : 'group'
         const nextVersion =
           (input.groupId === null
             ? db
                 .prepare<[], { next: number }>(
-                  'SELECT COALESCE(MAX(version), 0) + 1 AS next FROM kits WHERE group_id IS NULL',
+                  "SELECT COALESCE(MAX(version), 0) + 1 AS next FROM kits WHERE scope = 'library'",
                 )
                 .get()?.next
             : db
@@ -431,12 +436,13 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
                 .get(input.groupId)?.next) ?? 1
         const id = idFactory()
         db.prepare(
-          `INSERT INTO kits (id, group_id, version, set_id, name, engine_version, capture_ids,
+          `INSERT INTO kits (id, group_id, scope, version, set_id, name, engine_version, capture_ids,
                              tokens_json, design_md, warning_count, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           id,
           input.groupId,
+          scope,
           nextVersion,
           input.setId,
           input.name,

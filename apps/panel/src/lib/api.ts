@@ -101,6 +101,8 @@ export interface GroupSummary {
 export interface KitSummary {
   id: string
   groupId: string | null
+  /** What the kit distils. A deleted group's kit keeps `group`; only `library` kits are the library's. */
+  scope: 'group' | 'library'
   version: number
   setId: string
   name: string

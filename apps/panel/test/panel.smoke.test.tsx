@@ -116,6 +116,7 @@ function kitPayload(): unknown {
     kit: {
       id: 'kit-1',
       groupId: GROUP.id,
+      scope: 'group',
       version: 1,
       setId: 'ghost-warm',
       name: GROUP.name,

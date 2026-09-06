@@ -251,6 +251,34 @@ export function describeStoreContract(name: string, createStore: () => Store | P
         expect(read?.captureIds).toEqual(['c-one'])
       })
 
+      it('keeps a deleted group\'s kit as an orphaned group kit, never the library\'s', async () => {
+        const group = await store.groups.create({ slug: 'warm', name: 'Warm', description: 'Warm things.' })
+        const library = await store.kits.create({ ...kitInput, groupId: null })
+        const grouped = await store.kits.create({ ...kitInput, groupId: group.id })
+        expect(library.scope).toBe('library')
+        expect(grouped.scope).toBe('group')
+
+        // Both scopes sit at version 1, so this delete is also the collision
+        // case: it must not trip the library scope's version uniqueness.
+        expect(await store.groups.delete(group.id)).toBe(true)
+
+        const orphan = await store.kits.get(grouped.id)
+        expect(orphan?.groupId).toBeNull()
+        expect(orphan?.scope).toBe('group')
+
+        expect((await store.kits.latest(null))?.id).toBe(library.id)
+        expect((await store.kits.list({ groupId: null })).map((kit) => kit.id)).toEqual([library.id])
+      })
+
+      it('never surfaces an orphaned group kit as the latest library kit', async () => {
+        const group = await store.groups.create({ slug: 'warm', name: 'Warm', description: 'Warm things.' })
+        await store.kits.create({ ...kitInput, groupId: group.id })
+        await store.groups.delete(group.id)
+
+        expect(await store.kits.latest(null)).toBeNull()
+        expect(await store.kits.list({ groupId: null })).toEqual([])
+      })
+
       it('lists kits without their payloads, scoped', async () => {
         const group = await store.groups.create({ slug: 'warm', name: 'Warm', description: 'Warm things.' })
         await store.kits.create({ ...kitInput, groupId: group.id })
