@@ -9,10 +9,15 @@ them into one coherent token-driven design kit, export it LLM-ready. The product
 bet is **cross-site distillation quality**, not one-click extraction. Read
 [README.md](README.md) for scope and what is deliberately not built yet.
 
+Two halves: `packages/engine` decides, and the panel (`apps/server` +
+`apps/panel`) is where a human reviews those decisions. The panel is an ordinary
+web app that currently runs locally in Docker -- [docs/panel.md](docs/panel.md).
+
 ## Commands
 
 `pnpm install` (Node 20+, pnpm 10), then `pnpm test`, `pnpm typecheck`,
-`pnpm skeleton`, `pnpm skeleton --check`. See the table in the README.
+`pnpm skeleton`, `pnpm skeleton --check`, `pnpm dev`, `pnpm build`. See the
+table in the README. `docker compose up` runs the whole panel on one port.
 
 ## Non-negotiables
 
@@ -30,6 +35,30 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
 - **The token model stays stack-agnostic.** Tailwind and shadcn naming lives only
   in `packages/engine/src/export/design-md.ts`. New export targets are siblings
   of that file, never changes to `packages/engine/src/tokens/types.ts`.
+- **Determinism survives the server path.** A `design.md` downloaded from the
+  panel is byte-identical to the one `pnpm skeleton` writes from the same
+  captures. Records are stored and replayed verbatim, capture order comes from
+  group membership positions, and set metadata comes from the group. Enforced by
+  `apps/server/test/kit-determinism.test.ts` against the committed `examples/`;
+  if it fails, the bug is in the server, never in `examples/`.
+- **Storage stays behind `apps/server/src/storage/store.ts`.** Async methods, no
+  transaction handle across the seam, total ordering on every list. A Postgres
+  adapter must be a new file under `storage/` plus one line in
+  `apps/server/test/storage-contract.ts` -- the contract suite is written against
+  the interface, so adding a `Store` method means adding its cases there in the
+  same commit. Rationale: [docs/storage.md](docs/storage.md).
+- **The two guards on the API are the pairing token and the CORS lock.** Every
+  route except `/api/health` and `/api/pairing*` requires `x-ingot-token`, and
+  the open list in `apps/server/src/routes/pairing.ts` is an allowlist rather
+  than a matter of route registration order. The LLM API key goes in and never
+  comes out: no endpoint returns it, and `apps/server/test/api.test.ts` asserts
+  that on the response bodies.
+- **The preview has no hardcoded values.** Every visual property of the canonical
+  components in `apps/panel/src/preview/` comes from a `var(--kit-*)` fed by
+  `kit-css.ts`. A literal colour, size or radius in `canonical.css` would put a
+  value on screen that the exported `design.md` never mentions, which is the one
+  thing that makes a preview lie. The panel's own chrome uses a separate shadcn
+  variable set, so a dark kit in a light panel renders as itself.
 - **Every token carries provenance.** Contributing capture ids, every raw value
   observed, and a machine-readable dominant-choice record. The panel will render
   these as decisions and overrides, so a token without one is a bug. The

@@ -4,3 +4,6 @@ dist/
 .DS_Store
 coverage/
 .vitest/
+
+# Local panel data directory (`pnpm dev`). The container uses a volume.
+data/

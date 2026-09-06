@@ -18,6 +18,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
+      # The panel has to build and the server has to bundle: a type-clean app
+      # that Vite or esbuild refuses is still a broken container.
+      - run: pnpm build
       # The determinism guarantee: the committed examples must be exactly what
       # the current engine produces from the current fixtures.
       - run: pnpm skeleton --check

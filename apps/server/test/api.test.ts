@@ -1,0 +1,344 @@
+/**
+ * The API: what it refuses, what it accepts, and what it must never say.
+ *
+ * The three groups below are the three promises this server makes. Pairing is
+ * the only thing between the API and any page in any tab; the LLM key is the
+ * one value that goes in and never comes out; and the import-to-kit path is
+ * what the panel actually walks.
+ */
+import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { PAIRING_HEADER } from '../src/pairing'
+import { LLM_API_KEY_SETTING } from '../src/routes/settings'
+import { createHarness, TEST_TOKEN, body } from './harness'
+import type { Harness } from './harness'
+
+const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
+
+async function ghostWarmSet(): Promise<unknown> {
+  return JSON.parse(await readFile(`${ROOT}fixtures/ghost-warm/set.json`, 'utf8'))
+}
+
+let harness: Harness
+
+beforeEach(async () => {
+  harness = await createHarness()
+})
+
+afterEach(async () => {
+  await harness.close()
+})
+
+describe('pairing', () => {
+  it('rejects every API call that does not present the token', async () => {
+    const paths: Array<[string, RequestInit]> = [
+      ['/api/captures', {}],
+      ['/api/groups', {}],
+      ['/api/kits', {}],
+      ['/api/settings', {}],
+      ['/api/export/design.md', {}],
+      ['/api/captures/import', { method: 'POST', body: '{}' }],
+      ['/api/kits', { method: 'POST', body: '{}' }],
+    ]
+    for (const [path, init] of paths) {
+      const response = await harness.raw(path, init)
+      expect(response.status, `${init.method ?? 'GET'} ${path}`).toBe(401)
+    }
+  })
+
+  it('rejects a wrong token, and one of the wrong length', async () => {
+    for (const token of ['nope', `${TEST_TOKEN}x`, '']) {
+      const response = await harness.raw('/api/captures', { headers: { [PAIRING_HEADER]: token } })
+      expect(response.status).toBe(401)
+    }
+  })
+
+  it('leaves health and pairing open, because a client needs them before it is paired', async () => {
+    expect((await harness.raw('/api/health')).status).toBe(200)
+    expect((await harness.raw('/api/pairing')).status).toBe(200)
+  })
+
+  it('never puts the token in a response body', async () => {
+    for (const path of ['/api/health', '/api/pairing']) {
+      expect(await (await harness.raw(path)).text()).not.toContain(TEST_TOKEN)
+    }
+    const verified = await harness.raw('/api/pairing/verify', body({ token: TEST_TOKEN }))
+    expect(verified.status).toBe(200)
+    expect(await verified.text()).not.toContain(TEST_TOKEN)
+  })
+
+  it('verifies a correct token and refuses a wrong one', async () => {
+    expect((await harness.raw('/api/pairing/verify', body({ token: TEST_TOKEN }))).status).toBe(200)
+    expect((await harness.raw('/api/pairing/verify', body({ token: 'wrong' }))).status).toBe(401)
+  })
+})
+
+describe('cors', () => {
+  it('refuses a cross-origin request from a page that is not the panel', async () => {
+    const response = await harness.raw('/api/health', { headers: { origin: 'https://evil.example' } })
+    expect(response.status).toBe(403)
+    expect(response.headers.get('access-control-allow-origin')).toBeNull()
+  })
+
+  it('allows the configured panel origin and the server\'s own origin', async () => {
+    for (const origin of ['http://localhost:5173', 'http://localhost:4310']) {
+      const response = await harness.raw('/api/health', { headers: { origin } })
+      expect(response.status, origin).toBe(200)
+      expect(response.headers.get('access-control-allow-origin')).toBe(origin)
+    }
+  })
+
+  it('answers a preflight for the panel origin only', async () => {
+    const allowed = await harness.raw('/api/captures', {
+      method: 'OPTIONS',
+      headers: { origin: 'http://localhost:5173', 'access-control-request-method': 'POST' },
+    })
+    expect(allowed.status).toBe(204)
+    expect(allowed.headers.get('access-control-allow-headers')).toContain(PAIRING_HEADER)
+
+    const refused = await harness.raw('/api/captures', {
+      method: 'OPTIONS',
+      headers: { origin: 'https://evil.example', 'access-control-request-method': 'POST' },
+    })
+    expect(refused.status).toBe(403)
+  })
+})
+
+describe('settings and the LLM key', () => {
+  it('reports absence, then presence, and never the value', async () => {
+    expect(await harness.json('/api/settings')).toMatchObject({
+      settings: { llm: { configured: false, source: 'none' } },
+    })
+
+    const saved = await harness.call('/api/settings', { method: 'PUT', body: JSON.stringify({ llmApiKey: 'sk-secret-value' }) })
+    expect(saved.status).toBe(200)
+    expect(await saved.text()).not.toContain('sk-secret-value')
+
+    // It is really stored -- the point is that it is stored *and* invisible.
+    expect(await harness.store.settings.get(LLM_API_KEY_SETTING)).toBe('sk-secret-value')
+
+    const read = await harness.call('/api/settings')
+    expect(await read.text()).not.toContain('sk-secret-value')
+    expect(await harness.json('/api/settings')).toMatchObject({
+      settings: { llm: { configured: true, source: 'settings' } },
+    })
+  })
+
+  it('clears the key when sent null', async () => {
+    await harness.call('/api/settings', { method: 'PUT', body: JSON.stringify({ llmApiKey: 'sk-secret-value' }) })
+    await harness.call('/api/settings', { method: 'PUT', body: JSON.stringify({ llmApiKey: null }) })
+    expect(await harness.store.settings.get(LLM_API_KEY_SETTING)).toBeNull()
+  })
+
+  it('refuses to overwrite a key pinned in the environment', async () => {
+    const pinned = await createHarness({ INGOT_LLM_API_KEY: 'sk-from-env' })
+    try {
+      expect(await pinned.json('/api/settings')).toMatchObject({
+        settings: { llm: { configured: true, source: 'environment', managedByEnvironment: true } },
+      })
+      const response = await pinned.call('/api/settings', {
+        method: 'PUT',
+        body: JSON.stringify({ llmApiKey: 'sk-from-panel' }),
+      })
+      expect(response.status).toBe(409)
+      expect(await response.text()).not.toContain('sk-from-env')
+    } finally {
+      await pinned.close()
+    }
+  })
+})
+
+describe('capture import', () => {
+  it('accepts a fixture set verbatim and lists what it stored', async () => {
+    const set = (await ghostWarmSet()) as { captures: unknown[] }
+    const response = await harness.call('/api/captures/import', body(set))
+    expect(response.status).toBe(201)
+
+    const imported = (await response.json()) as { group: { id: string; slug: string; captureCount: number } }
+    expect(imported.group.slug).toBe('ghost-warm')
+    expect(imported.group.captureCount).toBe(set.captures.length)
+
+    const listed = await harness.json<{ captures: Array<{ id: string }> }>('/api/captures')
+    expect(listed.captures).toHaveLength(set.captures.length)
+  })
+
+  it('accepts the set wrapped in { set } too, because that is what a paste form sends', async () => {
+    const response = await harness.call('/api/captures/import', body({ set: await ghostWarmSet() }))
+    expect(response.status).toBe(201)
+  })
+
+  it('refuses input that is not a capture set, and says which fields are wrong', async () => {
+    const response = await harness.call('/api/captures/import', body({ schemaVersion: 1, id: 'Bad Slug', captures: [] }))
+    expect(response.status).toBe(422)
+    const failure = (await response.json()) as { error: { details: string[] } }
+    expect(failure.error.details.join('\n')).toMatch(/set\.id/)
+  })
+
+  it('is idempotent: importing twice does not duplicate anything', async () => {
+    const set = (await ghostWarmSet()) as { captures: unknown[] }
+    await harness.call('/api/captures/import', body(set))
+    await harness.call('/api/captures/import', body(set))
+
+    const listed = await harness.json<{ captures: unknown[] }>('/api/captures')
+    expect(listed.captures).toHaveLength(set.captures.length)
+  })
+})
+
+describe('captures, groups and tags', () => {
+  it('creates a capture, tags it, filters by tag, and deletes it', async () => {
+    const record = {
+      schemaVersion: 1,
+      id: 'my-button',
+      componentType: 'button',
+      sourceUrl: 'https://example.com/',
+      capturedAt: '2026-02-11T09:14:22.000Z',
+      styles: { backgroundColor: '#3355ff', color: '#ffffff' },
+    }
+    expect((await harness.call('/api/captures', body({ record }))).status).toBe(201)
+    await harness.call('/api/captures/my-button/tags', { method: 'PUT', body: JSON.stringify({ tags: ['Hero'] }) })
+
+    const filtered = await harness.json<{ captures: Array<{ id: string; tags: string[] }> }>('/api/captures?tag=hero')
+    expect(filtered.captures.map((capture) => capture.id)).toEqual(['my-button'])
+    expect(filtered.captures[0]?.tags).toEqual(['hero'])
+
+    expect((await harness.call('/api/captures/my-button', { method: 'DELETE' })).status).toBe(204)
+    expect((await harness.call('/api/captures/my-button')).status).toBe(404)
+  })
+
+  it('rejects a capture the engine would reject, before it is stored', async () => {
+    const response = await harness.call('/api/captures', body({ record: { schemaVersion: 1, id: 'no-styles' } }))
+    expect(response.status).toBe(422)
+    expect((await harness.json<{ captures: unknown[] }>('/api/captures')).captures).toHaveLength(0)
+  })
+
+  it('assigns captures to a user-made group in the order given', async () => {
+    await harness.call('/api/captures/import', body(await ghostWarmSet()))
+    const all = await harness.json<{ captures: Array<{ id: string }> }>('/api/captures')
+    const [first, second] = [all.captures[1]?.id, all.captures[0]?.id]
+
+    const created = await harness.call('/api/groups', body({ slug: 'my-kit', name: 'My kit' }))
+    expect(created.status).toBe(201)
+    const { group } = (await created.json()) as { group: { id: string } }
+
+    await harness.call(`/api/groups/${group.id}/captures`, body({ captureIds: [first, second] }))
+    const inGroup = await harness.json<{ captures: Array<{ id: string }> }>(`/api/captures?groupId=${group.id}`)
+    expect(inGroup.captures.map((capture) => capture.id)).toEqual([first, second])
+  })
+
+  it('refuses a duplicate group slug and an unknown capture id', async () => {
+    await harness.call('/api/groups', body({ slug: 'my-kit', name: 'My kit' }))
+    expect((await harness.call('/api/groups', body({ slug: 'my-kit', name: 'Again' }))).status).toBe(409)
+
+    const { group } = (await (await harness.call('/api/groups', body({ slug: 'other', name: 'Other' }))).json()) as {
+      group: { id: string }
+    }
+    const response = await harness.call(`/api/groups/${group.id}/captures`, body({ captureIds: ['ghost'] }))
+    expect(response.status).toBe(422)
+  })
+})
+
+describe('kit generation', () => {
+  it('generates a kit for a group and returns its tokens', async () => {
+    const imported = (await (await harness.call('/api/captures/import', body(await ghostWarmSet()))).json()) as {
+      group: { id: string }
+    }
+    const response = await harness.call('/api/kits', body({ groupId: imported.group.id }))
+    expect(response.status).toBe(201)
+
+    const generated = (await response.json()) as {
+      kit: { id: string; version: number; setId: string; warningCount: number; captureIds: string[] }
+      tokens: { source: { setId: string }; color: { roles: Record<string, unknown> } }
+    }
+    expect(generated.kit.version).toBe(1)
+    expect(generated.kit.setId).toBe('ghost-warm')
+    expect(generated.tokens.source.setId).toBe('ghost-warm')
+    expect(Object.keys(generated.tokens.color.roles).length).toBeGreaterThan(0)
+    // ghost-warm is one of the coherent sets; a warning here means the server
+    // fed the engine something the CLI would not have.
+    expect(generated.kit.warningCount).toBe(0)
+  })
+
+  it('versions successive kits for the same group', async () => {
+    const imported = (await (await harness.call('/api/captures/import', body(await ghostWarmSet()))).json()) as {
+      group: { id: string }
+    }
+    await harness.call('/api/kits', body({ groupId: imported.group.id }))
+    const second = (await (await harness.call('/api/kits', body({ groupId: imported.group.id }))).json()) as {
+      kit: { version: number }
+    }
+    expect(second.kit.version).toBe(2)
+  })
+
+  it('generates a whole-library kit when no group is named', async () => {
+    await harness.call('/api/captures/import', body(await ghostWarmSet()))
+    const generated = (await (await harness.call('/api/kits', body({}))).json()) as {
+      kit: { setId: string; groupId: string | null }
+    }
+    expect(generated.kit.groupId).toBeNull()
+    expect(generated.kit.setId).toBe('library')
+  })
+
+  it('refuses to distil nothing, with a message that says what to do', async () => {
+    const response = await harness.call('/api/kits', body({}))
+    expect(response.status).toBe(422)
+    expect(((await response.json()) as { error: { message: string } }).error.message).toMatch(/import a capture set/)
+  })
+
+  it('serves the kit as downloadable files, and the library export as the latest kit', async () => {
+    await harness.call('/api/captures/import', body(await ghostWarmSet()))
+    const generated = (await (await harness.call('/api/kits', body({}))).json()) as { kit: { id: string } }
+
+    const design = await harness.call(`/api/kits/${generated.kit.id}/design.md`)
+    expect(design.headers.get('content-type')).toContain('text/markdown')
+    expect(design.headers.get('content-disposition')).toContain('library-v1-design.md')
+    const designMd = await design.text()
+    expect(designMd).toMatch(/^# /)
+
+    const tokens = await harness.call(`/api/kits/${generated.kit.id}/tokens.json`)
+    expect(tokens.headers.get('content-type')).toContain('application/json')
+
+    expect(await (await harness.call('/api/export/design.md')).text()).toBe(designMd)
+  })
+
+  it('refuses an export before anything has been generated', async () => {
+    expect((await harness.call('/api/export/design.md')).status).toBe(409)
+  })
+})
+
+describe('screenshots', () => {
+  // A 1x1 PNG. The point is the path, not the pixels.
+  const PNG = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64',
+  )
+
+  it('stores the image on the volume and only its path in the database', async () => {
+    await harness.call('/api/captures/import', body(await ghostWarmSet()))
+    const [capture] = (await harness.json<{ captures: Array<{ id: string }> }>('/api/captures')).captures
+    const id = capture?.id ?? ''
+
+    const stored = await harness.call(`/api/captures/${id}/screenshot`, {
+      method: 'PUT',
+      body: PNG,
+      headers: { 'content-type': 'image/png' },
+    })
+    expect(stored.status).toBe(200)
+    expect(((await stored.json()) as { capture: { screenshotPath: string } }).capture.screenshotPath).toBe(`${id}.png`)
+
+    const served = await harness.call(`/api/captures/${id}/screenshot`)
+    expect(served.headers.get('content-type')).toBe('image/png')
+    expect(Buffer.from(await served.arrayBuffer()).equals(PNG)).toBe(true)
+  })
+
+  it('refuses a body that is not an image type it stores', async () => {
+    await harness.call('/api/captures/import', body(await ghostWarmSet()))
+    const [capture] = (await harness.json<{ captures: Array<{ id: string }> }>('/api/captures')).captures
+    const response = await harness.call(`/api/captures/${capture?.id}/screenshot`, {
+      method: 'PUT',
+      body: 'not an image',
+      headers: { 'content-type': 'text/plain' },
+    })
+    expect(response.status).toBe(400)
+  })
+})
