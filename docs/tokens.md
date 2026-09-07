@@ -102,16 +102,19 @@ Applying one does three things beyond writing the value:
   padding, line box and border is re-derived when one of the three moves. A
   height the reviewer set by hand is left where they put it.
 - **Reports conflicts rather than resolving them.** A stored override carries
-  `baseValue`: the engine's answer at the moment it was made. When a later
-  distillation disagrees with that, the override still wins the value and the
+  `baseValue`: the engine's answer at the moment it was made. When the engine's
+  answer later moves away from that, the override still wins the value and the
   disagreement is raised as an `override.conflict` warning. Neither side is
-  silently clobbered. A conflict is retired only by the reviewer *responding* to
-  it: the write path refreshes `baseValue` when the value moves and preserves it
-  when only the reason does, so annotating an override does not quietly drop the
-  report. A response that does retire one is itself recorded, as
-  `resolvedConflict` on the override's own decision, and `design.md` §10 names
-  what was answered — a warning that simply stopped appearing would be the
-  clobbering this mechanism exists to prevent.
+  silently clobbered. Both halves of that comparison are read from the
+  **baseline** — see the document classes below — so a slot another override
+  re-derived is judged against the number the reviewer was actually shown. A
+  conflict is retired only by the reviewer *responding* to it: the write path
+  refreshes `baseValue` when the value moves and preserves it when only the
+  reason does, so annotating an override does not quietly drop the report. A
+  response that does retire one is itself recorded, as `resolvedConflict` on the
+  override's own decision, and `design.md` §10 names what was answered — a
+  warning that simply stopped appearing would be the clobbering this mechanism
+  exists to prevent.
 - **Re-derives what depended on the value.** Overriding a base colour re-derives
   the interaction shades computed from it -- `primaryHover`, `primaryActive`,
   `selectedSurface` and the disabled pair -- through the engine's own derivation
@@ -129,20 +132,39 @@ Applying one does three things beyond writing the value:
 - **Distinguishes a candidate from a standing decision.** A *candidate* whose
   value already equals the engine's answer is not an override and is refused --
   that check is `overrideRejection`, which the server calls before it stores
-  anything. It is asked of the *effective* document, with the candidate's own
-  path left out, because replaying an override re-derives what depends on it and
-  the engine's current answer for a dependent height or shade is the re-derived
-  value; and it applies to creating an override, not to editing one the reviewer
-  already owns. (`baseValue` is a different question and still comes from the
-  pristine distillation: it is what a later regeneration is compared against.)
+  anything. Like every other override question it is asked of the *baseline*,
+  because replaying an override re-derives what depends on it and the engine's
+  current answer for a dependent height or shade is the re-derived value; and it
+  applies to creating an override, not to editing one the reviewer already owns.
   A *standing* override the evidence has since caught up with is a decision that
   was real when it was made: it keeps its `user-override` provenance and the
   convergence is reported once, as `override.now-agrees` -- except on a slot the
-  engine yielded on, where the pristine value is not the engine's own answer and
-  claiming agreement would be false.
+  engine yielded on, where claiming agreement would credit the engine with a
+  move it stepped aside from.
 - **Says so out loud.** Every applied override is named in an `override.applied`
   info diagnostic, and `design.md` grows a `## 10. User overrides` section
   listing each value, the engine's own answer, and the reviewer's reason.
+
+### Which document answers which question
+
+A tokens document is one shape but three different claims, and asking a question
+of the wrong one reads as a plausible answer. The three are distinct *types* in
+[`packages/engine/src/tokens/documents.ts`](../packages/engine/src/tokens/documents.ts),
+so the compiler refuses the mix-up:
+
+| Document | What it is | What reads it |
+| --- | --- | --- |
+| Pristine | the stored distillation, no overrides | provenance and evidence claims |
+| Baseline | pristine plus every *other* override, this path's own left out | conflict determination, `override.now-agrees`, and the redundancy check |
+| Effective | pristine plus every override | rendering, the docs view, every export |
+
+`baselineFor(tokens, overrides, path)` is the only way to build a baseline, so
+the write boundary and `applyOverrides` cannot end up answering the same
+question from two different documents — which is how `design.md` came to report
+that a conflict had been answered against a value nobody was ever shown.
+`baseValue` is recorded from the baseline for the same reason: it is an input to
+that comparison, and a value recorded from one document and compared against
+another reports disagreements neither of them ever had.
 
 `tokenSlots(tokens)` enumerates every position an override may target. It is the
 contract between the engine and the panel: a path the panel offers but

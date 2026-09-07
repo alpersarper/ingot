@@ -13,7 +13,8 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { applyOverrides, readTokenValue, tokenSlots } from '@ingot/engine'
-import type { TokensDocument } from '@ingot/engine'
+import { asPristine } from '@ingot/engine'
+import type { PristineTokens, TokensDocument } from '@ingot/engine'
 import { decisionCards, openCount } from '@/workbench/decisions'
 
 function repositoryRoot(): string {
@@ -32,8 +33,10 @@ function repositoryRoot(): string {
 
 const ROOT = repositoryRoot()
 
-function kit(name: string): TokensDocument {
-  return JSON.parse(readFileSync(join(ROOT, 'examples', name, 'tokens.json'), 'utf8')) as TokensDocument
+function kit(name: string): PristineTokens {
+  // The committed examples are exactly the bytes `distill` wrote, which is what
+  // makes naming them the pristine document sound.
+  return asPristine(JSON.parse(readFileSync(join(ROOT, 'examples', name, 'tokens.json'), 'utf8')) as TokensDocument)
 }
 
 function cardsFor(

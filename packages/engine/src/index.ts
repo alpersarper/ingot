@@ -33,6 +33,7 @@ export type { ComponentDoc, ComponentDocId, DocColorRow, DocTokenRow, DocVariant
 // override and the server can replay it and both get the same document.
 export {
   applyOverrides,
+  baselineFor,
   canonicalOverrideValue,
   hasOverrides,
   originOf,
@@ -45,6 +46,8 @@ export {
   supersededBy,
   tokenSlots,
 } from './tokens/overrides'
+export { asEffective, asPristine } from './tokens/documents'
+export type { BaselineTokens, EffectiveTokens, PristineTokens } from './tokens/documents'
 export type {
   AppliedOverride,
   ConvergedOverride,

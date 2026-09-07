@@ -16,14 +16,16 @@ import { round } from '../src/util/num'
 import { renderDesignMarkdown } from '../src/export/design-md'
 import {
   applyOverrides,
+  baselineFor,
   originOf,
   overriddenSlots,
   overrideRejection,
   readTokenValue,
+  standingConflict,
   tokenSlots,
 } from '../src/tokens/overrides'
 import type { TokenOverride } from '../src/tokens/overrides'
-import type { TokensDocument } from '../src/tokens/types'
+import type { PristineTokens } from '../src/tokens/documents'
 import type { CaptureSet } from '../src/capture/types'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
@@ -32,8 +34,18 @@ function fixture(name: string): CaptureSet {
   return JSON.parse(readFileSync(join(ROOT, 'fixtures', name, 'set.json'), 'utf8')) as CaptureSet
 }
 
-function kit(name = 'ghost-warm'): TokensDocument {
+function kit(name = 'ghost-warm'): PristineTokens {
   return distill(fixture(name))
+}
+
+/**
+ * The document a question about `path` is asked of, with no other overrides.
+ *
+ * Redundancy and conflict are baseline questions, so even the simplest test has
+ * to name the document it is asking about -- which is the point of the split.
+ */
+function baseline(tokens: PristineTokens, path: string, others: TokenOverride[] = []) {
+  return baselineFor(tokens, others, path)
 }
 
 /**
@@ -147,25 +159,36 @@ describe('judging a candidate before it is stored', () => {
   it('refuses a candidate that agrees with the engine, which is not an override', () => {
     const tokens = kit()
     const current = `${tokens.radius.steps.md?.value}px`
-    expect(overrideRejection(tokens, { path: 'radius.steps.md', value: current })).toContain('is not an override')
-    expect(overrideRejection(tokens, { path: 'radius.steps.md', value: current }, 'create')).toContain(
+    expect(overrideRejection(baseline(tokens, 'radius.steps.md'), { path: 'radius.steps.md', value: current })).toContain(
       'is not an override',
     )
+    expect(
+      overrideRejection(baseline(tokens, 'radius.steps.md'), { path: 'radius.steps.md', value: current }, 'create'),
+    ).toContain('is not an override')
     // Two spellings of one value are one value, so the check is on the
     // canonical form rather than on the string the reviewer happened to type.
-    expect(overrideRejection(tokens, { path: 'radius.steps.md', value: ` ${tokens.radius.steps.md?.value} ` })).toContain(
-      'is not an override',
-    )
+    expect(
+      overrideRejection(baseline(tokens, 'radius.steps.md'), {
+        path: 'radius.steps.md',
+        value: ` ${tokens.radius.steps.md?.value} `,
+      }),
+    ).toContain('is not an override')
   })
 
   it('refuses a path the kit has no slot for, and a value it cannot read', () => {
     const tokens = kit()
-    expect(overrideRejection(tokens, { path: 'color.roles.tertiary', value: '#ff0000' })).toContain('no such token')
-    expect(overrideRejection(tokens, { path: 'radius.steps.md', value: 'quite round' })).toContain('pixel length')
+    expect(
+      overrideRejection(baseline(tokens, 'color.roles.tertiary'), { path: 'color.roles.tertiary', value: '#ff0000' }),
+    ).toContain('no such token')
+    expect(
+      overrideRejection(baseline(tokens, 'radius.steps.md'), { path: 'radius.steps.md', value: 'quite round' }),
+    ).toContain('pixel length')
   })
 
   it('passes a candidate that really does disagree', () => {
-    expect(overrideRejection(kit(), { path: 'radius.steps.md', value: '10px' })).toBeUndefined()
+    expect(
+      overrideRejection(baseline(kit(), 'radius.steps.md'), { path: 'radius.steps.md', value: '10px' }),
+    ).toBeUndefined()
   })
 
   it('lets a reviewer restate a value on an override they already own', () => {
@@ -175,26 +198,28 @@ describe('judging a candidate before it is stored', () => {
     // value -- which is what a note-only edit sends -- must not be refused, or
     // a reviewer could never add a reason to an override the evidence has
     // caught up with.
-    expect(overrideRejection(tokens, { path: 'radius.steps.md', value: current }, 'edit')).toBeUndefined()
+    expect(
+      overrideRejection(baseline(tokens, 'radius.steps.md'), { path: 'radius.steps.md', value: current }, 'edit'),
+    ).toBeUndefined()
     // ...but an edit is still held to everything else.
-    expect(overrideRejection(tokens, { path: 'radius.steps.md', value: 'quite round' }, 'edit')).toContain(
-      'pixel length',
-    )
+    expect(
+      overrideRejection(baseline(tokens, 'radius.steps.md'), { path: 'radius.steps.md', value: 'quite round' }, 'edit'),
+    ).toContain('pixel length')
   })
 
-  it('judges redundancy against the document it is handed, not the one it was distilled from', () => {
+  it('judges redundancy against the baseline, not against the stored distillation', () => {
     const tokens = kit()
     // Moving the border re-derives every bordered control's height, so the
     // engine's current answer for that height is no longer the stored one.
-    const { tokens: effective } = applyOverrides(tokens, [{ path: 'border.width', value: '3px' }])
     const path = 'components.recipes.button.secondary.height'
-    const pristine = readTokenValue(tokens, path) as string
-    expect(readTokenValue(effective, path)).not.toBe(pristine)
+    const withBorder = baseline(tokens, path, [{ path: 'border.width', value: '3px' }])
+    const stored = readTokenValue(tokens, path) as string
+    expect(readTokenValue(withBorder, path)).not.toBe(stored)
 
     // Pinning the height back to what it was is a real disagreement with what
     // the kit now says, so it is not redundant.
-    expect(overrideRejection(effective, { path, value: pristine })).toBeUndefined()
-    expect(overrideRejection(effective, { path, value: readTokenValue(effective, path) as string })).toContain(
+    expect(overrideRejection(withBorder, { path, value: stored })).toBeUndefined()
+    expect(overrideRejection(withBorder, { path, value: readTokenValue(withBorder, path) as string })).toContain(
       'is not an override',
     )
   })
@@ -202,13 +227,18 @@ describe('judging a candidate before it is stored', () => {
   it('refuses a font stack carrying characters that would escape a CSS rule', () => {
     const tokens = kit()
     for (const hostile of ['Bad} .x{color:red', 'Inter; color: red', 'Inter</style><script>', 'Inter\\65 ']) {
-      expect(overrideRejection(tokens, { path: 'typography.families.sans', value: hostile })).toContain(
+      expect(
+        overrideRejection(baseline(tokens, 'typography.families.sans'), {
+          path: 'typography.families.sans',
+          value: hostile,
+        }),
+      ).toContain(
         'family names separated by commas',
       )
     }
     // A real stack still lands, quotes, hyphens and all.
     expect(
-      overrideRejection(tokens, {
+      overrideRejection(baseline(tokens, 'typography.families.sans'), {
         path: 'typography.families.sans',
         value: '"Helvetica Neue", -apple-system, .SFNSText, system_ui, sans-serif',
       }),
@@ -519,6 +549,75 @@ describe('conflicts between an override and new evidence', () => {
   })
 })
 
+describe('a conflict is judged against the slot\'s own baseline', () => {
+  const tokens = kit()
+  const path = 'components.recipes.input.height'
+  const borderOverride: TokenOverride = { path: 'border.width', value: '3px' }
+  /** The engine's answer for the height once the wider border has re-derived it. */
+  const rederived = readTokenValue(baselineFor(tokens, [borderOverride], path), path) as string
+
+  it('moves a dependent slot, so the stored distillation is not the engine\'s answer', () => {
+    expect(rederived).not.toBe(readTokenValue(tokens, path))
+  })
+
+  it('reports no conflict when the reviewer disagreed with exactly that answer', () => {
+    // The reviewer sees the re-derived height and overrides it. Judging that
+    // against the pristine value would invent a disagreement with a number the
+    // reviewer was never shown -- and design.md would go on to say the captures
+    // "moved to" the value the override was made against.
+    const { conflicts, converged } = applyOverrides(tokens, [
+      borderOverride,
+      { path, value: '48px', baseValue: rederived },
+    ])
+    expect(conflicts).toEqual([])
+    expect(converged).toEqual([])
+  })
+
+  it('keeps reporting a conflict the other overrides did not answer', () => {
+    // The engine's answer for this slot has moved away from what it said when
+    // the override was made, and no other override brought it back. A report
+    // that went quiet here would be the silent clobbering the whole mechanism
+    // exists to prevent.
+    const { conflicts } = applyOverrides(tokens, [
+      borderOverride,
+      { path, value: '48px', baseValue: '38.5px' },
+    ])
+    expect(conflicts.map((entry) => entry.path)).toEqual([path])
+    expect(conflicts[0]).toMatchObject({ baseValue: '38.5px', engineValue: rederived })
+  })
+
+  it('reports convergence when the other overrides re-derived the engine onto the reviewer\'s value', () => {
+    const { converged, conflicts } = applyOverrides(tokens, [
+      borderOverride,
+      { path, value: rederived, baseValue: '38.5px' },
+    ])
+    expect(conflicts).toEqual([])
+    expect(converged).toEqual([{ path, value: rederived }])
+  })
+
+  it('is the same answer the write boundary gets from `standingConflict`', () => {
+    const standing: TokenOverride = { path, value: '48px', baseValue: rederived }
+    const overrides = [borderOverride, standing]
+    // One question, one document: whatever `applyOverrides` reports for a
+    // standing override, asking about it on its own has to match, or the write
+    // boundary and the exports tell the reviewer two different stories.
+    expect(standingConflict(baselineFor(tokens, overrides, path), standing)).toBeUndefined()
+    expect(applyOverrides(tokens, overrides).conflicts).toEqual([])
+
+    const stale: TokenOverride = { path, value: '48px', baseValue: '38.5px' }
+    const staleSet = [borderOverride, stale]
+    expect(standingConflict(baselineFor(tokens, staleSet, path), stale)).toMatchObject({ engineValue: rederived })
+    expect(applyOverrides(tokens, staleSet).conflicts).toHaveLength(1)
+  })
+
+  it('stays deterministic across the extra replays', () => {
+    const overrides = [borderOverride, { path, value: '48px', baseValue: rederived }]
+    expect(serializeTokens(applyOverrides(kit(), overrides).tokens)).toBe(
+      serializeTokens(applyOverrides(kit(), overrides).tokens),
+    )
+  })
+})
+
 describe('a conflict the reviewer answered', () => {
   const tokens = kit()
   const engineValue = `${tokens.border.width.value}px`
@@ -688,8 +787,11 @@ describe('a typography step, which is three slots behind one record', () => {
     // The sibling reads as the engine's own value, so setting a *different* one
     // is an ordinary creation and restating it is refused as one -- exactly the
     // judgement any untouched slot gets.
-    expect(overrideRejection(sized, { path: 'typography.steps.base.lineHeight', value: '1.7' })).toBeUndefined()
-    expect(overrideRejection(sized, { path: 'typography.steps.base.lineHeight', value: engineLineHeight })).toContain(
+    const sibling = baseline(tokens, 'typography.steps.base.lineHeight', [
+      { path: 'typography.steps.base.fontSize', value: '18px' },
+    ])
+    expect(overrideRejection(sibling, { path: 'typography.steps.base.lineHeight', value: '1.7' })).toBeUndefined()
+    expect(overrideRejection(sibling, { path: 'typography.steps.base.lineHeight', value: engineLineHeight })).toContain(
       'an override that agrees is not an override',
     )
   })

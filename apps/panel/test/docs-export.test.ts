@@ -11,7 +11,8 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { COMPONENT_DOC_IDS, applyOverrides } from '@ingot/engine'
-import type { TokensDocument } from '@ingot/engine'
+import { asPristine } from '@ingot/engine'
+import type { PristineTokens, TokensDocument } from '@ingot/engine'
 import { docsHtmlFilename, renderDocsHtml } from '@/export/docs-html'
 
 function repositoryRoot(): string {
@@ -35,8 +36,10 @@ function existsSyncSafe(path: string): boolean {
 
 const ROOT = repositoryRoot()
 
-function kit(name: string): TokensDocument {
-  return JSON.parse(readFileSync(join(ROOT, 'examples', name, 'tokens.json'), 'utf8')) as TokensDocument
+function kit(name: string): PristineTokens {
+  // The committed examples are exactly the bytes `distill` wrote, which is what
+  // makes naming them the pristine document sound.
+  return asPristine(JSON.parse(readFileSync(join(ROOT, 'examples', name, 'tokens.json'), 'utf8')) as TokensDocument)
 }
 
 const SETS = ['ghost-warm', 'linear-dark', 'stripe-light', 'messy-mixed']

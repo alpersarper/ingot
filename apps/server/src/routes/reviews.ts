@@ -9,15 +9,16 @@
  *     an override is applicable, on a throwaway document. Storing first and
  *     compensating on refusal would let a mistyped edit destroy the override
  *     already standing at that path.
- *   - **Two different baselines, for two different questions.** `baseValue` is
- *     the engine's answer in the *pristine* distillation, because that is what a
- *     later regeneration is compared against; it must not start tracking other
- *     overrides. It is refreshed only by a write that moves the value: a
- *     conflict is retired by the reviewer responding to it, and adding a reason
- *     is not a response. Whether a candidate is redundant is asked of the *effective*
- *     document instead -- every other override replayed, this path's own left
- *     out -- because that is the value the reviewer is looking at, and replaying
- *     an override re-derives the heights and shades that depend on it.
+ *   - **Every question here is a baseline question.** Whether a candidate is
+ *     redundant, whether a conflict is standing, and what the engine's answer
+ *     was when an override was made are all asked of the *baseline*: the stored
+ *     distillation with every other override replayed and this path's own left
+ *     out. `packages/engine/src/tokens/documents.ts` is the mapping of question
+ *     to document, and `baselineFor` is the only way to build one, so the route
+ *     and `applyOverrides` cannot drift onto two different answers. `baseValue`
+ *     is still refreshed only by a write that moves the value: a conflict is
+ *     retired by the reviewer responding to it, and adding a reason is not a
+ *     response.
  *   - **The server computes both, not the client.** They are read from the kit
  *     on the server rather than accepted from a browser that could get them
  *     wrong or stale.
@@ -31,7 +32,8 @@
  */
 import { Hono } from 'hono'
 import {
-  applyOverrides,
+  asPristine,
+  baselineFor,
   canonicalOverrideValue,
   overrideRejection,
   readTokenValue,
@@ -135,21 +137,25 @@ export function reviewRoutes(context: AppContext): Hono<AppEnv> {
     const submittedNote = reviewerNote(body)
 
     const kit = await latestKit(scope)
-    // The engine's own answer, read from the kit as generated -- not from the
-    // effective document, which may already carry this very override.
-    const base = JSON.parse(kit.tokensJson) as TokensDocument
-    const baseValue = readTokenValue(base, path)
+    const base = asPristine(JSON.parse(kit.tokensJson) as TokensDocument)
+
+    // The document every question on this route is asked of: the standing
+    // decisions for every *other* path replayed, so a dependent height or
+    // interaction shade carries its re-derived value rather than the stored
+    // one, and this path's own override left out, because the question is what
+    // the engine says without it. The engine builds it, so the write boundary
+    // and `applyOverrides` cannot end up asking about two different documents.
+    const standing = await store.reviews.overrides(scope)
+    const baseline = baselineFor(base, standing.map(toEngineOverride), path)
+
+    // The engine's own answer for this slot, read from that same baseline --
+    // `baseValue` is an input to the conflict comparison, so recording it from
+    // one document and comparing it against another would report disagreements
+    // neither of them ever had.
+    const baseValue = readTokenValue(baseline, path)
     if (baseValue === null) {
       throw ApiError.unprocessable(`this kit has no token at ${path}, so there is nothing to override`)
     }
-
-    // What the reviewer is actually looking at: the standing decisions for every
-    // *other* path replayed, so a dependent height or interaction shade carries
-    // its re-derived value rather than the stored one. This path's own override
-    // is left out, because the question is what the engine says without it.
-    const standing = await store.reviews.overrides(scope)
-    const others = standing.filter((entry) => entry.path !== path).map(toEngineOverride)
-    const baseline = others.length === 0 ? base : applyOverrides(base, others).tokens
 
     // An override the engine refuses is a bad request, not a stored value -- and
     // the judgement has to come *before* the write. `setOverride` upserts on
@@ -171,7 +177,7 @@ export function reviewRoutes(context: AppContext): Hono<AppEnv> {
     // engine knows that.
     const changed =
       existing === undefined ||
-      canonicalOverrideValue(base, path, existing.value) !== canonicalOverrideValue(base, path, value)
+      canonicalOverrideValue(baseline, path, existing.value) !== canonicalOverrideValue(baseline, path, value)
 
     // `baseValue` is refreshed only by a write that moves the value. A conflict
     // is retired by the reviewer *responding* to it, and annotating is not a

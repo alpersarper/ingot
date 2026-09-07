@@ -157,7 +157,7 @@ export function decisionCards({
       evidence: [
         `you set ${conflict.value}`,
         `the engine said ${conflict.baseValue} when you set it`,
-        `the captures now say ${conflict.engineValue}`,
+        `the engine now says ${conflict.engineValue}`,
       ],
       options: [{ kind: 'clear', label: `Revert to the engine (${conflict.engineValue})` }],
       editable: editablePaths.has(conflict.path),

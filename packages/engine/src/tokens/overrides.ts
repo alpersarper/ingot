@@ -29,6 +29,7 @@ import { parseShadow } from '../shadow/shadow'
 import { round } from '../util/num'
 import { byString, chain } from '../util/sort'
 import { derive, userOverride } from '../provenance'
+import type { BaselineTokens, EffectiveTokens, PristineTokens } from './documents'
 import type { DominantChoice, Provenance, ResolvedConflict } from '../provenance'
 import type { ContrastAdjustment } from '../color/contrast'
 import type {
@@ -96,7 +97,10 @@ export interface TokenOverride {
    *
    * This is the whole conflict mechanism: on a later regeneration the engine's
    * answer is compared against this, not against the override, so "the evidence
-   * moved" is distinguishable from "you disagreed with the engine".
+   * moved" is distinguishable from "you disagreed with the engine". It is read
+   * from the *baseline* -- the same document class the comparison is later made
+   * against, because a value recorded from one document and compared against
+   * another reports disagreements neither of them ever had.
    */
   baseValue?: string
   /** The reviewer's own reason, carried into `design.md`. */
@@ -116,7 +120,7 @@ export interface TokenOverride {
 export interface AppliedOverride {
   path: string
   value: string
-  /** The engine's answer for this path in *this* distillation. */
+  /** The engine's answer for this path, with every other override in force. */
   engineValue: string
   note?: string
 }
@@ -162,8 +166,8 @@ export interface ConvergedOverride {
 }
 
 export interface OverrideResult {
-  /** A new document. The input is never mutated. */
-  tokens: TokensDocument
+  /** A new document, with every override in it. The input is never mutated. */
+  tokens: EffectiveTokens
   applied: AppliedOverride[]
   conflicts: OverrideConflict[]
   converged: ConvergedOverride[]
@@ -475,30 +479,38 @@ function parseFontStack(raw: string): Parsed | string {
 
 /* -------------------------------------------------------------- applying -- */
 
-/**
- * Replay `overrides` over a freshly distilled document.
- *
- * The result is a function of the two inputs alone: overrides are applied in
- * path order, unknown or unparseable ones are rejected rather than guessed at,
- * and everything an override invalidated -- contrast ratios, derived control
- * heights, the disabled pair -- is recomputed from the new values.
- */
-export function applyOverrides(
-  tokens: TokensDocument,
-  overrides: readonly TokenOverride[],
-): OverrideResult {
-  const next = clone(tokens)
-  const applied: AppliedOverride[] = []
-  const conflicts: OverrideConflict[] = []
-  const converged: ConvergedOverride[] = []
-  const rejected: RejectedOverride[] = []
+/** One replay of a set of overrides: the values written, and nothing judged. */
+interface Replay {
+  tokens: TokensDocument
+  /** The canonical value written for each override, by its position in the input. */
+  written: Map<number, string>
+  rejected: RejectedOverride[]
+  /** Roles a human replaced, which is what the shade derivation pins. */
+  colorTouched: Set<ColorRoleName>
+  /** Slots the engine wanted to move and stepped aside from. */
+  yielded: Set<string>
+}
 
-  const ordered = [...overrides].sort(chain<TokenOverride>((a, b) => byString(a.path, b.path)))
+/**
+ * Write `ordered` into a copy of `tokens` and recompute what they invalidated.
+ *
+ * Deliberately judges nothing: no conflicts, no convergence, no diagnostics.
+ * That is what lets {@link applyOverrides} call it again, once per override, to
+ * build the baseline each of those judgements has to be made against -- the
+ * document with every *other* override in force. Doing it any other way means
+ * two ideas of "the engine's current answer", which is the drift this split
+ * exists to stop.
+ */
+function replay(tokens: TokensDocument, ordered: readonly TokenOverride[]): Replay {
+  const next = clone(tokens)
+  const written = new Map<number, string>()
+  const rejected: RejectedOverride[] = []
   const slots = new Map(tokenSlots(next).map((slot) => [slot.path, slot]))
   const colorTouched = new Set<ColorRoleName>()
   const recipesTouched = new Set<string>()
+  const yielded = new Set<string>()
 
-  for (const override of ordered) {
+  ordered.forEach((override, index) => {
     const slot = slots.get(override.path)
     if (slot === undefined) {
       rejected.push({
@@ -506,40 +518,18 @@ export function applyOverrides(
         value: override.value,
         reason: 'this kit has no such token, so there is nothing to override',
       })
-      continue
+      return
     }
 
     const parsed = parseFor(slot, next, override.value)
     if (typeof parsed === 'string') {
       rejected.push({ path: override.path, value: override.value, reason: parsed })
-      continue
+      return
     }
-
-    const engineValue = slot.value
 
     write(next, slot, parsed.canonical, override.note, colorTouched, recipesTouched, override.resolvedConflict)
-    const entry: AppliedOverride = { path: override.path, value: parsed.canonical, engineValue }
-    if (override.note !== undefined && override.note !== '') entry.note = override.note
-    applied.push(entry)
-
-    if (parsed.canonical === engineValue) {
-      // The evidence has caught up with a standing decision. Refusing it here
-      // would strip the `user-override` mark off a value the reviewer really
-      // did choose and hand the credit back to the engine, so the override
-      // stands and the convergence is reported instead. A *candidate* that
-      // agrees is a different thing and is still refused, at the write boundary
-      // -- see {@link overrideRejection}.
-      converged.push({ path: override.path, value: parsed.canonical })
-    } else {
-      const conflict = conflictBetween(override, parsed.canonical, engineValue)
-      if (conflict !== undefined) conflicts.push(conflict)
-    }
-  }
-
-  // Slots the engine wanted to move and stepped aside from, because a human had
-  // already answered there. They are the one place the pristine value is not
-  // the engine's current answer, so they cannot be reported as converged.
-  const yielded = new Set<string>()
+    written.set(index, parsed.canonical)
+  })
 
   if (recipesTouched.size > 0) for (const path of recomputeHeights(next, recipesTouched)) yielded.add(path)
   if (colorTouched.size > 0) {
@@ -551,14 +541,108 @@ export function applyOverrides(
     restateContrastAdjustments(next)
   }
 
-  const agreed = converged.filter((entry) => !yielded.has(entry.path))
+  return { tokens: next, written, rejected, colorTouched, yielded }
+}
+
+/** Overrides in the order they are replayed, so a replay is a function of the set. */
+function ordering(overrides: readonly TokenOverride[]): TokenOverride[] {
+  return [...overrides].sort(chain<TokenOverride>((a, b) => byString(a.path, b.path)))
+}
+
+/**
+ * The document a question about `path` is asked of.
+ *
+ * Every standing override *except* the one at `path`, replayed over the stored
+ * distillation. That is the engine's current answer for the slot: the pristine
+ * value is not it, because another override may have re-derived a control
+ * height or an interaction shade out from under this one, and the effective
+ * document is not it either, because it already contains the very value the
+ * question is about.
+ *
+ * It is the engine's job rather than a caller's precisely so that the write
+ * boundary and {@link applyOverrides} cannot end up asking about two different
+ * documents -- which is how `design.md` came to report a conflict that had been
+ * answered against a value nobody ever saw.
+ */
+export function baselineFor(
+  tokens: PristineTokens,
+  overrides: readonly TokenOverride[],
+  path: string,
+): BaselineTokens {
+  const others = overrides.filter((override) => override.path !== path)
+  return replay(tokens, ordering(others)).tokens as BaselineTokens
+}
+
+/**
+ * Replay `overrides` over a freshly distilled document.
+ *
+ * The result is a function of the two inputs alone: overrides are applied in
+ * path order, unknown or unparseable ones are rejected rather than guessed at,
+ * and everything an override invalidated -- contrast ratios, derived control
+ * heights, the disabled pair -- is recomputed from the new values.
+ *
+ * Whether each one agrees with the engine or disagrees with it is decided
+ * against that override's own baseline, one replay per override, because an
+ * answer measured against the pristine value would be about a document nobody
+ * is looking at.
+ */
+export function applyOverrides(
+  tokens: PristineTokens,
+  overrides: readonly TokenOverride[],
+): OverrideResult {
+  const ordered = ordering(overrides)
+  const result = replay(tokens, ordered)
+  const next = result.tokens
+
+  const applied: AppliedOverride[] = []
+  const conflicts: OverrideConflict[] = []
+  const converged: ConvergedOverride[] = []
+
+  ordered.forEach((override, index) => {
+    const value = result.written.get(index)
+    if (value === undefined) return
+
+    // The engine's answer for this slot with every other override in force,
+    // which is the only value it is honest to compare a standing decision
+    // against. The exclusion is by position rather than by path so that the
+    // question is about this override alone.
+    const others = ordered.filter((_, other) => other !== index)
+    const engineValue =
+      readTokenValue(replay(tokens, others).tokens, override.path) ?? readTokenValue(tokens, override.path)
+    if (engineValue === null) return
+
+    const entry: AppliedOverride = { path: override.path, value, engineValue }
+    if (override.note !== undefined && override.note !== '') entry.note = override.note
+    applied.push(entry)
+
+    if (value === engineValue) {
+      // The evidence has caught up with a standing decision. Refusing it here
+      // would strip the `user-override` mark off a value the reviewer really
+      // did choose and hand the credit back to the engine, so the override
+      // stands and the convergence is reported instead. A *candidate* that
+      // agrees is a different thing and is still refused, at the write boundary
+      // -- see {@link overrideRejection}.
+      // A slot the engine wanted to move and stepped aside from is not
+      // agreement, whatever the two values end up reading.
+      if (!result.yielded.has(override.path)) converged.push({ path: override.path, value })
+    } else {
+      const conflict = conflictBetween(override, value, engineValue)
+      if (conflict !== undefined) conflicts.push(conflict)
+    }
+  })
 
   next.diagnostics = [
     ...next.diagnostics,
-    ...overrideDiagnostics(next, applied, conflicts, agreed, rejected, colorTouched),
+    ...overrideDiagnostics(next, applied, conflicts, converged, result.rejected, result.colorTouched),
   ]
 
-  return { tokens: next, applied, conflicts, converged: agreed, rejected }
+  return {
+    tokens: next as EffectiveTokens,
+    applied,
+    conflicts,
+    converged,
+    rejected: result.rejected,
+  }
 }
 
 /**
@@ -584,7 +668,7 @@ function conflictBetween(
     engineValue,
     message:
       `\`${override.path}\` was overridden to ${value} when the engine said ${override.baseValue}. ` +
-      `The captures now say ${engineValue}. Your value is still in force; re-check it, or clear the override to take ${engineValue}.`,
+      `The engine now says ${engineValue}. Your value is still in force; re-check it, or clear the override to take ${engineValue}.`,
   }
 }
 
@@ -599,7 +683,7 @@ function conflictBetween(
  * answered when none was ever reported.
  */
 export function standingConflict(
-  tokens: TokensDocument,
+  tokens: BaselineTokens,
   override: TokenOverride,
 ): OverrideConflict | undefined {
   const slot = tokenSlots(tokens).find((entry) => entry.path === override.path)
@@ -640,7 +724,7 @@ export function standingConflict(
  * all: {@link applyOverrides} keeps it and reports `override.now-agrees`.
  */
 export function overrideRejection(
-  tokens: TokensDocument,
+  tokens: BaselineTokens,
   candidate: { path: string; value: string },
   mode: 'create' | 'edit' = 'create',
 ): string | undefined {

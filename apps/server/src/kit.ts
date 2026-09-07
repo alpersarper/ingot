@@ -21,12 +21,15 @@ import {
   CAPTURE_SCHEMA_VERSION,
   ENGINE_VERSION,
   applyOverrides,
+  asEffective,
+  asPristine,
   distill,
   renderDesignMarkdown,
   serializeTokens,
 } from '@ingot/engine'
 import type {
   CaptureSet,
+  EffectiveTokens,
   OverrideConflict,
   RejectedOverride,
   TokenOverride,
@@ -127,7 +130,8 @@ export function reviewScopeOf(kit: Pick<Kit, 'scope' | 'groupId'>): ReviewScope 
  */
 export interface EffectiveKit {
   kit: Kit
-  tokens: TokensDocument
+  /** The kit as it is rendered and exported: every override replayed. */
+  tokens: EffectiveTokens
   designMd: string
   tokensJson: string
   overrides: StoredOverride[]
@@ -149,7 +153,9 @@ export async function effectiveKit(store: Store, kit: Kit): Promise<EffectiveKit
     // merely by the serializer behaving.
     return {
       kit,
-      tokens: JSON.parse(kit.tokensJson) as TokensDocument,
+      // With nothing overridden the stored distillation *is* the effective
+      // document, which is what makes handing back its own bytes sound.
+      tokens: asEffective(JSON.parse(kit.tokensJson) as TokensDocument),
       designMd: kit.designMd,
       tokensJson: kit.tokensJson,
       overrides,
@@ -159,7 +165,7 @@ export async function effectiveKit(store: Store, kit: Kit): Promise<EffectiveKit
     }
   }
 
-  const base = JSON.parse(kit.tokensJson) as TokensDocument
+  const base = asPristine(JSON.parse(kit.tokensJson) as TokensDocument)
   const result = applyOverrides(base, overrides.map(toEngineOverride))
   return {
     kit,

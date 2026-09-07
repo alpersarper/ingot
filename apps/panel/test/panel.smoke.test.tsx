@@ -1,26 +1,26 @@
 /**
  * The panel, end to end: pair, import, generate, review, override, export.
  *
- * The server is faked at `fetch`, but the tokens it answers with are the real
- * committed `examples/ghost-warm/tokens.json` and the override it applies goes
- * through the real engine, so the preview is rendering genuine engine output
- * and the override flow is exercising the real `applyOverrides`. The only thing
- * stubbed is the transport.
+ * There is no fake server here, deliberately. `fetch` is pointed at the real
+ * Hono app from `apps/server`, on an in-memory database, so every request the
+ * panel makes is answered by the routes it ships against: the real pairing
+ * guard, the real import, the real `distill`, the real override boundary with
+ * its own idea of which document each question is asked of.
+ *
+ * A hand-written double is what let three separate defects through review --
+ * each time, the fake reproduced the route's mistake and agreed with it. A fake
+ * cannot disagree with the thing it was copied from, so this one is gone: a
+ * divergence between panel and server is now a failing test rather than two
+ * copies of the same wrong answer.
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  applyOverrides,
-  canonicalOverrideValue,
-  overrideRejection,
-  readTokenValue,
-  renderDesignMarkdown,
-  standingConflict,
-} from '@ingot/engine'
-import type { TokenOverride, TokensDocument } from '@ingot/engine'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { TokensDocument } from '@ingot/engine'
+import { createHarness, TEST_TOKEN } from '../../server/test/harness'
+import type { Harness } from '../../server/test/harness'
 import { App } from '@/App'
 
 /**
@@ -39,234 +39,71 @@ function repositoryRoot(): string {
 }
 
 const ROOT = repositoryRoot()
-const TOKENS = JSON.parse(readFileSync(join(ROOT, 'examples/ghost-warm/tokens.json'), 'utf8')) as TokensDocument
-const DESIGN_MD = readFileSync(join(ROOT, 'examples/ghost-warm/design.md'), 'utf8')
-const CAPTURE_SET = JSON.parse(readFileSync(join(ROOT, 'fixtures/ghost-warm/set.json'), 'utf8')) as {
-  captures: Array<{ id: string; componentType: string; sourceUrl: string; capturedAt: string }>
-}
-
-const TOKEN = 'a-valid-pairing-token'
-const GROUP = {
-  id: 'group-1',
-  slug: 'ghost-warm',
-  name: 'Ghost warm',
-  description: 'Warm.',
-  origin: 'import',
-  captureCount: CAPTURE_SET.captures.length,
-}
-
-interface FakeServer {
-  calls: Array<{ path: string; method: string; token: string | null }>
-  imported: boolean
-  kitGenerated: boolean
-  /** Overrides the fake server holds, exactly as the real one would. */
-  overrides: TokenOverride[]
-  accepted: string[]
-}
 
 /**
- * A fake server that behaves like the real one on the points the panel depends
- * on: it refuses without the pairing token, it has no kit until one is
- * generated, and it replays overrides through the engine rather than pretending
- * they took effect.
+ * The kit the server will distil from this fixture set.
+ *
+ * `examples/` is the committed byte contract for exactly that -- the server's
+ * own determinism test holds it to these bytes -- so it is where the expected
+ * values come from, while the document under test is the one the real engine
+ * produces during the run.
  */
-function installFakeServer(): FakeServer {
-  const state: FakeServer = { calls: [], imported: false, kitGenerated: false, overrides: [], accepted: [] }
+const TOKENS = JSON.parse(readFileSync(join(ROOT, 'examples/ghost-warm/tokens.json'), 'utf8')) as TokensDocument
+const CAPTURE_SET = JSON.parse(readFileSync(join(ROOT, 'fixtures/ghost-warm/set.json'), 'utf8')) as {
+  captures: Array<{ id: string }>
+}
 
-  const json = (body: unknown, status = 200): Response =>
-    new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+let harness: Harness
+let calls: Array<{ path: string; method: string; token: string | null }>
 
-  function effective(): { tokens: TokensDocument; designMd: string; conflicts: unknown[]; rejected: unknown[] } {
-    if (state.overrides.length === 0) {
-      return { tokens: TOKENS, designMd: DESIGN_MD, conflicts: [], rejected: [] }
-    }
-    const result = applyOverrides(TOKENS, state.overrides)
-    return {
-      tokens: result.tokens,
-      designMd: renderDesignMarkdown(result.tokens),
-      conflicts: result.conflicts,
-      rejected: result.rejected,
-    }
-  }
-
-  function kitPayload(): unknown {
-    const { tokens, designMd, conflicts, rejected } = effective()
-    return {
-      kit: {
-        id: 'kit-1',
-        groupId: GROUP.id,
-        scope: 'group',
-        version: 1,
-        setId: 'ghost-warm',
-        name: GROUP.name,
-        engineVersion: TOKENS.engine.version,
-        captureIds: CAPTURE_SET.captures.map((capture) => capture.id),
-        warningCount: 0,
-        createdAt: '2026-05-01T00:00:00.000Z',
-      },
-      tokens,
-      designMd,
-      review: {
-        overrides: state.overrides.map((override) => ({
-          path: override.path,
-          value: override.value,
-          baseValue: override.baseValue ?? '',
-          note: override.note ?? '',
-          ...(override.resolvedConflict === undefined ? {} : { resolvedConflict: override.resolvedConflict }),
-          createdAt: '2026-05-01T00:00:00.000Z',
-          updatedAt: '2026-05-01T00:00:00.000Z',
-        })),
-        conflicts,
-        rejected,
-        accepted: state.accepted,
-      },
-    }
-  }
-
+/** Point the browser's `fetch` at the real app, with no request rewritten. */
+function serveFromTheRealServer(): void {
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
     const path = url.replace(/^https?:\/\/[^/]+/, '')
-    const method = init.method ?? 'GET'
-    const token = new Headers(init.headers).get('x-ingot-token')
-    state.calls.push({ path, method, token })
-
-    if (path === '/api/pairing/verify') {
-      const body = JSON.parse(String(init.body)) as { token: string }
-      return body.token === TOKEN ? json({ paired: true }) : json({ error: { message: 'no' } }, 401)
-    }
-    // Everything else is guarded, exactly as the server guards it.
-    if (token !== TOKEN) return json({ error: { message: 'not paired' } }, 401)
-
-    if (path === '/api/settings' && method === 'GET') {
-      return json({
-        settings: {
-          llm: { configured: false, source: 'none', managedByEnvironment: false },
-          engine: { name: 'ingot-engine', version: TOKENS.engine.version },
-          storage: { adapter: 'sqlite', schemaVersion: 2 },
-          allowedOrigins: ['http://localhost:5173'],
-        },
-      })
-    }
-    if (path === '/api/groups') return json({ groups: state.imported ? [GROUP] : [] })
-    if (path === '/api/captures/import') {
-      state.imported = true
-      return json({ group: GROUP, created: CAPTURE_SET.captures.map((c) => c.id), replaced: [] }, 201)
-    }
-    if (path.startsWith('/api/captures')) {
-      return json({
-        captures: state.imported
-          ? CAPTURE_SET.captures.map((capture) => ({ ...capture, tags: [], hasScreenshot: false }))
-          : [],
-      })
-    }
-    if (path.startsWith('/api/kits/latest')) {
-      return state.kitGenerated ? json(kitPayload()) : json({ error: { message: 'none yet' } }, 404)
-    }
-    if (path === '/api/kits' && method === 'POST') {
-      state.kitGenerated = true
-      return json(kitPayload(), 201)
-    }
-    if (path.startsWith('/api/reviews/overrides') && method === 'PUT') {
-      const body = JSON.parse(String(init.body)) as { path: string; value: string; note?: string }
-      // The real route judges the candidate *before* storing anything, and it
-      // asks the question the same way: against the effective document with
-      // this path's own override left out, and as an edit rather than a
-      // creation when the reviewer already owns the path. The fake calls the
-      // same engine entry point on the same baseline rather than approximating
-      // it, so the panel is never tested against a server that is either more
-      // permissive or more restrictive than the one it ships against.
-      const others = state.overrides.filter((entry) => entry.path !== body.path)
-      const baseline = others.length === 0 ? TOKENS : applyOverrides(TOKENS, others).tokens
-      const editing = state.overrides.some((entry) => entry.path === body.path)
-      const rejection = overrideRejection(
-        baseline,
-        { path: body.path, value: body.value },
-        editing ? 'edit' : 'create',
-      )
-      if (rejection !== undefined) return json({ error: { message: rejection } }, 422)
-      // `baseValue` is the other question, and it still comes from the pristine
-      // kit: it is what a later regeneration is compared against. Like the real
-      // route, it is refreshed only by a write that moves the value -- a
-      // conflict is retired by responding to it, and adding a reason is not a
-      // response.
-      const standing = state.overrides.find((entry) => entry.path === body.path)
-      const engineValue = readTokenValue(TOKENS, body.path)
-      const changed =
-        standing === undefined ||
-        canonicalOverrideValue(TOKENS, body.path, standing.value) !==
-          canonicalOverrideValue(TOKENS, body.path, body.value)
-      const baseValue = standing !== undefined && !changed ? standing.baseValue : engineValue
-      // Whether a conflict was standing is the engine's determination, asked of
-      // the same baseline, rather than a lookalike condition -- the real route
-      // does the same, and a fake that guessed would let the panel ship against
-      // a server it does not match. Any earlier answer is carried forward.
-      const answered =
-        standing === undefined
-          ? undefined
-          : changed && standingConflict(baseline, standing) !== undefined
-            ? { value: standing.value, baseValue: standing.baseValue as string }
-            : standing.resolvedConflict
-      // A write that says nothing about the reason leaves the standing one in
-      // place; an explicitly empty one clears it. The reviewer wrote it and
-      // design.md prints it, so it is not something a value change discards.
-      const note = body.note ?? standing?.note
-      state.overrides = [
-        ...state.overrides.filter((entry) => entry.path !== body.path),
-        {
-          path: body.path,
-          value: body.value,
-          ...(baseValue === null || baseValue === undefined ? {} : { baseValue }),
-          ...(note === undefined || note === '' ? {} : { note }),
-          ...(answered === undefined ? {} : { resolvedConflict: answered }),
-        },
-      ]
-      return json(kitPayload())
-    }
-    if (path.startsWith('/api/reviews/overrides') && method === 'DELETE') {
-      const target = new URL(url, 'http://localhost').searchParams.get('path')
-      if (!state.overrides.some((entry) => entry.path === target)) {
-        return json({ error: { message: `no override at ${target}` } }, 404)
-      }
-      state.overrides = state.overrides.filter((entry) => entry.path !== target)
-      return json(kitPayload())
-    }
-    if (path.startsWith('/api/reviews/decisions') && method === 'PUT') {
-      const body = JSON.parse(String(init.body)) as { cardId: string; state: 'accepted' | 'open' }
-      state.accepted =
-        body.state === 'accepted'
-          ? [...new Set([...state.accepted, body.cardId])]
-          : state.accepted.filter((id) => id !== body.cardId)
-      return json(kitPayload())
-    }
-    if (path.endsWith('/design.md')) {
-      return new Response(effective().designMd, {
-        headers: {
-          'content-type': 'text/markdown',
-          'content-disposition': 'attachment; filename="ghost-warm-v1-design.md"',
-        },
-      })
-    }
-    if (path.includes('/components/')) {
-      return new Response('# Button', {
-        headers: { 'content-type': 'text/markdown', 'content-disposition': 'attachment; filename="button.md"' },
-      })
-    }
-    return json({ error: { message: `unexpected ${method} ${path}` } }, 404)
+    const headers = new Headers(init.headers)
+    calls.push({ path, method: init.method ?? 'GET', token: headers.get('x-ingot-token') })
+    return harness.app.fetch(new Request(`http://localhost:4310${path}`, init))
   })
-
-  return state
 }
 
-let server: FakeServer
-
-beforeEach(() => {
-  server = installFakeServer()
+beforeEach(async () => {
+  harness = await createHarness()
+  calls = []
+  serveFromTheRealServer()
 })
+
+afterEach(async () => {
+  vi.unstubAllGlobals()
+  await harness.close()
+})
+
+/** The scope the panel is reviewing: the group the import created. */
+async function importedGroupId(): Promise<string> {
+  const { groups } = await harness.json<{ groups: Array<{ id: string }> }>('/api/groups')
+  const group = groups[0]
+  if (group === undefined) throw new Error('nothing has been imported yet')
+  return group.id
+}
+
+/** The document a consumer would be handed, straight from the server. */
+async function designMarkdown(): Promise<string> {
+  const groupId = await importedGroupId()
+  const { kit } = await harness.json<{ kit: { id: string } }>(
+    `/api/kits/latest?groupId=${encodeURIComponent(groupId)}`,
+  )
+  return (await harness.call(`/api/kits/${kit.id}/design.md`)).text()
+}
+
+/** The overrides the server is actually holding for the reviewed scope. */
+async function storedOverrides(): Promise<Array<{ path: string; value: string; note: string; baseValue: string }>> {
+  return harness.store.reviews.overrides(await importedGroupId())
+}
 
 /** Pair, import and generate: the state every review test starts from. */
 async function reachTheWorkbench(user: ReturnType<typeof userEvent.setup>): Promise<void> {
   render(<App />)
-  await user.type(await screen.findByLabelText('Pairing token'), TOKEN)
+  await user.type(await screen.findByLabelText('Pairing token'), TEST_TOKEN)
   await user.click(screen.getByRole('button', { name: 'Pair' }))
   await user.click(await screen.findByRole('button', { name: /Continue without a key/ }))
   await screen.findByRole('heading', { name: 'Collection' })
@@ -306,8 +143,8 @@ describe('the panel, end to end', () => {
     // And design.md downloads, with the pairing token on the request.
     await user.click(within(system).getByRole('button', { name: 'design.md' }))
     await waitFor(() => {
-      const download = server.calls.find((call) => call.path.endsWith('/design.md'))
-      expect(download?.token).toBe(TOKEN)
+      const download = calls.find((call) => call.path.endsWith('/design.md'))
+      expect(download?.token).toBe(TEST_TOKEN)
     })
   })
 
@@ -366,7 +203,7 @@ describe('the review loop', () => {
     await waitFor(() => expect(within(preview).getAllByText('user override').length).toBeGreaterThan(0))
 
     // ...and design.md carries it, with the reason.
-    const design = await (await fetch('/api/kits/kit-1/design.md', { headers: { 'x-ingot-token': TOKEN } })).text()
+    const design = await designMarkdown()
     expect(design).toContain('## 10. User overrides')
     expect(design).toContain('the captured radius reads timid')
   })
@@ -378,13 +215,20 @@ describe('the review loop', () => {
     const engineRadius = `${TOKENS.radius.steps.md?.value}px`
 
     // A standing override whose recorded engine answer no longer matches: the
-    // shape a regeneration produces when the captures have moved.
-    server.overrides.push({ path: 'radius.steps.md', value: '10px', baseValue: '4px' })
+    // shape a regeneration produces when the captures have moved. Written
+    // straight to the store, because that is where a carried-forward decision
+    // lives once the evidence underneath it has changed.
+    await harness.store.reviews.setOverride(await importedGroupId(), {
+      path: 'radius.steps.md',
+      value: '10px',
+      baseValue: '4px',
+      note: '',
+    })
     await user.click(within(system).getByRole('button', { name: /Regenerate/ }))
 
     const card = await within(system).findByText(/Your value and the new evidence disagree/)
     expect(card).toBeTruthy()
-    expect(within(system).getByText(/the captures now say/)).toBeTruthy()
+    expect(within(system).getByText(/the engine now says/)).toBeTruthy()
 
     // Taking what the engine now says clears the override rather than storing
     // it as a new one -- an override that agrees with the engine is not an
@@ -395,7 +239,7 @@ describe('the review loop', () => {
       expect(surface?.style.getPropertyValue('--kit-radius-md')).toBe(engineRadius)
     })
     // The decision is gone from the store, so the conflict cannot come back.
-    expect(server.overrides).toEqual([])
+    expect(await storedOverrides()).toEqual([])
     await waitFor(() =>
       expect(within(system).queryByText(/Your value and the new evidence disagree/)).toBeNull(),
     )
@@ -412,7 +256,7 @@ describe('the review loop', () => {
       target: { value: '10px' },
     })
     await user.click(within(system).getByRole('button', { name: 'Override' }))
-    await waitFor(() => expect(server.overrides[0]?.value).toBe('10px'))
+    await waitFor(async () => expect((await storedOverrides())[0]?.value).toBe('10px'))
 
     // Re-open the editor and change only the reason. The value is unchanged, so
     // an early return on "the value did not move" would drop the justification
@@ -423,10 +267,9 @@ describe('the review loop', () => {
     })
     await user.click(within(system).getByRole('button', { name: 'Override' }))
 
-    await waitFor(() => expect(server.overrides[0]?.note).toBe('the captured radius reads timid'))
+    await waitFor(async () => expect((await storedOverrides())[0]?.note).toBe('the captured radius reads timid'))
     // ...and it reaches the document the reviewer hands to a consumer.
-    const design = await (await fetch('/api/kits/kit-1/design.md', { headers: { 'x-ingot-token': TOKEN } })).text()
-    expect(design).toContain('the captured radius reads timid')
+    expect(await designMarkdown()).toContain('the captured radius reads timid')
   })
 
   it('keeps the reason when a conflict is answered from its card', async () => {
@@ -444,10 +287,13 @@ describe('the review loop', () => {
       target: { value: 'brand asked for rounder corners' },
     })
     await user.click(within(system).getByRole('button', { name: 'Override' }))
-    await waitFor(() => expect(server.overrides[0]?.note).toBe('brand asked for rounder corners'))
+    await waitFor(async () => expect((await storedOverrides())[0]?.note).toBe('brand asked for rounder corners'))
 
     // The evidence then moves under it, which is what raises the conflict.
-    ;(server.overrides[0] as TokenOverride).baseValue = '4px'
+    const groupId = await importedGroupId()
+    const standing = (await storedOverrides())[0]
+    if (standing === undefined) throw new Error('the override the reviewer just made is missing')
+    await harness.store.reviews.setOverride(groupId, { ...standing, baseValue: '4px' })
     await user.click(within(system).getByRole('button', { name: /Regenerate/ }))
     await user.click(within(system).getByRole('tab', { name: /^Review/ }))
     await within(system).findByText(/Your value and the new evidence disagree/)
@@ -457,9 +303,9 @@ describe('the review loop', () => {
     fireEvent.change(within(system).getByLabelText('Override radius.steps.md'), { target: { value: '8px' } })
     await user.click(within(system).getByRole('button', { name: 'Set' }))
 
-    await waitFor(() => expect(server.overrides[0]?.value).toBe('8px'))
-    expect(server.overrides[0]?.note).toBe('brand asked for rounder corners')
-    const design = await (await fetch('/api/kits/kit-1/design.md', { headers: { 'x-ingot-token': TOKEN } })).text()
+    await waitFor(async () => expect((await storedOverrides())[0]?.value).toBe('8px'))
+    expect((await storedOverrides())[0]?.note).toBe('brand asked for rounder corners')
+    const design = await designMarkdown()
     expect(design).toContain('## 10. User overrides')
     expect(design).toContain('brand asked for rounder corners')
   })
@@ -468,11 +314,22 @@ describe('the review loop', () => {
     const user = userEvent.setup()
     await reachTheWorkbench(user)
     const system = screen.getByRole('complementary', { name: 'System' })
+    const groupId = await importedGroupId()
 
     // One override the engine applies, and one it refuses because this kit has
     // no such slot -- the shape a regeneration leaves when a step disappears.
-    server.overrides.push({ path: 'radius.steps.md', value: '10px', baseValue: '6px' })
-    server.overrides.push({ path: 'radius.steps.full', value: '999px', baseValue: '999px' })
+    await harness.store.reviews.setOverride(groupId, {
+      path: 'radius.steps.md',
+      value: '10px',
+      baseValue: `${TOKENS.radius.steps.md?.value}px`,
+      note: '',
+    })
+    await harness.store.reviews.setOverride(groupId, {
+      path: 'radius.steps.full',
+      value: '999px',
+      baseValue: '999px',
+      note: '',
+    })
     await user.click(within(system).getByRole('button', { name: /Regenerate/ }))
     await user.click(within(system).getByRole('tab', { name: 'Export' }))
 
@@ -495,7 +352,9 @@ describe('the review loop', () => {
     await user.click(closeCalls[0] as HTMLElement)
     await user.click(within(system).getAllByRole('button', { name: 'Accept' })[0] as HTMLElement)
 
-    await waitFor(() => expect(server.accepted.length).toBe(1))
+    await waitFor(async () =>
+      expect(await harness.store.reviews.decisions(await importedGroupId())).toHaveLength(1),
+    )
     expect(within(system).getAllByText('accepted').length).toBeGreaterThan(0)
   })
 })

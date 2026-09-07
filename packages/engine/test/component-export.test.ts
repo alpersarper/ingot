@@ -16,11 +16,11 @@ import { COMPONENT_DOC_IDS, componentDoc, componentDocs } from '../src/export/co
 import { renderComponentMarkdown } from '../src/export/component-md'
 import { applyOverrides } from '../src/tokens/overrides'
 import type { CaptureSet } from '../src/capture/types'
-import type { TokensDocument } from '../src/tokens/types'
+import type { PristineTokens } from '../src/tokens/documents'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 
-function kit(name: string): TokensDocument {
+function kit(name: string): PristineTokens {
   return distill(JSON.parse(readFileSync(join(ROOT, 'fixtures', name, 'set.json'), 'utf8')) as CaptureSet)
 }
 
