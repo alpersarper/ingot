@@ -94,8 +94,15 @@ const MIGRATIONS: string[][] = [
     //
     // scope_key is the group id, or the literal 'library' for the whole-library
     // scope. A plain TEXT key rather than a foreign key to groups: the library
-    // scope has no row to point at, and an override should survive its group
-    // being deleted and re-imported under the same slug.
+    // scope has no row to point at, and the rows outlive the kits they were made
+    // against, which is the guarantee an override exists for -- regenerating
+    // carries it forward.
+    //
+    // The durability stops there. Deleting a group and importing the same set
+    // again mints a fresh group id, so the old rows key on an id nothing refers
+    // to any more: they are orphaned rather than reattached, and nothing cleans
+    // them up. Matching on the slug instead would silently bind one review's
+    // decisions to a different import, which is not a trade this schema makes.
     `CREATE TABLE token_overrides (
        scope_key  TEXT NOT NULL,
        -- Dotted token path, e.g. components.recipes.button.primary.paddingX.

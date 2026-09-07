@@ -40,9 +40,19 @@ export interface KitDocsProps {
    * anchors over every component", which is the form that needs no JavaScript.
    */
   onSelect?: (id: ComponentDocId) => void
+  /**
+   * True when the palette on screen was computed in the panel rather than
+   * distilled -- the counterpart theme.
+   *
+   * The page may not then claim that every value on it came from the kit,
+   * because the surface and text roles did not: they were flipped, re-spread
+   * and re-enforced here. The export never sets it; the kit ships in the mode
+   * it was distilled in.
+   */
+  derivedPalette?: boolean
 }
 
-export function KitDocs({ tokens, active, onSelect }: KitDocsProps): ReactNode {
+export function KitDocs({ tokens, active, onSelect, derivedPalette = false }: KitDocsProps): ReactNode {
   const docs = componentDocs(tokens)
   const current = docs.find((doc) => doc.id === active) ?? docs[0]
   const shown = onSelect === undefined ? docs : current === undefined ? [] : [current]
@@ -76,11 +86,22 @@ export function KitDocs({ tokens, active, onSelect }: KitDocsProps): ReactNode {
             <h1 className="kit-docs-heading">{tokens.source.name}</h1>
             <p className="kit-docs-summary">
               {tokens.source.description} Distilled by {tokens.engine.name} {tokens.engine.version} from{' '}
-              {tokens.source.captureCount} captured components. Every value on this page comes from that kit; this
-              page is set in it.
+              {tokens.source.captureCount} captured components.{' '}
+              {derivedPalette
+                ? `This is the ${tokens.color.mode}-mode counterpart, derived in the panel: the surface and text roles below were computed here and are marked derived, and the kit itself is not exported in this mode.`
+                : 'Every value on this page comes from that kit; this page is set in it.'}
             </p>
           </div>
-        ) : null}
+        ) : (
+          derivedPalette ? (
+            <div className="kit-docs-lede">
+              <p className="kit-docs-summary">
+                This is the {tokens.color.mode}-mode counterpart, derived in the panel. The surface and text roles
+                below were computed here rather than measured, and the kit exports in its own mode.
+              </p>
+            </div>
+          ) : null
+        )}
 
         {shown.map((doc) => (
           <DocsSection key={doc.id} doc={doc} tokens={tokens} />

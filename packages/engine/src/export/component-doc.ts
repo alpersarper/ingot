@@ -200,13 +200,31 @@ function recipeColors(ctx: Context, name: ComponentRecipeName, prefix = ''): Doc
   const label = (word: string): string => (prefix === '' ? word : `${prefix} ${word}`)
   const roleOf = (path: string | null): ColorRoleName | null =>
     path === null ? null : (path.replace('color.roles.', '') as ColorRoleName)
+  const hover = hoverSurfaceOf(recipe)
   return [
     ctx.color(label('fill'), roleOf(recipe.colors.surface)),
     ctx.color(label('label'), roleOf(recipe.colors.foreground)),
     ctx.color(label('border'), roleOf(recipe.colors.border)),
-    ctx.color(label('hover fill'), roleOf(recipe.colors.hoverSurface)),
+    ctx.color(label(hover.distinct ? 'hover fill' : 'hover fill (unchanged)'), roleOf(hover.path)),
   ]
 }
+
+/**
+ * The surface a recipe paints on hover.
+ *
+ * A recipe with no derived hover shade -- `button.destructive` in every kit
+ * whose palette has one, because the engine will not invent a darker red --
+ * keeps the fill it already has. Resolving that to `transparent` would document
+ * a control that vanishes under the pointer, so the rule lives here, once, and
+ * the preview, the docs view and the per-component markdown all read it rather
+ * than each deciding for themselves.
+ */
+export function hoverSurfaceOf(recipe: ComponentRecipe): { path: string | null; distinct: boolean } {
+  return recipe.colors.hoverSurface === null
+    ? { path: recipe.colors.surface, distinct: false }
+    : { path: recipe.colors.hoverSurface, distinct: true }
+}
+
 
 /**
  * The scale steps a component's recipes point at, as rows of their own.
@@ -306,6 +324,13 @@ function buttonDoc(ctx: Context): ComponentDoc {
 
   const names: ComponentRecipeName[] = variants.map((variant) => variant.recipe as ComponentRecipeName)
 
+  // Variants the engine derived no hover shade for. A reader given this file
+  // alone has to be told, or they will invent one.
+  const constantOnHover = names.filter((name) => {
+    const recipe = ctx.recipe(name)
+    return recipe !== undefined && !hoverSurfaceOf(recipe).distinct
+  })
+
   return {
     id: 'button',
     title: 'Button',
@@ -326,6 +351,11 @@ function buttonDoc(ctx: Context): ComponentDoc {
       `Focus is a ${tokens.components.states.focusRing.width.value}px ring at ${tokens.components.states.focusRing.offset.value}px offset, on every variant, and it is never removed.`,
       `Disabled is ${ctx.hex('disabledForeground') ?? 'n/a'} on ${ctx.hex('disabledSurface') ?? 'n/a'} — two real colours measured at ${tokens.components.states.disabled.ratio}:1, held to a ${tokens.components.states.disabled.floor}:1 floor.`,
       'Only one primary button is on screen at a time. Two primaries means neither is one.',
+      ...(constantOnHover.length === 0
+        ? []
+        : [
+            `${constantOnHover.map((name) => `\`${name}\``).join(', ')} ${constantOnHover.length === 1 ? 'has' : 'have'} no derived hover fill in this kit. Keep the fill constant on hover and use the focus ring for feedback rather than inventing a darker shade.`,
+          ]),
     ],
     doNot: [
       'Do not build the disabled state out of `opacity`. On a light kit a 50% label over a 50% fill measures 1:1 and disappears.',

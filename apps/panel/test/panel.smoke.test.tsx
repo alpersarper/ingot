@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { applyOverrides, renderDesignMarkdown } from '@ingot/engine'
+import { applyOverrides, overrideRejection, readTokenValue, renderDesignMarkdown } from '@ingot/engine'
 import type { TokenOverride, TokensDocument } from '@ingot/engine'
 import { App } from '@/App'
 
@@ -160,16 +160,31 @@ function installFakeServer(): FakeServer {
     }
     if (path.startsWith('/api/reviews/overrides') && method === 'PUT') {
       const body = JSON.parse(String(init.body)) as { path: string; value: string; note?: string }
-      // The real server reads the engine's own answer for baseValue; the fake
-      // reads it from the same document for the same reason.
+      // The real server judges the candidate against the pristine kit *before*
+      // storing anything, and answers 422 when the engine would refuse it --
+      // including the case where the value merely restates the engine's own
+      // answer. The fake calls the same engine entry point rather than
+      // approximating it, so the panel is never tested against a server that is
+      // more permissive than the one it ships against.
+      const rejection = overrideRejection(TOKENS, { path: body.path, value: body.value })
+      if (rejection !== undefined) return json({ error: { message: rejection } }, 422)
+      const baseValue = readTokenValue(TOKENS, body.path)
       state.overrides = [
         ...state.overrides.filter((entry) => entry.path !== body.path),
-        { path: body.path, value: body.value, ...(body.note === undefined ? {} : { note: body.note }) },
+        {
+          path: body.path,
+          value: body.value,
+          ...(baseValue === null ? {} : { baseValue }),
+          ...(body.note === undefined ? {} : { note: body.note }),
+        },
       ]
       return json(kitPayload())
     }
     if (path.startsWith('/api/reviews/overrides') && method === 'DELETE') {
       const target = new URL(url, 'http://localhost').searchParams.get('path')
+      if (!state.overrides.some((entry) => entry.path === target)) {
+        return json({ error: { message: `no override at ${target}` } }, 404)
+      }
       state.overrides = state.overrides.filter((entry) => entry.path !== target)
       return json(kitPayload())
     }
@@ -318,6 +333,7 @@ describe('the review loop', () => {
     const user = userEvent.setup()
     await reachTheWorkbench(user)
     const system = screen.getByRole('complementary', { name: 'System' })
+    const engineRadius = `${TOKENS.radius.steps.md?.value}px`
 
     // A standing override whose recorded engine answer no longer matches: the
     // shape a regeneration produces when the captures have moved.
@@ -328,12 +344,47 @@ describe('the review loop', () => {
     expect(card).toBeTruthy()
     expect(within(system).getByText(/the captures now say/)).toBeTruthy()
 
-    // The engine's current answer is offered as a one-click override.
-    await user.click(within(system).getByRole('button', { name: `Take ${TOKENS.radius.steps.md?.value}px` }))
+    // Taking what the engine now says clears the override rather than storing
+    // it as a new one -- an override that agrees with the engine is not an
+    // override, and the server refuses one.
+    await user.click(within(system).getByRole('button', { name: `Revert to the engine (${engineRadius})` }))
     await waitFor(() => {
       const surface = screen.getByLabelText('Live preview').querySelector<HTMLElement>('.kit-surface')
-      expect(surface?.style.getPropertyValue('--kit-radius-md')).toBe(`${TOKENS.radius.steps.md?.value}px`)
+      expect(surface?.style.getPropertyValue('--kit-radius-md')).toBe(engineRadius)
     })
+    // The decision is gone from the store, so the conflict cannot come back.
+    expect(server.overrides).toEqual([])
+    await waitFor(() =>
+      expect(within(system).queryByText(/Your value and the new evidence disagree/)).toBeNull(),
+    )
+  })
+
+  it('records a reason typed onto an override that already exists', async () => {
+    const user = userEvent.setup()
+    await reachTheWorkbench(user)
+    const system = screen.getByRole('complementary', { name: 'System' })
+    await user.click(within(system).getByRole('tab', { name: 'Tokens' }))
+
+    await user.click(within(system).getByTitle('Override radius.steps.md'))
+    fireEvent.change(within(system).getByLabelText('New value for radius.steps.md'), {
+      target: { value: '10px' },
+    })
+    await user.click(within(system).getByRole('button', { name: 'Override' }))
+    await waitFor(() => expect(server.overrides[0]?.value).toBe('10px'))
+
+    // Re-open the editor and change only the reason. The value is unchanged, so
+    // an early return on "the value did not move" would drop the justification
+    // on the floor while the editor closed as though it had saved.
+    await user.click(within(system).getByTitle('Override radius.steps.md'))
+    fireEvent.change(within(system).getByLabelText('Reason for overriding radius.steps.md'), {
+      target: { value: 'the captured radius reads timid' },
+    })
+    await user.click(within(system).getByRole('button', { name: 'Override' }))
+
+    await waitFor(() => expect(server.overrides[0]?.note).toBe('the captured radius reads timid'))
+    // ...and it reaches the document the reviewer hands to a consumer.
+    const design = await (await fetch('/api/kits/kit-1/design.md', { headers: { 'x-ingot-token': TOKEN } })).text()
+    expect(design).toContain('the captured radius reads timid')
   })
 
   it('accepts a decision card and remembers it', async () => {

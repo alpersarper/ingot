@@ -79,7 +79,12 @@ export function CanonicalPreview({
           {view === 'preview' ? (
             <SampleScreen tokens={shown} />
           ) : (
-            <KitDocs tokens={shown} active={component} onSelect={setComponent} />
+            <KitDocs
+              tokens={shown}
+              active={component}
+              onSelect={setComponent}
+              derivedPalette={theme === 'counterpart'}
+            />
           )}
         </KitFrame>
       </div>

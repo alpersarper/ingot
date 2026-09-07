@@ -19,7 +19,13 @@
 export { distill, serializeTokens } from './distill'
 export { renderDesignMarkdown } from './export/design-md'
 export { renderComponentMarkdown } from './export/component-md'
-export { COMPONENT_DOC_IDS, componentDoc, componentDocs, docRoles } from './export/component-doc'
+export {
+  COMPONENT_DOC_IDS,
+  componentDoc,
+  componentDocs,
+  docRoles,
+  hoverSurfaceOf,
+} from './export/component-doc'
 export type { ComponentDoc, ComponentDocId, DocColorRow, DocTokenRow, DocVariant } from './export/component-doc'
 
 // Overrides: the reviewer's answer replacing the engine's. Pure and
@@ -30,6 +36,7 @@ export {
   hasOverrides,
   originOf,
   overriddenSlots,
+  overrideRejection,
   readTokenValue,
   recipeByName,
   roleHex,
@@ -38,6 +45,7 @@ export {
 } from './tokens/overrides'
 export type {
   AppliedOverride,
+  ConvergedOverride,
   OverrideConflict,
   OverrideGroup,
   OverrideKind,

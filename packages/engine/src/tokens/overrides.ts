@@ -22,6 +22,9 @@
  */
 import { contrastRatio, formatOklch, oklchToHex, parseColor, roundOklch } from '../color/space'
 import type { Oklch } from '../color/space'
+import { enforceContrastByChroma, enforceContrastOnBackground } from '../color/contrast'
+import { SHADE_RELATIONS, deriveInteractionShades } from '../color/roles'
+import type { RoleAssignment } from '../color/roles'
 import { parseShadow } from '../shadow/shadow'
 import { round } from '../util/num'
 import { byString, chain } from '../util/sort'
@@ -135,11 +138,26 @@ export interface RejectedOverride {
   reason: string
 }
 
+/**
+ * A standing override the evidence has caught up with.
+ *
+ * The reviewer set a value the engine has since arrived at independently. The
+ * value is the same either way, so nothing changes on screen -- but the
+ * decision stays attributed to the person who made it rather than being quietly
+ * handed back to the engine, and the convergence is reported once.
+ */
+export interface ConvergedOverride {
+  path: string
+  /** The value both the reviewer and the engine now name. */
+  value: string
+}
+
 export interface OverrideResult {
   /** A new document. The input is never mutated. */
   tokens: TokensDocument
   applied: AppliedOverride[]
   conflicts: OverrideConflict[]
+  converged: ConvergedOverride[]
   rejected: RejectedOverride[]
 }
 
@@ -401,6 +419,7 @@ export function applyOverrides(
   const next = clone(tokens)
   const applied: AppliedOverride[] = []
   const conflicts: OverrideConflict[] = []
+  const converged: ConvergedOverride[] = []
   const rejected: RejectedOverride[] = []
 
   const ordered = [...overrides].sort(chain<TokenOverride>((a, b) => byString(a.path, b.path)))
@@ -426,24 +445,21 @@ export function applyOverrides(
     }
 
     const engineValue = slot.value
-    if (parsed.canonical === engineValue) {
-      // Agreeing with the engine is not an override: recording one would put a
-      // "set by hand" label on a value the engine also chose, which is exactly
-      // the kind of quiet dishonesty the rest of this document avoids.
-      rejected.push({
-        path: override.path,
-        value: override.value,
-        reason: `the engine already chose ${engineValue}; an override that agrees is not an override`,
-      })
-      continue
-    }
 
     write(next, slot, parsed.canonical, override.note, colorTouched, recipesTouched)
     const entry: AppliedOverride = { path: override.path, value: parsed.canonical, engineValue }
     if (override.note !== undefined && override.note !== '') entry.note = override.note
     applied.push(entry)
 
-    if (override.baseValue !== undefined && override.baseValue !== engineValue) {
+    if (parsed.canonical === engineValue) {
+      // The evidence has caught up with a standing decision. Refusing it here
+      // would strip the `user-override` mark off a value the reviewer really
+      // did choose and hand the credit back to the engine, so the override
+      // stands and the convergence is reported instead. A *candidate* that
+      // agrees is a different thing and is still refused, at the write boundary
+      // -- see {@link overrideRejection}.
+      converged.push({ path: override.path, value: parsed.canonical })
+    } else if (override.baseValue !== undefined && override.baseValue !== engineValue) {
       conflicts.push({
         path: override.path,
         value: parsed.canonical,
@@ -457,11 +473,48 @@ export function applyOverrides(
   }
 
   if (recipesTouched.size > 0) recomputeHeights(next, recipesTouched)
-  if (colorTouched.size > 0) recomputeContrast(next)
+  if (colorTouched.size > 0) {
+    const shades = rederiveShades(next, colorTouched)
+    enforceShades(next, shades)
+    recomputeContrast(next)
+    restateCollapsedStates(next)
+  }
 
-  next.diagnostics = [...next.diagnostics, ...overrideDiagnostics(next, applied, conflicts, rejected, colorTouched)]
+  next.diagnostics = [
+    ...next.diagnostics,
+    ...overrideDiagnostics(next, applied, conflicts, converged, rejected, colorTouched),
+  ]
 
-  return { tokens: next, applied, conflicts, rejected }
+  return { tokens: next, applied, conflicts, converged, rejected }
+}
+
+/**
+ * Why a candidate override would be refused, or `undefined` when it would land.
+ *
+ * The write path needs this answer *before* anything is stored. Storing first
+ * and compensating afterwards is not the same thing: the store keys overrides
+ * on `(scope, path)`, so writing a candidate that turns out to be unreadable
+ * would already have destroyed whatever override was standing at that path, and
+ * the compensating delete would then take the rest.
+ *
+ * It is also the only place the "agrees with the engine" refusal lives. A
+ * *candidate* equal to the engine's own answer is not an override and is
+ * refused here; a *standing* override the evidence later caught up with is a
+ * decision that was real when it was made, and {@link applyOverrides} keeps it
+ * and reports `override.now-agrees`.
+ */
+export function overrideRejection(
+  tokens: TokensDocument,
+  candidate: { path: string; value: string },
+): string | undefined {
+  const slot = tokenSlots(tokens).find((entry) => entry.path === candidate.path)
+  if (slot === undefined) return 'this kit has no such token, so there is nothing to override'
+  const parsed = parseFor(slot, tokens, candidate.value)
+  if (typeof parsed === 'string') return parsed
+  if (parsed.canonical === slot.value) {
+    return `the engine already chose ${slot.value}; an override that agrees is not an override`
+  }
+  return undefined
 }
 
 /** A structural copy. The document is plain JSON, so this is exact. */
@@ -536,14 +589,7 @@ function write(
     if (color === undefined) return
     // Built exactly the way `distill` builds one, so an overridden colour and a
     // distilled one are the same shape down to the rounding.
-    const rounded = roundOklch(color)
-    token.value = {
-      oklch: formatOklch(color),
-      hex: oklchToHex(color),
-      lightness: rounded.l,
-      chroma: rounded.c,
-      hue: rounded.c === 0 || rounded.h === undefined ? 0 : rounded.h,
-    }
+    writeColorValue(token, color)
     // The engine's adjustment described a walk away from a captured colour that
     // is no longer in this document. Keeping it would credit the engine with a
     // move it did not make to the value on screen.
@@ -673,6 +719,165 @@ function pixels(value: string): number {
   return round(Number.parseFloat(value), 2)
 }
 
+/** A colour token's value block, shaped exactly the way `distill` shapes one. */
+function writeColorValue(token: ColorToken, color: Oklch): void {
+  const rounded = roundOklch(color)
+  token.value = {
+    oklch: formatOklch(color),
+    hex: oklchToHex(color),
+    lightness: rounded.l,
+    chroma: rounded.c,
+    hue: rounded.c === 0 || rounded.h === undefined ? 0 : rounded.h,
+  }
+}
+
+/**
+ * Re-derive the interaction shades an overridden colour left stale.
+ *
+ * `primaryHover` is `primary` lightness +/-0.04; `selectedSurface` carries
+ * `primary`'s hue. Replacing `primary` and leaving those where they were would
+ * ship a kit whose brand fill is blue and whose hover is the old green, under a
+ * derivation still naming a colour the document no longer contains -- the same
+ * dishonesty the code avoids two functions up when it drops `contrastAdjustment`
+ * from a colour a person replaced.
+ *
+ * The offsets are not restated here: {@link deriveInteractionShades} is the
+ * engine's own derivation path and is called with the document's current
+ * colours. Roles the reviewer set by hand are `pinned`, so a hand-set shade is
+ * never recomputed and the shades below it are derived from the value the
+ * reviewer gave it. Returns the roles that actually moved, most-upstream first.
+ */
+function rederiveShades(tokens: TokensDocument, touched: ReadonlySet<ColorRoleName>): ColorRoleName[] {
+  const pinned = new Set<ColorRoleName>()
+  const base: RoleAssignment[] = []
+  for (const [name, token] of Object.entries(tokens.color.roles)) {
+    if (token === undefined) continue
+    const role = name as ColorRoleName
+    if (token.provenance.decision.strategy === 'user-override') pinned.add(role)
+    const color = readColor(token.value.hex)
+    if (color === undefined) continue
+    base.push({ role, color, rule: 'current-value', detail: '', derivedFrom: [] })
+  }
+
+  // A shade whose source moved has itself moved, so the ones below it in the
+  // chain (`disabledForeground` sits on `disabledSurface`) go stale in turn.
+  const stale = new Set<ColorRoleName>(touched)
+  const rewritten: ColorRoleName[] = []
+
+  for (const shade of deriveInteractionShades(base, tokens.color.mode, pinned)) {
+    const moved = shade.derivedFrom.filter((from) => stale.has(from))
+    if (moved.length === 0) continue
+    const token = tokens.color.roles[shade.role]
+    if (token === undefined) continue
+
+    writeColorValue(token, shade.color)
+    // The adjustment on the record described a walk on the colour this shade
+    // used to be. It is not the walk that produced the value now on screen.
+    delete (token as { contrastAdjustment?: ContrastAdjustment }).contrastAdjustment
+    token.provenance = {
+      captureIds: [],
+      observed: [],
+      decision: derive(token.value.hex, {
+        method: shade.rule,
+        from: shade.derivedFrom.map((from) => `color.roles.${from}`),
+        detail: `${shade.detail}; re-derived after ${present(moved)} was set by hand`,
+      }),
+    }
+    stale.add(shade.role)
+    rewritten.push(shade.role)
+  }
+
+  return rewritten
+}
+
+/**
+ * Hold the re-derived shades to the floors the kit already guarantees.
+ *
+ * The pair list and its floors come from `tokens.color.contrast`, which is the
+ * engine's own statement of what it guarantees, so this enforces exactly that
+ * set without keeping a second copy of it.
+ *
+ * The shade always yields, never the foreground. In a distillation the engine
+ * may move either side, but here the foreground may itself be a value a human
+ * set -- and walking a foreground would in any case reopen a pair it was
+ * already guaranteed against. A shade exists to serve a role, so it gives way,
+ * lightness first and then chroma, exactly as the derived-surface pass does.
+ */
+function enforceShades(tokens: TokensDocument, shades: readonly ColorRoleName[]): void {
+  for (const role of shades) {
+    const token = tokens.color.roles[role]
+    if (token === undefined) continue
+    const path = `color.roles.${role}`
+    const pairs = tokens.color.contrast
+      .filter((pair) => pair.background === path)
+      .sort(chain((a, b) => byString(a.foreground, b.foreground)))
+    if (pairs.length === 0) continue
+
+    let color = readColor(token.value.hex)
+    if (color === undefined) continue
+    let moved = false
+
+    for (const pair of pairs) {
+      const foreground = tokens.color.roles[pair.foreground.replace('color.roles.', '') as ColorRoleName]
+      const against = foreground === undefined ? undefined : readColor(foreground.value.hex)
+      if (against === undefined) continue
+      const target = { path: pair.foreground, color: against }
+
+      const nudged = enforceContrastOnBackground(path, color, target, pair.floor)
+      if (nudged.adjustment !== undefined) {
+        color = nudged.color
+        moved = true
+        if (!nudged.adjustment.met) {
+          const saturated = enforceContrastByChroma(path, color, target, pair.floor)
+          if (saturated.adjustment !== undefined) color = saturated.color
+        }
+      }
+    }
+
+    if (!moved) continue
+    writeColorValue(token, color)
+    const derivation = token.provenance.decision.derivation
+    if (derivation === undefined) continue
+    token.provenance = {
+      ...token.provenance,
+      decision: derive(token.value.hex, {
+        ...derivation,
+        detail: `${derivation.detail}, then held at the contrast floor as ${token.value.hex}`,
+      }),
+    }
+  }
+}
+
+/**
+ * Restate `color.state-collapsed` for the palette as it now stands.
+ *
+ * Re-deriving a shade and then holding it at the floor can consume the whole
+ * offset, leaving a state that exists in the token set but cannot be seen --
+ * and it can equally *un*-collapse one the engine reported. The existing
+ * diagnostic described the distilled palette, so it is replaced rather than
+ * added to: a state has one answer, not two that can disagree.
+ */
+function restateCollapsedStates(tokens: TokensDocument): void {
+  tokens.diagnostics = tokens.diagnostics.filter((diagnostic) => diagnostic.code !== 'color.state-collapsed')
+
+  const collapsed = SHADE_RELATIONS.filter(([shade, role]) => {
+    const a = tokens.color.roles[shade]?.value.hex
+    const b = tokens.color.roles[role]?.value.hex
+    return a !== undefined && b !== undefined && a === b
+  })
+  if (collapsed.length === 0) return
+
+  tokens.diagnostics.push({
+    level: 'info',
+    code: 'color.state-collapsed',
+    path: 'color.roles',
+    message:
+      `${collapsed.map(([shade, role]) => `${shade} and ${role}`).join('; ')} render as the same colour: ` +
+      'holding the foreground at the contrast floor consumed the whole offset. The state exists in the ' +
+      'token set but cannot be seen; distinguish it with something other than fill.',
+  })
+}
+
 /**
  * Re-derive the control heights an override invalidated.
  *
@@ -755,6 +960,7 @@ function overrideDiagnostics(
   tokens: TokensDocument,
   applied: readonly AppliedOverride[],
   conflicts: readonly OverrideConflict[],
+  converged: readonly ConvergedOverride[],
   rejected: readonly RejectedOverride[],
   colorTouched: ReadonlySet<ColorRoleName>,
 ): Diagnostic[] {
@@ -768,6 +974,20 @@ function overrideDiagnostics(
         `${applied.length} token${applied.length === 1 ? ' was' : 's were'} set by hand in the panel and ` +
         `${applied.length === 1 ? 'is' : 'are'} not distilled evidence: ` +
         `${applied.map((entry) => `${entry.path} = ${entry.value}`).join(', ')}.`,
+    })
+  }
+
+  if (converged.length > 0) {
+    // One diagnostic for every converged path rather than one each, and `info`
+    // rather than `warning`: the reviewer's call became the consensus, which is
+    // worth saying once and is not something anybody has to act on.
+    out.push({
+      level: 'info',
+      code: 'override.now-agrees',
+      message:
+        `the captures have caught up with ${converged.length === 1 ? 'a standing override' : `${converged.length} standing overrides`}: ` +
+        `the engine now independently chooses ${converged.map((entry) => `${entry.path} = ${entry.value}`).join(', ')}. ` +
+        'The value stays attributed to the reviewer who chose it first; nothing needs doing.',
     })
   }
 

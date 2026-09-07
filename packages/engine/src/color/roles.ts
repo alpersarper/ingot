@@ -498,10 +498,17 @@ const DISABLED_FOREGROUND_FADE = 0.4
  * Nothing here is contrast-checked yet. The caller runs the guarantee over the
  * results, because a derived shade that quietly drops its label below AA is the
  * exact failure this layer exists to prevent.
+ *
+ * `pinned` names roles this function must not produce. Distillation pins
+ * nothing; a replay of user overrides pins every role a human set, so a shade
+ * the reviewer chose by hand is neither recomputed nor -- because `find` then
+ * falls through to `base` -- used at anything but the value they gave it by the
+ * shades derived from it.
  */
 export function deriveInteractionShades(
   base: ReadonlyArray<RoleAssignment>,
   mode: Mode,
+  pinned: ReadonlySet<ColorRoleName> = new Set(),
 ): RoleAssignment[] {
   const forward = forwardDirection(mode)
   const out: RoleAssignment[] = []
@@ -515,6 +522,7 @@ export function deriveInteractionShades(
     delta: number,
     label: string,
   ): void => {
+    if (pinned.has(role)) return
     const source = find(from)
     if (!source) return
     const lightness = clamp(source.color.l + forward * delta, 0, 1)
@@ -540,7 +548,7 @@ export function deriveInteractionShades(
   // brand colour.
   const surface = find('surface')
   const primary = find('primary')
-  if (surface && primary) {
+  if (surface && primary && !pinned.has('selectedSurface')) {
     const lightness = clamp(surface.color.l + forward * 0.02, 0, 1)
     const color: Oklch = {
       l: lightness,
@@ -559,7 +567,7 @@ export function deriveInteractionShades(
   // --- disabledForeground ---------------------------------------------------
   const disabledSurface = find('disabledSurface')
   const textMuted = find('textMuted')
-  if (disabledSurface && textMuted) {
+  if (disabledSurface && textMuted && !pinned.has('disabledForeground')) {
     const lightness = clamp(
       textMuted.color.l + (disabledSurface.color.l - textMuted.color.l) * DISABLED_FOREGROUND_FADE,
       0,

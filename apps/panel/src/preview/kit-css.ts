@@ -24,6 +24,7 @@
  * {@link kitComposition} states each choice as data, so which step a
  * composition landed on is readable rather than buried in a selector.
  */
+import { hoverSurfaceOf } from '@ingot/engine'
 import type { RadiusStepName, TokensDocument, TypeStepName } from '@ingot/engine'
 
 /** Every variable name this module can emit, so a consumer can be exhaustive. */
@@ -192,14 +193,11 @@ export function kitCssVariables(tokens: TokensDocument): KitCssVariables {
     variables[`--kit-${key}-surface`] = cssForTokenPath(recipe.colors.surface)
     variables[`--kit-${key}-foreground`] = cssForTokenPath(recipe.colors.foreground)
     variables[`--kit-${key}-border`] = cssForTokenPath(recipe.colors.border)
-    // A recipe with no hover fill keeps the one it has. `design.md` states that
-    // rule for the destructive button, and resolving to `transparent` here
-    // would make hovering one erase it -- a control that vanishes under the
-    // pointer is worse than a control with no hover feedback.
-    variables[`--kit-${key}-hover-surface`] =
-      recipe.colors.hoverSurface === null
-        ? cssForTokenPath(recipe.colors.surface)
-        : cssForTokenPath(recipe.colors.hoverSurface)
+    // A recipe with no hover fill keeps the one it has -- resolving to
+    // `transparent` would make hovering a destructive button erase it. The rule
+    // lives in the engine's `hoverSurfaceOf` so the preview, the docs view and
+    // the per-component markdown cannot disagree about what hover looks like.
+    variables[`--kit-${key}-hover-surface`] = cssForTokenPath(hoverSurfaceOf(recipe).path)
   }
 
   // A kit with no captured red has no destructive recipe either. The variables

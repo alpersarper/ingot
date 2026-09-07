@@ -22,10 +22,18 @@
  *     that failed AA would be a worse artefact than no derived theme.
  *   - **It is labelled everywhere it appears, and it is never exported.** The
  *     kit ships in the mode it was distilled in. This is a way to look at the
- *     palette, not a second kit.
+ *     palette, not a second kit. That labelling reaches the provenance, not just
+ *     the chrome: a role this file rewrites is restamped `derived` with a
+ *     derivation naming what was done to it, so the docs tables cannot present a
+ *     panel-computed colour as measured with the captures that produced a value
+ *     no longer on screen.
  */
-import { contrastRatio, enforceContrast, formatOklch, oklchToHex, parseColor } from '@ingot/engine'
+
+import { contrastRatio, derive, enforceContrast, formatOklch, oklchToHex, parseColor } from '@ingot/engine'
 import type { ColorRoleName, TokensDocument } from '@ingot/engine'
+
+/** Stable identifier for the derivation this file performs. */
+const METHOD = 'counterpart-theme'
 
 /** Which theme the preview is showing. */
 export type PreviewTheme = 'kit' | 'counterpart'
@@ -98,7 +106,8 @@ export function counterpartTokens(tokens: TokensDocument): TokensDocument {
   for (const [role, mirrored] of flipped) {
     const parsed = parseColor(next.color.roles[role]?.value.hex ?? '')
     if (parsed === undefined) continue
-    write(next, role, { ...parsed.oklch, l: clamp01(spread(mirrored)) })
+    const lightness = clamp01(spread(mirrored))
+    write(next, role, { ...parsed.oklch, l: lightness }, `the kit's ${tokens.color.mode}-mode surface and text ladder mirrored and re-spread onto the ${mode}-mode band (${band.low}-${band.high}), putting ${role} at lightness ${Math.round(lightness * 10000) / 10000}`)
   }
 
   enforceKitPairs(next)
@@ -127,6 +136,7 @@ function write(
   tokens: TokensDocument,
   role: ColorRoleName,
   color: { l: number; c: number; h: number | undefined },
+  detail: string,
 ): void {
   const token = tokens.color.roles[role]
   if (token === undefined) return
@@ -140,6 +150,19 @@ function write(
   // The engine's adjustment described a walk on the kit's own value, not on
   // this derived one; carrying it over would credit it with the wrong move.
   delete token.contrastAdjustment
+
+  // The strategy is the stronger claim than the adjustment: leaving it at
+  // `role-assignment` would label a value this file computed as measured, and
+  // list the captures that contributed the *other* mode's colour as its
+  // evidence. A role rewritten twice -- flipped, then re-enforced -- records
+  // both moves in one derivation rather than losing the first.
+  const previous = token.provenance.decision.derivation
+  const history = previous?.method === METHOD ? `${previous.detail}, then ` : ''
+  token.provenance = {
+    captureIds: [],
+    observed: [],
+    decision: derive(token.value.hex, { method: METHOD, from: [], detail: `${history}${detail}` }),
+  }
 }
 
 /**
@@ -177,7 +200,16 @@ function enforceKitPairs(tokens: TokensDocument): void {
     if (backgrounds.length === 0) continue
 
     const { color } = enforceContrast(path, parsed.oklch, backgrounds, entry.floor)
-    write(tokens, role, color)
+    // Only a role the walk actually moved is restamped. One it left alone still
+    // holds the kit's own value, and saying "derived" about that would be the
+    // same mislabelling in the other direction.
+    if (oklchToHex(color) === tokens.color.roles[role]?.value.hex) continue
+    write(
+      tokens,
+      role,
+      color,
+      `re-enforced against ${entry.backgrounds.map((background) => background.replace('color.roles.', '')).sort().join(', ')} to hold the ${entry.floor}:1 contrast floor`,
+    )
   }
 }
 

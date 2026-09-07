@@ -295,18 +295,28 @@ function ReviewCard({
                   ? null
                   : card.options.map((option) => (
                       <Button
-                        key={option.value}
+                        key={option.label}
                         size="sm"
                         variant="ghost"
                         className="h-7 font-mono"
                         disabled={busy}
-                        onClick={() => onOverride(card.path as string, option.value, `chosen over the engine's pick from the ${card.kind === 'conflict' ? 'conflict' : 'close call'} on ${card.path}`)}
+                        onClick={() =>
+                          option.kind === 'clear'
+                            ? onClearOverride(card.path as string)
+                            : onOverride(
+                                card.path as string,
+                                option.value,
+                                `chosen over the engine's pick from the ${card.kind === 'conflict' ? 'conflict' : 'close call'} on ${card.path}`,
+                              )
+                        }
                       >
                         {option.label}
                       </Button>
                     ))}
 
-                {card.state === 'overridden' && card.path !== undefined ? (
+                {/* A conflict card offers this among its options already, and
+                    offering it twice would read as two different actions. */}
+                {card.state === 'overridden' && card.path !== undefined && card.kind !== 'conflict' ? (
                   <Button size="sm" variant="ghost" className="h-7" disabled={busy} onClick={() => onClearOverride(card.path as string)}>
                     Revert to the engine
                   </Button>

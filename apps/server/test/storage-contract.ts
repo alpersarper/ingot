@@ -363,7 +363,7 @@ export function describeStoreContract(name: string, createStore: () => Store | P
         ])
       })
 
-      it('survives the group that owned it being deleted and re-created', async () => {
+      it('outlives the group that owned it being deleted', async () => {
         const group = await store.groups.create({ slug: 'ghost-warm', name: 'Ghost', description: 'Warm.' })
         await store.reviews.setOverride(group.id, { path: 'border.width', value: '2px', baseValue: '1px' })
         await store.groups.delete(group.id)

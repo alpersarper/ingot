@@ -17,7 +17,7 @@
  * A sibling of `design-md.ts`, per the architecture rule: target-specific
  * output lives in `src/export/`, never in the token model.
  */
-import { componentDoc, docRoles } from './component-doc'
+import { componentDoc, docRoles, hoverSurfaceOf } from './component-doc'
 import type { ComponentDoc, ComponentDocId, DocTokenRow } from './component-doc'
 import { finish, plural, table } from './markdown'
 import { byString } from '../util/sort'
@@ -44,6 +44,10 @@ export function renderComponentMarkdown(tokens: TokensDocument, id: ComponentDoc
   const push = (...lines: string[]): void => {
     out.push(...lines)
   }
+  // Numbered from a counter rather than by hand: a doc with no states -- the
+  // type scale is one -- would otherwise number its sections 1, 2, 3, 4, 6, 7.
+  let sections = 0
+  const heading = (title: string): string => `## ${++sections}. ${title}`
 
   const overrides = doc.tokens.filter((row) => row.origin === 'overridden')
   // A hand-set colour belongs in the same list: the reader of this file has to
@@ -59,7 +63,7 @@ export function renderComponentMarkdown(tokens: TokensDocument, id: ComponentDoc
   push(
     `# ${doc.title} — ${tokens.source.name}`,
     '',
-    `Everything needed to build this component is in this file. It is a slice of the \`${tokens.source.setId}\` design system distilled by ${tokens.engine.name} ${tokens.engine.version}; the whole system is in \`design.md\`, but you do not need it to build a ${doc.title.toLowerCase()} correctly.`,
+    `Everything needed to build this component is in this file. It is a slice of the \`${tokens.source.setId}\` design system distilled by ${tokens.engine.name} ${tokens.engine.version}; the whole system is in \`design.md\`, but you do not need it to build ${buildTarget(doc)} correctly.`,
     '',
     doc.summary,
     '',
@@ -77,7 +81,7 @@ export function renderComponentMarkdown(tokens: TokensDocument, id: ComponentDoc
   }
 
   // --- 1. variants ----------------------------------------------------------
-  push('## 1. Variants', '')
+  push(heading('Variants'), '')
   if (doc.variants.length === 0) {
     push('This component has one form.', '')
   } else {
@@ -92,7 +96,7 @@ export function renderComponentMarkdown(tokens: TokensDocument, id: ComponentDoc
 
   // --- 2. geometry ----------------------------------------------------------
   push(
-    '## 2. Values',
+    heading('Values'),
     '',
     'Use these numbers. They are not defaults to adjust: two screens built with a 32px control and a 40px control are two different products, and the reason this file exists is that both readers get the same one.',
     '',
@@ -110,7 +114,7 @@ export function renderComponentMarkdown(tokens: TokensDocument, id: ComponentDoc
 
   // --- 3. colours -----------------------------------------------------------
   push(
-    '## 3. Colours',
+    heading('Colours'),
     '',
     ...table(
       ['Where', 'Role', 'Hex', 'OKLCH', 'Origin'],
@@ -152,7 +156,7 @@ export function renderComponentMarkdown(tokens: TokensDocument, id: ComponentDoc
 
   // --- 4. the pasteable block ----------------------------------------------
   push(
-    '## 4. Custom properties',
+    heading('Custom properties'),
     '',
     'Paste this and build against the variables rather than retyping the numbers.',
     '',
@@ -167,10 +171,24 @@ export function renderComponentMarkdown(tokens: TokensDocument, id: ComponentDoc
   // --- states ---------------------------------------------------------------
   if (doc.states.length > 0) {
     const ring = tokens.components.states.focusRing
+    // A recipe the engine derived no hover shade for keeps its own fill, so the
+    // hover row must not send the reader looking for a distinct one.
+    const constantOnHover = tokens.components.recipes
+      .filter((recipe) => doc.variants.some((variant) => variant.recipe === recipe.name))
+      .filter((recipe) => !hoverSurfaceOf(recipe).distinct)
+      .map((recipe) => `\`${recipe.name}\``)
     const stateLines: Array<[string, string]> = []
     for (const state of doc.states) {
       if (state === 'default') stateLines.push(['default', 'The fill, label and border in §3.'])
-      if (state === 'hover') stateLines.push(['hover', 'The hover fill in §3. Nothing else moves — no shadow, no transform.'])
+      if (state === 'hover') {
+        stateLines.push([
+          'hover',
+          'The hover fill in §3. Nothing else moves — no shadow, no transform.' +
+            (constantOnHover.length === 0
+              ? ''
+              : ` ${constantOnHover.join(', ')} ${constantOnHover.length === 1 ? 'has' : 'have'} no distinct hover fill in this kit — ${constantOnHover.length === 1 ? 'it keeps' : 'they keep'} the fill listed there, which is why that row reads "unchanged".`),
+        ])
+      }
       if (state === 'active') {
         stateLines.push([
           'active (pressed)',
@@ -204,12 +222,12 @@ export function renderComponentMarkdown(tokens: TokensDocument, id: ComponentDoc
         ])
       }
     }
-    push('## 5. States', '', ...table(['State', 'How to draw it'], stateLines), '')
+    push(heading('States'), '', ...table(['State', 'How to draw it'], stateLines), '')
   }
 
   // --- rules ----------------------------------------------------------------
-  push('## 6. Rules', '', ...doc.usage.map((rule) => `- ${rule}`), '')
-  push('## 7. Do not', '', ...doc.doNot.map((rule) => `- ${rule}`), '')
+  push(heading('Rules'), '', ...doc.usage.map((rule) => `- ${rule}`), '')
+  push(heading('Do not'), '', ...doc.doNot.map((rule) => `- ${rule}`), '')
 
   if (handSetCount > 0) {
     const colorRows = overriddenColors.flatMap((row) => {
@@ -219,7 +237,7 @@ export function renderComponentMarkdown(tokens: TokensDocument, id: ComponentDoc
       return [[`\`color.roles.${row.role}\``, token.value.hex, decision.supersedes?.chosen ?? '—', decision.note ?? '—']]
     })
     push(
-      '## 8. What was overridden',
+      heading('What was overridden'),
       '',
       ...table(
         ['Value', 'Set to', 'The engine chose', 'Reason given'],
@@ -306,7 +324,7 @@ function cssBlock(tokens: TokensDocument, doc: ComponentDoc): string[] {
       `  --kit-${key}-surface: ${colorRef(recipe.colors.surface)};`,
       `  --kit-${key}-foreground: ${colorRef(recipe.colors.foreground)};`,
       `  --kit-${key}-border: ${colorRef(recipe.colors.border)};`,
-      `  --kit-${key}-hover-surface: ${colorRef(recipe.colors.hoverSurface)};`,
+      `  --kit-${key}-hover-surface: ${colorRef(hoverSurfaceOf(recipe).path)};`,
     )
   }
 
@@ -318,6 +336,18 @@ function cssBlock(tokens: TokensDocument, doc: ComponentDoc): string[] {
   )
 
   return lines
+}
+
+/**
+ * What this file is enough to build, as a noun phrase.
+ *
+ * The article follows the title rather than being fixed at "a", which read as
+ * "build a input correctly"; a title that is not a count noun names itself.
+ */
+function buildTarget(doc: ComponentDoc): string {
+  if (doc.id === 'typography') return 'the type scale'
+  const noun = doc.title.toLowerCase()
+  return `${/^[aeiou]/.test(noun) ? 'an' : 'a'} ${noun}`
 }
 
 /** A recipe colour as a variable reference, or the honest `transparent`. */

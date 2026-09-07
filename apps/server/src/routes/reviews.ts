@@ -5,6 +5,10 @@
  * with the engine, types a value; this is where that lands. Three things make
  * the endpoints look the way they do:
  *
+ *   - **A candidate is judged before it is stored.** The engine decides whether
+ *     an override is applicable, and it decides it on a throwaway read of the
+ *     pristine kit. Storing first and compensating on refusal would let a
+ *     mistyped edit destroy the override already standing at that path.
  *   - **The server computes `baseValue`, not the client.** It is the engine's
  *     answer at the moment the override was made and it is the whole conflict
  *     mechanism, so it is read from the kit on the server rather than accepted
@@ -18,7 +22,7 @@
  *     than an annotation on a snapshot.
  */
 import { Hono } from 'hono'
-import { readTokenValue } from '@ingot/engine'
+import { overrideRejection, readTokenValue } from '@ingot/engine'
 import type { TokensDocument } from '@ingot/engine'
 import { ApiError } from '../errors'
 import { effectiveKit } from '../kit'
@@ -99,18 +103,17 @@ export function reviewRoutes(context: AppContext): Hono<AppEnv> {
       throw ApiError.unprocessable(`this kit has no token at ${path}, so there is nothing to override`)
     }
 
+    // An override the engine refuses is a bad request, not a stored value -- and
+    // the judgement has to come *before* the write. `setOverride` upserts on
+    // (scope, path), so persisting first would already have destroyed whatever
+    // override was standing there, and the compensating delete would then take
+    // the rest: a typo in an edit would silently discard a decision that was
+    // working. Nothing is written unless the engine would accept it.
+    const rejection = overrideRejection(base, { path, value })
+    if (rejection !== undefined) throw ApiError.unprocessable(rejection)
+
     await store.reviews.setOverride(scope, { path, value, baseValue, note })
-    const effective = await effectiveKit(store, kit)
-
-    // An override the engine refused is a bad request, not a stored value: it
-    // would otherwise sit in the database being rejected on every read.
-    const rejection = effective.rejected.find((entry) => entry.path === path)
-    if (rejection !== undefined) {
-      await store.reviews.clearOverride(scope, path)
-      throw ApiError.unprocessable(rejection.reason)
-    }
-
-    return c.json(kitPayload(effective))
+    return c.json(kitPayload(await effectiveKit(store, kit)))
   })
 
   app.delete('/overrides', async (c) => {

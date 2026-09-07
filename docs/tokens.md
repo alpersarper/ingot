@@ -106,6 +106,20 @@ Applying one does three things beyond writing the value:
   distillation disagrees with that, the override still wins the value and the
   disagreement is raised as an `override.conflict` warning. Neither side is
   silently clobbered.
+- **Re-derives what depended on the value.** Overriding a base colour re-derives
+  the interaction shades computed from it -- `primaryHover`, `primaryActive`,
+  `selectedSurface` and the disabled pair -- through the engine's own derivation
+  path, holds them to the floors in `color.contrast`, and restates
+  `color.state-collapsed` for the palette that results. A shade the reviewer set
+  by hand is pinned: it is neither recomputed nor bypassed by the shades below
+  it. Without this a kit would ship a blue `primary` whose hover was still the
+  old green, under a derivation naming a colour the document no longer holds.
+- **Distinguishes a candidate from a standing decision.** A *candidate* whose
+  value already equals the engine's answer is not an override and is refused --
+  that check is `overrideRejection`, which the server calls before it stores
+  anything. A *standing* override the evidence has since caught up with is a
+  decision that was real when it was made: it keeps its `user-override`
+  provenance and the convergence is reported once, as `override.now-agrees`.
 - **Says so out loud.** Every applied override is named in an `override.applied`
   info diagnostic, and `design.md` grows a `## 10. User overrides` section
   listing each value, the engine's own answer, and the reviewer's reason.
@@ -445,5 +459,6 @@ is worth knowing. Codes are stable identifiers:
 | `typography.no-family` / `typography.no-sizes` | warning | Nothing captured; fell back to defaults. |
 | `override.applied` | info | Values a human set in the panel, listed. They are not distilled evidence. |
 | `override.conflict` | warning | A standing override and a later distillation disagree. The override keeps the value. |
+| `override.now-agrees` | info | The evidence has caught up with one or more standing overrides: the engine now chooses the same value. One diagnostic naming every converged path. The value stays attributed to the reviewer. |
 | `override.contrast` | warning | A colour override dropped a guaranteed pair below its floor. The engine does not move a colour a human set. |
-| `override.rejected` | warning | An override naming a token this kit has no slot for, or a value the engine could not read. |
+| `override.rejected` | warning | An override naming a token this kit has no slot for, or a value the engine could not read. Agreeing with the engine is *not* a cause: that is refused at the write boundary and never stored. |

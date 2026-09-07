@@ -45,21 +45,37 @@ export function TokenRow({ slot, origin, note, busy, onOverride, onClear }: Toke
   const [reason, setReason] = useState(note ?? '')
 
   // A regeneration or another edit can move the value under the editor; the
-  // draft follows it rather than holding a value nobody chose.
+  // draft follows it rather than holding a value nobody chose. The reason
+  // follows the stored note for the same reason: an edit made elsewhere, or one
+  // carried in by a regeneration, has to show here rather than being shadowed
+  // by whatever this row was first mounted with.
   useEffect(() => {
     setDraft(slot.value)
   }, [slot.value])
+
+  useEffect(() => {
+    setReason(note ?? '')
+  }, [note])
 
   const decision = slot.provenance.decision
   const style = ORIGIN_STYLE[origin]
 
   function commit(): void {
     const next = draft.trim()
-    if (next === '' || next === slot.value) {
+    const nextReason = reason.trim()
+    // The reason is part of the override, not decoration on it: it is what
+    // `design.md` prints in its overrides section. So a note-only edit on a
+    // standing override is a real edit and is sent. On a token nobody has
+    // overridden there is nothing for a reason to attach to, and re-sending the
+    // engine's own value to carry one would be refused as an override that
+    // agrees -- so that case closes the editor and writes nothing.
+    const valueChanged = next !== slot.value
+    const reasonChanged = nextReason !== (note ?? '')
+    if (next === '' || (!valueChanged && !(reasonChanged && origin === 'overridden'))) {
       setEditing(false)
       return
     }
-    onOverride(slot.path, next, reason.trim() === '' ? undefined : reason.trim())
+    onOverride(slot.path, next, nextReason === '' ? undefined : nextReason)
     setEditing(false)
   }
 
@@ -109,6 +125,7 @@ export function TokenRow({ slot, origin, note, busy, onOverride, onClear }: Toke
               if (event.key === 'Enter') commit()
               if (event.key === 'Escape') {
                 setDraft(slot.value)
+                setReason(note ?? '')
                 setEditing(false)
               }
             }}
@@ -130,6 +147,7 @@ export function TokenRow({ slot, origin, note, busy, onOverride, onClear }: Toke
               className="h-7"
               onClick={() => {
                 setDraft(slot.value)
+                setReason(note ?? '')
                 setEditing(false)
               }}
             >

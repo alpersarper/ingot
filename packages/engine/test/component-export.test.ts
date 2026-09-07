@@ -100,6 +100,60 @@ describe('per-component markdown', () => {
     expect(markdown).toContain('you do not need it to build a button correctly')
   })
 
+  it('reads the article off the title rather than fixing it at "a"', () => {
+    expect(renderComponentMarkdown(tokens, 'input')).toContain('you do not need it to build an input correctly')
+    // A title that is not a count noun names itself instead of taking one.
+    const typography = renderComponentMarkdown(tokens, 'typography')
+    expect(typography).toContain('you do not need it to build the type scale correctly')
+    expect(typography).not.toContain('build a typography')
+  })
+
+  it('numbers its sections in sequence even when a component has no states', () => {
+    // The type scale is the one doc with no states, so it is the one that
+    // exposed a hardcoded "## 6. Rules" sitting after a skipped "## 5".
+    const typography = renderComponentMarkdown(tokens, 'typography')
+    const numbers = [...typography.matchAll(/^## (\d+)\. /gm)].map((match) => Number(match[1]))
+    expect(numbers).toEqual(numbers.map((_, index) => index + 1))
+    expect(typography).not.toContain('## 5. States')
+
+    for (const id of COMPONENT_DOC_IDS) {
+      const sections = [...renderComponentMarkdown(tokens, id).matchAll(/^## (\d+)\. /gm)].map((match) =>
+        Number(match[1]),
+      )
+      expect(sections).toEqual(sections.map((_, index) => index + 1))
+    }
+  })
+
+  it('gives a recipe with no derived hover fill its own fill, never transparent', () => {
+    const destructive = tokens.components.recipes.find((entry) => entry.name === 'button.destructive')
+    // The fixture has to actually exercise the case, or this proves nothing.
+    expect(destructive?.colors.hoverSurface).toBeNull()
+    const fill = tokens.color.roles.destructive?.value.hex
+
+    // The pasteable block must not hand the reader a button that vanishes.
+    expect(markdown).toContain('--kit-button-destructive-hover-surface: var(--kit-color-destructive);')
+    expect(markdown).not.toContain('--kit-button-destructive-hover-surface: transparent;')
+
+    // ...and the colour table names the fill rather than reporting transparency.
+    const doc = componentDoc(tokens, 'button')
+    const hover = doc.colors.find((row) => row.label.startsWith('destructive hover fill'))
+    expect(hover?.hex).toBe(fill)
+    expect(hover?.role).toBe('destructive')
+    expect(hover?.label).toContain('unchanged')
+
+    // ...and the reader is told, in prose, that the fill is constant on hover.
+    expect(doc.usage.join(' ')).toContain('no derived hover fill')
+    expect(markdown).toContain('no distinct hover fill in this kit')
+  })
+
+  it('leaves a recipe that does have a hover shade pointing at it', () => {
+    const primary = tokens.components.recipes.find((entry) => entry.name === 'button.primary')
+    expect(primary?.colors.hoverSurface).toBe('color.roles.primaryHover')
+    expect(markdown).toContain('--kit-button-primary-hover-surface: var(--kit-color-primary-hover);')
+    const hover = componentDoc(tokens, 'button').colors.find((row) => row.label === 'primary hover fill')
+    expect(hover?.hex).toBe(tokens.color.roles.primaryHover?.value.hex)
+  })
+
   it.each(COMPONENT_DOC_IDS)('renders %s for every fixture set without an empty value', (id) => {
     for (const name of SETS) {
       const text = renderComponentMarkdown(kit(name), id)

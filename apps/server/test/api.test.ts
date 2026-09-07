@@ -433,6 +433,39 @@ describe('review: overrides and decisions', () => {
     expect(overrides).toEqual([])
   })
 
+  it('leaves a standing override untouched when a later edit is refused', async () => {
+    await seed()
+    await harness.call('/api/reviews/overrides', put({ path: 'radius.steps.md', value: '10px', note: 'rounder' }))
+
+    // The reviewer re-opens the editor on a working override and mistypes. The
+    // refusal must not reach the store: the row is an upsert on (scope, path),
+    // so writing first would already have destroyed the decision underneath it.
+    const bad = await harness.call('/api/reviews/overrides', put({ path: 'radius.steps.md', value: 'quite round' }))
+    expect(bad.status).toBe(422)
+
+    const { overrides } = await harness.json<{
+      overrides: Array<{ path: string; value: string; note: string }>
+    }>('/api/reviews')
+    expect(overrides).toEqual([expect.objectContaining({ path: 'radius.steps.md', value: '10px', note: 'rounder' })])
+
+    // ...and the kit the panel reads back still carries it.
+    const latest = await harness.json<KitResponse>('/api/kits/latest')
+    expect(latest.tokens.radius.steps['md']?.value).toBe(10)
+  })
+
+  it('refuses a candidate that only restates the engine\'s own answer', async () => {
+    const generated = await seed()
+    const engineRadius = generated.tokens.radius.steps['md']?.value
+    const same = await harness.call(
+      '/api/reviews/overrides',
+      put({ path: 'radius.steps.md', value: `${engineRadius}px` }),
+    )
+    expect(same.status).toBe(422)
+    expect(((await same.json()) as { error: { message: string } }).error.message).toContain('is not an override')
+    const { overrides } = await harness.json<{ overrides: unknown[] }>('/api/reviews')
+    expect(overrides).toEqual([])
+  })
+
   it('refuses an override for a token this kit does not have', async () => {
     await seed()
     const bad = await harness.call('/api/reviews/overrides', put({ path: 'color.roles.tertiary', value: '#ff0000' }))

@@ -52,11 +52,17 @@ export type CardKind = 'conflict' | 'diagnostic' | 'choice'
 export type CardSeverity = 'conflict' | 'warning' | 'info'
 export type CardState = 'open' | 'accepted' | 'overridden'
 
-export interface CardOption {
-  /** A value that can be sent straight to the override endpoint. */
-  value: string
-  label: string
-}
+/**
+ * One resolution a card offers.
+ *
+ * `override` sends a value; `clear` removes the standing override at the card's
+ * path and takes the engine's answer back. They are not interchangeable: an
+ * override whose value equals the engine's own answer is not an override at
+ * all, so "take what the engine now says" has to be a deletion.
+ */
+export type CardOption =
+  | { kind: 'override'; value: string; label: string }
+  | { kind: 'clear'; label: string }
 
 export interface DecisionCard {
   id: string
@@ -68,7 +74,7 @@ export interface DecisionCard {
   path?: string
   /** What the engine saw. Shown when the card is opened. */
   evidence: string[]
-  /** One-click alternatives, most credible first. */
+  /** One-click resolutions, most credible first. */
   options: CardOption[]
   state: CardState
 }
@@ -110,7 +116,7 @@ export function decisionCards({ tokens, conflicts, overriddenPaths, accepted }: 
         `the engine said ${conflict.baseValue} when you set it`,
         `the captures now say ${conflict.engineValue}`,
       ],
-      options: [{ value: conflict.engineValue, label: `Take ${conflict.engineValue}` }],
+      options: [{ kind: 'clear', label: `Revert to the engine (${conflict.engineValue})` }],
       state: accepted.has(`conflict:${conflict.path}`) ? 'accepted' : 'open',
     })
   }
@@ -154,7 +160,11 @@ export function decisionCards({ tokens, conflicts, overriddenPaths, accepted }: 
       // whole reason the engine records competitors.
       options: decision.competitors
         .slice(0, 3)
-        .map((competitor) => ({ value: competitor.value, label: `Use ${competitor.value}` })),
+        .map((competitor) => ({
+          kind: 'override' as const,
+          value: competitor.value,
+          label: `Use ${competitor.value}`,
+        })),
       state: cardState(id, slot.path, overriddenPaths, accepted),
     })
   }
