@@ -9,8 +9,10 @@
     "node": ">=20"
   },
   "scripts": {
+    "dev": "pnpm --parallel --filter \"./apps/*\" dev",
+    "build": "pnpm --filter @ingot/panel build && pnpm --filter @ingot/server build",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && pnpm --filter \"./apps/*\" typecheck",
     "skeleton": "tsx scripts/skeleton.ts",
     "skeleton:check": "tsx scripts/skeleton.ts --check"
   },
@@ -26,6 +28,7 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
+      "better-sqlite3",
       "esbuild"
     ]
   }

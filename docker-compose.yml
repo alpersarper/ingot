@@ -1,0 +1,27 @@
+# `docker compose up` and the panel is on http://localhost:4310.
+#
+# One service, one port, one volume. The pairing token is minted on the first
+# run and printed in this container's log -- `docker compose logs panel` if you
+# scrolled past it.
+
+services:
+  panel:
+    build: .
+    image: ingot-panel
+    ports:
+      - '${INGOT_PORT:-4310}:4310'
+    volumes:
+      # The database, the screenshots and the pairing token. Everything else in
+      # the image is rebuildable.
+      - ingot-data:/data
+    environment:
+      # Pin the pairing token here to skip the first-run screen on a fresh
+      # volume. Leave it unset and the server mints one.
+      INGOT_PAIRING_TOKEN: ${INGOT_PAIRING_TOKEN:-}
+      # The LLM key can be pinned here instead of typed into the panel. Nothing
+      # in this build calls an LLM; the key is stored for the assistant to come.
+      INGOT_LLM_API_KEY: ${INGOT_LLM_API_KEY:-}
+    restart: unless-stopped
+
+volumes:
+  ingot-data:

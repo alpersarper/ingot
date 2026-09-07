@@ -1,0 +1,287 @@
+/*
+ * The canonical components' stylesheet.
+ *
+ * Every value here is a `var(--kit-*)`, without exception. That is the rule the
+ * architecture note calls "tokens paint, they cannot break the skeleton": the
+ * geometry, the interaction states and the rhythm are our workmanship and live
+ * here; the numbers and colours come from the user's kit and live in
+ * `kit-css.ts`. A hardcoded colour or radius in this file would be a value the
+ * exported `design.md` never mentions, which is the one thing that makes a
+ * preview lie.
+ *
+ * Card is composed from the scales rather than from a recipe, because the
+ * engine emits no card recipe -- a card is a surface, a border and a radius,
+ * and inventing a recipe for it would be inventing evidence.
+ */
+
+.kit-surface {
+  background: var(--kit-color-background);
+  color: var(--kit-color-text);
+  font-family: var(--kit-font-sans);
+  font-size: var(--kit-text-base-size);
+  line-height: var(--kit-text-base-leading);
+  container-type: inline-size;
+}
+
+/* ---------------------------------------------------------------- button -- */
+
+.kit-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--kit-space-unit) * 0.75);
+  border-style: solid;
+  border-width: var(--kit-border-width);
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+.kit-button:focus-visible {
+  outline: var(--kit-ring-width) solid var(--kit-ring-color);
+  outline-offset: var(--kit-ring-offset);
+}
+
+/*
+ * One block per recipe. The repetition is deliberate: each variant reads its
+ * own recipe's variables, so a kit that gives secondary buttons a different
+ * height than primary ones renders that difference instead of averaging it.
+ */
+.kit-button[data-variant='primary'] {
+  height: var(--kit-button-primary-height);
+  padding: 0 var(--kit-button-primary-padding-x);
+  border-radius: var(--kit-button-primary-radius);
+  font-size: var(--kit-button-primary-text-size);
+  line-height: var(--kit-button-primary-text-leading);
+  font-weight: var(--kit-button-primary-weight);
+  background: var(--kit-button-primary-surface);
+  color: var(--kit-button-primary-foreground);
+  border-color: var(--kit-button-primary-border, transparent);
+}
+.kit-button[data-variant='primary']:hover:not(:disabled) {
+  background: var(--kit-button-primary-hover-surface);
+}
+.kit-button[data-variant='primary']:active:not(:disabled) {
+  background: var(--kit-color-primary-active);
+}
+
+.kit-button[data-variant='secondary'] {
+  height: var(--kit-button-secondary-height);
+  padding: 0 var(--kit-button-secondary-padding-x);
+  border-radius: var(--kit-button-secondary-radius);
+  font-size: var(--kit-button-secondary-text-size);
+  line-height: var(--kit-button-secondary-text-leading);
+  font-weight: var(--kit-button-secondary-weight);
+  background: var(--kit-button-secondary-surface);
+  color: var(--kit-button-secondary-foreground);
+  border-color: var(--kit-button-secondary-border, transparent);
+}
+.kit-button[data-variant='secondary']:hover:not(:disabled) {
+  background: var(--kit-button-secondary-hover-surface);
+}
+
+.kit-button[data-variant='ghost'] {
+  height: var(--kit-button-ghost-height);
+  padding: 0 var(--kit-button-ghost-padding-x);
+  border-radius: var(--kit-button-ghost-radius);
+  font-size: var(--kit-button-ghost-text-size);
+  line-height: var(--kit-button-ghost-text-leading);
+  font-weight: var(--kit-button-ghost-weight);
+  background: var(--kit-button-ghost-surface);
+  color: var(--kit-button-ghost-foreground);
+  border-color: var(--kit-button-ghost-border, transparent);
+}
+.kit-button[data-variant='ghost']:hover:not(:disabled) {
+  background: var(--kit-button-ghost-hover-surface);
+}
+
+.kit-button[data-variant='destructive'] {
+  height: var(--kit-button-destructive-height);
+  padding: 0 var(--kit-button-destructive-padding-x);
+  border-radius: var(--kit-button-destructive-radius);
+  font-size: var(--kit-button-destructive-text-size);
+  line-height: var(--kit-button-destructive-text-leading);
+  font-weight: var(--kit-button-destructive-weight);
+  background: var(--kit-button-destructive-surface);
+  color: var(--kit-button-destructive-foreground);
+  border-color: var(--kit-button-destructive-border, transparent);
+}
+.kit-button[data-variant='destructive']:hover:not(:disabled) {
+  background: var(--kit-button-destructive-hover-surface);
+}
+
+/*
+ * Disabled last, and one specificity step above the variants: a variant selector
+ * is `.kit-button[data-variant='x']`, so a plain `.kit-button:disabled` ties with
+ * it and loses on source order. The attribute selector without a value breaks
+ * the tie for every variant at once, including ones added later.
+ *
+ * The colours are two real roles held to a stated floor against each other, not
+ * an opacity ramp -- an opacity ramp cannot be contrast-checked, which is the
+ * whole reason the engine emits `disabledSurface` and `disabledForeground`.
+ */
+.kit-button[data-variant]:disabled {
+  background: var(--kit-color-disabled-surface);
+  color: var(--kit-color-disabled-foreground);
+  border-color: var(--kit-color-disabled-surface);
+  cursor: not-allowed;
+}
+
+/* ----------------------------------------------------------------- input -- */
+
+.kit-field {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--kit-space-unit) * 0.75);
+}
+
+.kit-label {
+  font-size: var(--kit-text-sm-size, var(--kit-text-base-size));
+  line-height: var(--kit-text-sm-leading, var(--kit-text-base-leading));
+  font-weight: var(--kit-input-weight);
+  color: var(--kit-color-text);
+}
+
+.kit-input {
+  width: 100%;
+  height: var(--kit-input-height);
+  padding: 0 var(--kit-input-padding-x);
+  border-style: solid;
+  border-width: var(--kit-border-width);
+  border-color: var(--kit-input-border, var(--kit-color-border));
+  border-radius: var(--kit-input-radius);
+  background: var(--kit-input-surface);
+  color: var(--kit-input-foreground);
+  font-family: inherit;
+  font-size: var(--kit-input-text-size);
+  line-height: var(--kit-input-text-leading);
+  transition: border-color 120ms ease;
+}
+
+.kit-input::placeholder {
+  color: var(--kit-color-text-muted);
+}
+
+.kit-input:focus-visible {
+  outline: var(--kit-ring-width) solid var(--kit-ring-color);
+  outline-offset: var(--kit-ring-offset);
+  border-color: var(--kit-color-primary);
+}
+
+.kit-input:disabled {
+  background: var(--kit-color-disabled-surface);
+  color: var(--kit-color-disabled-foreground);
+  cursor: not-allowed;
+}
+
+.kit-hint {
+  font-size: var(--kit-text-sm-size, var(--kit-text-base-size));
+  line-height: var(--kit-text-sm-leading, var(--kit-text-base-leading));
+  color: var(--kit-color-text-muted);
+}
+
+/* ------------------------------------------------------------------ card -- */
+
+.kit-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--kit-space-2, var(--kit-space-unit));
+  background: var(--kit-color-surface);
+  border: var(--kit-border-width) solid var(--kit-color-border);
+  border-radius: var(--kit-radius-lg, var(--kit-radius-md, var(--kit-radius-sm, 0px)));
+  box-shadow: var(--kit-shadow-sm, none);
+  padding: var(--kit-space-3, calc(var(--kit-space-unit) * 3));
+}
+
+.kit-card-title {
+  font-size: var(--kit-text-lg-size, var(--kit-text-base-size));
+  line-height: var(--kit-text-lg-leading, var(--kit-text-base-leading));
+  font-weight: var(--kit-text-lg-weight, 600);
+  letter-spacing: var(--kit-text-lg-tracking, normal);
+  color: var(--kit-color-text);
+  margin: 0;
+}
+
+.kit-card-body {
+  color: var(--kit-color-text-muted);
+  margin: 0;
+}
+
+.kit-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--kit-space-unit) * 1.5);
+  margin-top: calc(var(--kit-space-unit) * 1);
+}
+
+/* ------------------------------------------------------------ typography -- */
+
+.kit-type-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: calc(var(--kit-space-unit) * 2);
+  padding-block: calc(var(--kit-space-unit) * 1);
+  border-bottom: var(--kit-border-width) solid var(--kit-color-border);
+}
+
+.kit-type-row:last-child {
+  border-bottom: 0;
+}
+
+.kit-type-sample {
+  color: var(--kit-color-text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kit-type-meta {
+  flex: none;
+  color: var(--kit-color-text-muted);
+  font-family: var(--kit-font-mono, var(--kit-font-sans));
+  font-size: var(--kit-text-sm-size, var(--kit-text-base-size));
+  line-height: var(--kit-text-sm-leading, var(--kit-text-base-leading));
+}
+
+/* --------------------------------------------------------- sample layout -- */
+
+.kit-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--kit-space-4, calc(var(--kit-space-unit) * 4));
+}
+
+.kit-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--kit-space-unit) * 1.5);
+}
+
+.kit-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--kit-space-3, calc(var(--kit-space-unit) * 3));
+}
+
+@container (min-width: 44rem) {
+  .kit-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+.kit-section-heading {
+  font-size: var(--kit-text-sm-size, var(--kit-text-base-size));
+  line-height: var(--kit-text-sm-leading, var(--kit-text-base-leading));
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--kit-color-text-muted);
+  margin: 0;
+}

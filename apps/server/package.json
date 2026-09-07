@@ -1,0 +1,24 @@
+{
+  "name": "@ingot/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Ingot panel server: storage, API and the engine run server-side. Serves the built panel so the container exposes one port.",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/server.js",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node20 --external:better-sqlite3 --outfile=dist/server.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "@ingot/engine": "workspace:*",
+    "better-sqlite3": "^13.0.3",
+    "hono": "^4.13.7"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "esbuild": "^0.28.2"
+  }
+}

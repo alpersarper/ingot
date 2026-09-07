@@ -1,0 +1,244 @@
+/**
+ * The workbench shell.
+ *
+ * Three columns, per the approved skeleton: collection on the left, the live
+ * sample UI in the middle, the system on the right. The middle is the widest
+ * on purpose -- the user's question is "will my app look good", and the answer
+ * is the thing that should have the most room.
+ *
+ * All the server state lives here and is passed down, so the columns stay
+ * presentational and the next task can slot a token editor into the right
+ * column without unpicking any data flow.
+ */
+import { useCallback, useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
+import { Loader2 } from 'lucide-react'
+import { CollectionPanel } from './workbench/CollectionPanel'
+import { SystemPanel } from './workbench/SystemPanel'
+import { Topbar } from './workbench/Topbar'
+import { FirstRun } from './workbench/FirstRun'
+import { CanonicalPreview } from './preview/CanonicalPreview'
+import { ApiError, api, storeToken, storedToken } from './lib/api'
+import type { CaptureSummary, GroupSummary, KitPayload, PanelSettings } from './lib/api'
+
+type Phase = 'checking' | 'unpaired' | 'ready'
+
+export function App(): ReactNode {
+  const [phase, setPhase] = useState<Phase>('checking')
+  const [settings, setSettings] = useState<PanelSettings | null>(null)
+  const [groups, setGroups] = useState<GroupSummary[]>([])
+  const [libraryCount, setLibraryCount] = useState(0)
+  const [captures, setCaptures] = useState<CaptureSummary[]>([])
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
+  const [kit, setKit] = useState<KitPayload | null>(null)
+
+  const [importing, setImporting] = useState(false)
+  const [importError, setImportError] = useState<string | null>(null)
+  const [generating, setGenerating] = useState(false)
+  const [kitError, setKitError] = useState<string | null>(null)
+
+  /** Any 401 means the token we hold is no longer the server's. Start over. */
+  const handle = useCallback((error: unknown): string => {
+    if (error instanceof ApiError && error.isUnpaired) {
+      storeToken(null)
+      setPhase('unpaired')
+      return 'This panel is no longer paired.'
+    }
+    return error instanceof Error ? error.message : 'Something went wrong.'
+  }, [])
+
+  /** The library list is the count behind "Whole library" and the fallback view. */
+  const refreshLibrary = useCallback(async (): Promise<void> => {
+    const [nextGroups, allCaptures] = await Promise.all([api.groups(), api.captures()])
+    setGroups(nextGroups)
+    setLibraryCount(allCaptures.length)
+  }, [])
+
+  useEffect(() => {
+    if (storedToken() === null) {
+      setPhase('unpaired')
+      return
+    }
+    void (async () => {
+      try {
+        setSettings(await api.settings())
+        await refreshLibrary()
+        setPhase('ready')
+      } catch (error) {
+        if (error instanceof ApiError && error.isUnpaired) {
+          storeToken(null)
+          setPhase('unpaired')
+        } else {
+          // The server is unreachable rather than unpaired. Showing the shell
+          // and letting the next action report the failure beats a dead end.
+          setPhase('ready')
+        }
+      }
+    })()
+  }, [refreshLibrary])
+
+  // Whenever the scope changes, load what is in it and whichever kit it already
+  // has, so switching groups shows that group's system rather than a stale one.
+  useEffect(() => {
+    if (phase !== 'ready') return
+    // The cancelled flag keeps a slow response for a previous scope from
+    // landing on top of the one the user has since switched to.
+    let cancelled = false
+    void (async () => {
+      try {
+        const nextCaptures = await api.captures(selectedGroupId ?? undefined)
+        const nextKit = await api.latestKit(selectedGroupId)
+        if (cancelled) return
+        setCaptures(nextCaptures)
+        setKit(nextKit)
+        setKitError(null)
+      } catch (error) {
+        if (!cancelled) setKitError(handle(error))
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [phase, selectedGroupId, handle])
+
+  async function onPaired(): Promise<void> {
+    setSettings(await api.settings().catch(() => null))
+    await refreshLibrary().catch(() => undefined)
+    setPhase('ready')
+  }
+
+  async function onImport(set: unknown): Promise<void> {
+    setImporting(true)
+    setImportError(null)
+    try {
+      const result = await api.importSet(set)
+      await refreshLibrary()
+      // Land the user in what they just imported: it is what they came to look at.
+      setSelectedGroupId(result.group.id)
+      setCaptures(await api.captures(result.group.id))
+      setKit(await api.latestKit(result.group.id))
+    } catch (error) {
+      const message = handle(error)
+      const details = error instanceof ApiError && error.details.length > 0 ? ` (${error.details[0]})` : ''
+      setImportError(`${message}${details}`)
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  async function onGenerate(): Promise<void> {
+    setGenerating(true)
+    setKitError(null)
+    try {
+      setKit(await api.generateKit(selectedGroupId))
+    } catch (error) {
+      setKitError(handle(error))
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  async function onDownload(file: 'tokens.json' | 'design.md'): Promise<void> {
+    if (kit === null) return
+    try {
+      await api.download(kit.kit.id, file)
+    } catch (error) {
+      setKitError(handle(error))
+    }
+  }
+
+  function onUnpair(): void {
+    storeToken(null)
+    setKit(null)
+    setCaptures([])
+    setGroups([])
+    setPhase('unpaired')
+  }
+
+  if (phase === 'checking') {
+    return (
+      <div className="flex h-full items-center justify-center text-muted-foreground">
+        <Loader2 className="size-5 animate-spin" aria-label="Loading" />
+      </div>
+    )
+  }
+
+  if (phase === 'unpaired') return <FirstRun onPaired={() => void onPaired()} />
+
+  const scopeLabel = selectedGroupId === null ? 'the whole library' : (groupName(groups, selectedGroupId) ?? 'this group')
+
+  return (
+    <div className="flex h-full flex-col">
+      <Topbar
+        settings={settings}
+        onSaveLlmKey={async (key) => {
+          try {
+            await api.saveLlmKey(key)
+            setSettings(await api.settings())
+          } catch (error) {
+            // handle() routes a 401 back to pairing; the message goes to the
+            // topbar so the failure is visible where the user typed the key.
+            throw new Error(handle(error))
+          }
+        }}
+        onUnpair={onUnpair}
+      />
+
+      <main className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[18rem_minmax(0,1fr)_20rem]">
+        <aside className="hidden min-h-0 border-r border-border lg:block" aria-label="Collection">
+          <CollectionPanel
+            groups={groups}
+            captures={captures}
+            selectedGroupId={selectedGroupId}
+            libraryCaptureCount={libraryCount}
+            importing={importing}
+            importError={importError}
+            onSelectGroup={setSelectedGroupId}
+            onImport={(set) => void onImport(set)}
+            onDismissImportError={() => setImportError(null)}
+          />
+        </aside>
+
+        <section className="min-h-0 overflow-hidden" aria-label="Live preview">
+          {kit === null ? (
+            <EmptyPreview scopeLabel={scopeLabel} hasCaptures={captures.length > 0} />
+          ) : (
+            <CanonicalPreview tokens={kit.tokens} />
+          )}
+        </section>
+
+        <aside className="hidden min-h-0 border-l border-border lg:block" aria-label="System">
+          <SystemPanel
+            kit={kit?.kit ?? null}
+            tokens={kit?.tokens ?? null}
+            scopeLabel={scopeLabel}
+            captureCount={captures.length}
+            generating={generating}
+            error={kitError}
+            onGenerate={() => void onGenerate()}
+            onDownload={(file) => void onDownload(file)}
+          />
+        </aside>
+      </main>
+    </div>
+  )
+}
+
+function EmptyPreview({ scopeLabel, hasCaptures }: { scopeLabel: string; hasCaptures: boolean }): ReactNode {
+  return (
+    <div className="flex h-full items-center justify-center p-10">
+      <div className="max-w-sm text-center">
+        <h2 className="text-sm font-semibold">Nothing to preview yet</h2>
+        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+          {hasCaptures
+            ? `Generate a kit for ${scopeLabel} and this is where it will be rendered -- buttons, a card, inputs and the type scale, drawn entirely from its tokens.`
+            : 'Import a capture set on the left, generate a kit, and the system will be drawn here.'}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function groupName(groups: GroupSummary[], id: string): string | undefined {
+  return groups.find((group) => group.id === id)?.name
+}
