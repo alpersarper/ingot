@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { PAIRING_HEADER } from '../src/pairing'
 import { LLM_API_KEY_SETTING } from '../src/routes/settings'
-import { createHarness, TEST_TOKEN, body } from './harness'
+import { createHarness, TEST_TOKEN, body, put } from './harness'
 import type { Harness } from './harness'
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
@@ -361,6 +361,177 @@ describe('kit generation', () => {
     const orphan = kits.find((kit) => kit.id === grouped.kit.id)
     expect(orphan).toEqual(expect.objectContaining({ scope: 'group', groupId: null }))
     expect(kits.find((kit) => kit.id === library.kit.id)).toEqual(expect.objectContaining({ scope: 'library' }))
+  })
+})
+
+describe('review: overrides and decisions', () => {
+  interface KitResponse {
+    kit: { id: string; version: number }
+    tokens: {
+      radius: { steps: Record<string, { value: number; provenance: { decision: { strategy: string } } } | undefined> }
+      color: { roles: Record<string, { value: { hex: string } } | undefined> }
+      diagnostics: Array<{ code: string; level: string; message: string }>
+    }
+    designMd: string
+    review: {
+      overrides: Array<{ path: string; value: string; baseValue: string; note: string }>
+      conflicts: Array<{ path: string; baseValue: string; engineValue: string }>
+      rejected: Array<{ path: string }>
+      accepted: string[]
+    }
+  }
+
+  async function seed(): Promise<KitResponse> {
+    await harness.call('/api/captures/import', body(await ghostWarmSet()))
+    return (await (await harness.call('/api/kits', body({}))).json()) as KitResponse
+  }
+
+  it('has nothing to say before anyone has reviewed anything', async () => {
+    const generated = await seed()
+    expect(generated.review).toEqual({ overrides: [], conflicts: [], rejected: [], accepted: [] })
+  })
+
+  it('applies an override and turns the tokens, the document and the download together', async () => {
+    const generated = await seed()
+    const engineRadius = generated.tokens.radius.steps['md']?.value
+
+    const updated = (await (
+      await harness.call(
+        '/api/reviews/overrides',
+        put({ path: 'radius.steps.md', value: '10px', note: 'the captured radius reads timid' }),
+      ).then(async (response) => {
+        expect(response.status).toBe(200)
+        return response
+      })
+    ).json()) as KitResponse
+
+    expect(updated.tokens.radius.steps['md']?.value).toBe(10)
+    expect(updated.tokens.radius.steps['md']?.provenance.decision.strategy).toBe('user-override')
+    expect(updated.review.overrides).toEqual([
+      expect.objectContaining({ path: 'radius.steps.md', value: '10px', baseValue: `${engineRadius}px` }),
+    ])
+    expect(updated.designMd).toContain('## 10. User overrides')
+    expect(updated.designMd).toContain('the captured radius reads timid')
+
+    // Every download reflects it, without regenerating anything.
+    const download = await harness.call(`/api/kits/${generated.kit.id}/design.md`)
+    expect(await download.text()).toBe(updated.designMd)
+    const tokensFile = await harness.call(`/api/kits/${generated.kit.id}/tokens.json`)
+    expect(await tokensFile.text()).toContain('"user-override"')
+    const componentFile = await harness.call(`/api/export/components/button.md`)
+    expect(await componentFile.text()).toContain('# Button')
+    // And the stored kit is untouched: the engine's answer stays on the record.
+    const stored = await harness.store.kits.get(generated.kit.id)
+    expect(JSON.parse(stored?.tokensJson ?? '{}').radius.steps.md.value).toBe(engineRadius)
+  })
+
+  it('refuses an override the engine cannot apply, and does not keep it', async () => {
+    await seed()
+    const bad = await harness.call('/api/reviews/overrides', put({ path: 'radius.steps.md', value: 'quite round' }))
+    expect(bad.status).toBe(422)
+    const { overrides } = await harness.json<{ overrides: unknown[] }>('/api/reviews')
+    expect(overrides).toEqual([])
+  })
+
+  it('refuses an override for a token this kit does not have', async () => {
+    await seed()
+    const bad = await harness.call('/api/reviews/overrides', put({ path: 'color.roles.tertiary', value: '#ff0000' }))
+    expect(bad.status).toBe(422)
+  })
+
+  it('will not take an override before there is an engine answer to disagree with', async () => {
+    const response = await harness.call('/api/reviews/overrides', put({ path: 'border.width', value: '2px' }))
+    expect(response.status).toBe(409)
+  })
+
+  it('carries the override into a regenerated kit and reports the conflict', async () => {
+    const generated = await seed()
+    await harness.call('/api/reviews/overrides', put({ path: 'radius.steps.md', value: '10px' }))
+
+    // Pretend the evidence moved: the stored baseValue is what a later
+    // distillation is compared against, so rewriting it stands in for a
+    // recapture that changed the engine's mind.
+    await harness.store.reviews.setOverride(null, {
+      path: 'radius.steps.md',
+      value: '10px',
+      baseValue: '4px',
+    })
+
+    const regenerated = (await (await harness.call('/api/kits', body({}))).json()) as KitResponse
+    expect(regenerated.kit.version).toBe(generated.kit.version + 1)
+    // The override survived the new version...
+    expect(regenerated.tokens.radius.steps['md']?.value).toBe(10)
+    // ...and the disagreement is reported rather than resolved.
+    expect(regenerated.review.conflicts).toEqual([
+      expect.objectContaining({ path: 'radius.steps.md', baseValue: '4px' }),
+    ])
+    expect(regenerated.tokens.diagnostics.some((entry) => entry.code === 'override.conflict')).toBe(true)
+  })
+
+  it("clears an override and puts the engine's answer back", async () => {
+    const generated = await seed()
+    const engineRadius = generated.tokens.radius.steps['md']?.value
+    await harness.call('/api/reviews/overrides', put({ path: 'radius.steps.md', value: '10px' }))
+
+    const cleared = (await (
+      await harness.call('/api/reviews/overrides?path=radius.steps.md', { method: 'DELETE' })
+    ).json()) as KitResponse
+    expect(cleared.tokens.radius.steps['md']?.value).toBe(engineRadius)
+    expect(cleared.review.overrides).toEqual([])
+    expect(cleared.designMd).not.toContain('## 10. User overrides')
+
+    expect((await harness.call('/api/reviews/overrides?path=radius.steps.md', { method: 'DELETE' })).status).toBe(404)
+  })
+
+  it('remembers an accepted decision and reopens it', async () => {
+    await seed()
+    const accepted = (await (
+      await harness.call('/api/reviews/decisions', put({ cardId: 'choice:radius.steps.md', state: 'accepted' }))
+    ).json()) as KitResponse
+    expect(accepted.review.accepted).toEqual(['choice:radius.steps.md'])
+
+    const reopened = (await (
+      await harness.call('/api/reviews/decisions', put({ cardId: 'choice:radius.steps.md', state: 'open' }))
+    ).json()) as KitResponse
+    expect(reopened.review.accepted).toEqual([])
+  })
+
+  it("keeps a group's review state and the library's apart", async () => {
+    const imported = (await (
+      await harness.call('/api/captures/import', body(await ghostWarmSet()))
+    ).json()) as { group: { id: string } }
+    await harness.call('/api/kits', body({}))
+    await harness.call('/api/kits', body({ groupId: imported.group.id }))
+
+    await harness.call('/api/reviews/overrides', put({ path: 'border.width', value: '2px' }))
+    await harness.call(
+      '/api/reviews/overrides',
+      put({ groupId: imported.group.id, path: 'border.width', value: '3px' }),
+    )
+
+    const library = await harness.json<{ overrides: Array<{ value: string }> }>('/api/reviews')
+    const group = await harness.json<{ overrides: Array<{ value: string }> }>(
+      `/api/reviews?groupId=${imported.group.id}`,
+    )
+    expect(library.overrides.map((entry) => entry.value)).toEqual(['2px'])
+    expect(group.overrides.map((entry) => entry.value)).toEqual(['3px'])
+  })
+})
+
+describe('per-component markdown', () => {
+  it('serves one component, standalone, and refuses an unknown one', async () => {
+    await harness.call('/api/captures/import', body(await ghostWarmSet()))
+    const generated = (await (await harness.call('/api/kits', body({}))).json()) as { kit: { id: string } }
+
+    const response = await harness.call(`/api/kits/${generated.kit.id}/components/button.md`)
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('text/markdown')
+    expect(response.headers.get('content-disposition')).toContain('button.md')
+    const text = await response.text()
+    expect(text).toContain('# Button')
+    expect(text).toContain('## 4. Custom properties')
+
+    expect((await harness.call(`/api/kits/${generated.kit.id}/components/carousel.md`)).status).toBe(404)
   })
 })
 

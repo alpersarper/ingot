@@ -10,6 +10,8 @@
  * prohibitions, no rationale it cannot act on and no marketing prose.
  */
 import { byString } from '../util/sort'
+import { finish, plural, table } from './markdown'
+import { overriddenSlots } from '../tokens/overrides'
 import { SHADE_RELATIONS } from '../color/roles'
 import { round } from '../util/num'
 import type {
@@ -54,29 +56,6 @@ const SHADCN_VARIABLES: ReadonlyArray<[ColorRoleName, string, string]> = [
 const RADIUS_ORDER: RadiusStepName[] = ['none', 'sm', 'md', 'lg', 'full']
 const SHADOW_ORDER: ShadowStepName[] = ['none', 'sm', 'md', 'lg']
 
-/** `1 origin` / `5 origins`, so the spec never reads like a template. */
-function plural(count: number, noun: string, plural?: string): string {
-  return `${count} ${count === 1 ? noun : (plural ?? `${noun}s`)}`
-}
-
-function pad(value: string, width: number): string {
-  return value.length >= width ? value : value + ' '.repeat(width - value.length)
-}
-
-/** Render a GitHub-flavoured markdown table with aligned columns. */
-function table(headers: readonly string[], rows: ReadonlyArray<readonly string[]>): string[] {
-  const widths = headers.map((header, index) =>
-    Math.max(header.length, ...rows.map((row) => (row[index] ?? '').length)),
-  )
-  const line = (cells: readonly string[]): string =>
-    `| ${cells.map((cell, index) => pad(cell, widths[index] as number)).join(' | ')} |`
-  return [
-    line(headers),
-    `| ${widths.map((width) => '-'.repeat(width)).join(' | ')} |`,
-    ...rows.map((row) => line(row)),
-  ]
-}
-
 /**
  * Render the whole-library design specification for a tokens document.
  *
@@ -92,6 +71,14 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
 
   const role = (name: ColorRoleName): ColorToken | undefined => color.roles[name]
   const hexOf = (name: ColorRoleName): string => role(name)?.value.hex ?? 'n/a'
+
+  // Values a human replaced in the panel. They are as binding as the distilled
+  // ones -- more so, since somebody looked at them -- but a reader is entitled
+  // to know which numbers came from the captures and which came from a person.
+  const overridden = overriddenSlots(tokens)
+  const overriddenPaths = new Set(overridden.map((slot) => slot.path))
+  /** Appended to a cell whose value a person set, so the table is self-labelling. */
+  const mark = (path: string): string => (overriddenPaths.has(path) ? ' *(user override)*' : '')
 
   // --- header ---------------------------------------------------------------
   push(
@@ -110,6 +97,13 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
     `- Type base size: **${typography.baseSize}px**, scale ratio ${typography.scaleRatio}`,
     '',
   )
+
+  if (overridden.length > 0) {
+    push(
+      `> **${plural(overridden.length, 'value')} in this document ${overridden.length === 1 ? 'was' : 'were'} set by hand, not distilled.** They are as binding as the rest — a person reviewed the evidence and disagreed with it — and every one is listed with the engine's own answer in §10. Where a value below is marked *(user override)*, that is what it means.`,
+      '',
+    )
+  }
 
   // --- theme block ----------------------------------------------------------
   push(
@@ -176,7 +170,12 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
           const token = color.roles[name] as ColorToken
           const purpose =
             SHADCN_VARIABLES.find(([roleName]) => roleName === name)?.[2] ?? 'supporting role'
-          return [`\`${name}\``, token.value.hex, token.value.oklch, purpose]
+          return [
+            `\`${name}\``,
+            token.value.hex,
+            token.value.oklch,
+            `${purpose}${mark(`color.roles.${name}`)}`,
+          ]
         }),
     ),
     '',
@@ -382,10 +381,16 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
    * so "half measured, half defaulted" never reads as "measured".
    */
   const recipeSource = (recipe: ComponentRecipe): string => {
-    const decisions = [recipe.paddingY, recipe.paddingX, recipe.radius, recipe.typeStep, recipe.fontWeight].map(
-      (token) => token.provenance.decision,
-    )
+    const decisions = [
+      recipe.height,
+      recipe.paddingY,
+      recipe.paddingX,
+      recipe.radius,
+      recipe.typeStep,
+      recipe.fontWeight,
+    ].map((token) => token.provenance.decision)
     const kinds: string[] = []
+    if (decisions.some((decision) => decision.strategy === 'user-override')) kinds.push('user override')
     if (decisions.some((decision) => decision.strategy !== 'derived' && decision.strategy !== 'sanctioned-default')) {
       kinds.push('captured')
     }
@@ -542,5 +547,32 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
     '',
   )
 
-  return `${out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()}\n`
+  // --- user overrides -------------------------------------------------------
+  // Emitted only when there are any, so a kit nobody has reviewed does not
+  // carry an empty section explaining a thing that did not happen.
+  if (overridden.length > 0) {
+    push(
+      '## 10. User overrides',
+      '',
+      `${plural(overridden.length, 'value')} below ${overridden.length === 1 ? 'was' : 'were'} set by hand in the Ingot panel. Treat them exactly as you treat the distilled values: they are the system. The engine's own answer is given beside each one so you can see what was disagreed with, and the evidence behind that answer is untouched in \`tokens.json\` — an override changes the answer, never the evidence.`,
+      '',
+      ...table(
+        ['Token', 'Value', 'The engine chose', 'Reason given'],
+        overridden.map((slot) => {
+          const decision = slot.provenance.decision
+          return [
+            `\`${slot.path}\``,
+            slot.value,
+            decision.supersedes?.chosen ?? '—',
+            decision.note ?? '—',
+          ]
+        }),
+      ),
+      '',
+      'When a later distillation disagrees with an override, the disagreement is raised as an `override.conflict` warning above rather than resolved silently: the override keeps the value, and a human decides whether the new evidence changes their mind.',
+      '',
+    )
+  }
+
+  return finish(out)
 }

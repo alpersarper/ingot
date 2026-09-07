@@ -1,0 +1,207 @@
+/**
+ * One token, with its reasoning and its edit box.
+ *
+ * This is the atom the right column is made of, and it exists once rather than
+ * per token group because the rules are the same everywhere: show the value,
+ * label where it came from, and open the whole provenance on demand -- which
+ * captures contributed, every raw value observed, the dominant-choice record,
+ * any contrast adjustment, and, for an overridden token, the engine's own
+ * answer it replaced.
+ *
+ * Editing is inline and the value is sent as typed. The engine parses and
+ * normalises it and refuses what it cannot read, so the panel does not carry a
+ * second, quietly different, idea of what "10px" means.
+ */
+import { useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
+import { ChevronRight, RotateCcw } from 'lucide-react'
+import type { TokenOrigin, TokenSlot } from '@ingot/engine'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+
+/** Origin, in one word, with the tone a reader should give it. */
+const ORIGIN_STYLE: Record<TokenOrigin, { label: string; className: string }> = {
+  observed: { label: 'measured', className: 'text-muted-foreground' },
+  derived: { label: 'derived', className: 'text-muted-foreground' },
+  filled: { label: 'default', className: 'text-muted-foreground italic' },
+  adjusted: { label: 'adjusted', className: 'text-amber-600 dark:text-amber-500' },
+  overridden: { label: 'yours', className: 'text-primary font-medium' },
+}
+
+export interface TokenRowProps {
+  slot: TokenSlot
+  origin: TokenOrigin
+  /** The reviewer's note, when this token carries an override. */
+  note?: string
+  busy: boolean
+  onOverride: (path: string, value: string, note?: string) => void
+  onClear: (path: string) => void
+}
+
+export function TokenRow({ slot, origin, note, busy, onOverride, onClear }: TokenRowProps): ReactNode {
+  const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(slot.value)
+  const [reason, setReason] = useState(note ?? '')
+
+  // A regeneration or another edit can move the value under the editor; the
+  // draft follows it rather than holding a value nobody chose.
+  useEffect(() => {
+    setDraft(slot.value)
+  }, [slot.value])
+
+  const decision = slot.provenance.decision
+  const style = ORIGIN_STYLE[origin]
+
+  function commit(): void {
+    const next = draft.trim()
+    if (next === '' || next === slot.value) {
+      setEditing(false)
+      return
+    }
+    onOverride(slot.path, next, reason.trim() === '' ? undefined : reason.trim())
+    setEditing(false)
+  }
+
+  return (
+    <li className="border-b border-border/60 last:border-b-0">
+      <div className="flex items-center gap-2 py-1.5">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+        >
+          <ChevronRight
+            className={`size-3 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-90' : ''}`}
+            aria-hidden
+          />
+          {slot.kind === 'color' ? (
+            <span
+              className="size-3.5 shrink-0 rounded-sm border border-border"
+              style={{ background: slot.value }}
+              aria-hidden
+            />
+          ) : null}
+          <span className="min-w-0 flex-1 truncate text-xs">{slot.label}</span>
+          <span className={`shrink-0 text-[10px] uppercase tracking-wide ${style.className}`}>{style.label}</span>
+        </button>
+
+        <button
+          type="button"
+          className="shrink-0 font-mono text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          onClick={() => setEditing(true)}
+          title={`Override ${slot.path}`}
+        >
+          {slot.value}
+        </button>
+      </div>
+
+      {editing ? (
+        <div className="flex flex-col gap-1.5 pb-2 pl-5">
+          <Input
+            className="h-7 font-mono text-xs"
+            value={draft}
+            autoFocus
+            aria-label={`New value for ${slot.path}`}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') commit()
+              if (event.key === 'Escape') {
+                setDraft(slot.value)
+                setEditing(false)
+              }
+            }}
+          />
+          <Input
+            className="h-7 text-xs"
+            value={reason}
+            placeholder="Why (optional) — it goes into design.md"
+            aria-label={`Reason for overriding ${slot.path}`}
+            onChange={(event) => setReason(event.target.value)}
+          />
+          <div className="flex gap-1.5">
+            <Button size="sm" className="h-7" disabled={busy} onClick={commit}>
+              Override
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7"
+              onClick={() => {
+                setDraft(slot.value)
+                setEditing(false)
+              }}
+            >
+              Cancel
+            </Button>
+            {origin === 'overridden' ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7"
+                disabled={busy}
+                onClick={() => {
+                  setEditing(false)
+                  onClear(slot.path)
+                }}
+              >
+                <RotateCcw aria-hidden />
+                Revert
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {open ? (
+        <div className="flex flex-col gap-1.5 pb-2.5 pl-5 text-[11px] leading-relaxed text-muted-foreground">
+          <p className="font-mono text-[10px] text-foreground/70">{slot.path}</p>
+          <p>{decision.summary}</p>
+
+          {decision.supersedes === undefined ? null : (
+            <p>
+              The engine chose <span className="font-mono text-foreground">{decision.supersedes.chosen}</span> —{' '}
+              {decision.supersedes.summary}
+            </p>
+          )}
+          {decision.note === undefined ? null : <p className="italic">“{decision.note}”</p>}
+          {decision.derivation === undefined ? null : (
+            <p>
+              {decision.derivation.method}: {decision.derivation.detail}
+            </p>
+          )}
+          {slot.contrastAdjustment === undefined ? null : (
+            <p className="text-amber-600 dark:text-amber-500">
+              {slot.contrastAdjustment.from.hex} → {slot.contrastAdjustment.to.hex} (
+              {slot.contrastAdjustment.ratioBefore}:1 → {slot.contrastAdjustment.ratioAfter}:1).{' '}
+              {slot.contrastAdjustment.reason}.
+            </p>
+          )}
+
+          {slot.provenance.observed.length === 0 ? (
+            <p className="italic">Nothing in the captures described this; the value above was supplied, not measured.</p>
+          ) : (
+            <ul className="flex flex-col gap-0.5">
+              {slot.provenance.observed.map((entry) => (
+                <li key={entry.value} className="flex items-baseline gap-1.5">
+                  <span className="font-mono text-foreground">{entry.value}</span>
+                  <span>
+                    ×{entry.count} · {entry.captureIds.join(', ')}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {slot.provenance.captureIds.length === 0 ? null : (
+            <p>
+              From {slot.provenance.captureIds.length} capture
+              {slot.provenance.captureIds.length === 1 ? '' : 's'}.
+            </p>
+          )}
+        </div>
+      ) : null}
+    </li>
+  )
+}

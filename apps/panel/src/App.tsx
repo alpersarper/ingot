@@ -13,12 +13,15 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Loader2 } from 'lucide-react'
+import type { ComponentDocId } from '@ingot/engine'
 import { CollectionPanel } from './workbench/CollectionPanel'
 import { SystemPanel } from './workbench/SystemPanel'
 import { Topbar } from './workbench/Topbar'
 import { FirstRun } from './workbench/FirstRun'
 import { CanonicalPreview } from './preview/CanonicalPreview'
-import { ApiError, api, storeToken, storedToken } from './lib/api'
+import type { PreviewView } from './preview/CanonicalPreview'
+import type { PreviewTheme } from './preview/counterpart'
+import { ApiError, api, saveBlob, storeToken, storedToken } from './lib/api'
 import type { CaptureSummary, GroupSummary, KitPayload, PanelSettings } from './lib/api'
 
 type Phase = 'checking' | 'unpaired' | 'ready'
@@ -36,6 +39,10 @@ export function App(): ReactNode {
   const [importError, setImportError] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [kitError, setKitError] = useState<string | null>(null)
+  /** True while a review write is in flight, so a double click cannot race. */
+  const [reviewing, setReviewing] = useState(false)
+  const [view, setView] = useState<PreviewView>('preview')
+  const [theme, setTheme] = useState<PreviewTheme>('kit')
 
   /** Any 401 means the token we hold is no longer the server's. Start over. */
   const handle = useCallback((error: unknown): string => {
@@ -147,6 +154,53 @@ export function App(): ReactNode {
     }
   }
 
+  async function onDownloadComponent(component: ComponentDocId): Promise<void> {
+    if (kit === null) return
+    try {
+      await api.downloadComponent(kit.kit.id, component)
+    } catch (error) {
+      setKitError(handle(error))
+    }
+  }
+
+  /**
+   * The static docs site is built here rather than fetched.
+   *
+   * It is the docs view rendered to a string by the same components that draw
+   * it on screen, so there is one renderer and the file cannot drift from the
+   * panel. The kit's own mode is what ships: the counterpart theme is a way to
+   * look at the palette, not a second kit.
+   */
+  async function onDownloadDocs(): Promise<void> {
+    if (kit === null) return
+    try {
+      // Loaded on demand: the renderer it pulls in is a third of the panel's
+      // bundle and is only needed the moment somebody asks for the file.
+      const { docsHtmlFilename, renderDocsHtml } = await import('./export/docs-html')
+      const html = renderDocsHtml(kit.tokens)
+      saveBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), docsHtmlFilename(kit.kit.setId, kit.kit.version))
+    } catch (error) {
+      setKitError(handle(error))
+    }
+  }
+
+  /**
+   * Every review write answers with the whole effective kit, so the panel
+   * replaces its copy rather than patching one -- the preview, the docs and the
+   * export list all follow from one authoritative answer.
+   */
+  async function runReview(action: () => Promise<KitPayload>): Promise<void> {
+    setReviewing(true)
+    setKitError(null)
+    try {
+      setKit(await action())
+    } catch (error) {
+      setKitError(handle(error))
+    } finally {
+      setReviewing(false)
+    }
+  }
+
   function onUnpair(): void {
     storeToken(null)
     setKit(null)
@@ -203,7 +257,13 @@ export function App(): ReactNode {
           {kit === null ? (
             <EmptyPreview scopeLabel={scopeLabel} hasCaptures={captures.length > 0} />
           ) : (
-            <CanonicalPreview tokens={kit.tokens} />
+            <CanonicalPreview
+              tokens={kit.tokens}
+              view={view}
+              onChangeView={setView}
+              theme={theme}
+              onChangeTheme={setTheme}
+            />
           )}
         </section>
 
@@ -211,12 +271,21 @@ export function App(): ReactNode {
           <SystemPanel
             kit={kit?.kit ?? null}
             tokens={kit?.tokens ?? null}
+            review={kit?.review ?? null}
             scopeLabel={scopeLabel}
             captureCount={captures.length}
             generating={generating}
+            busy={reviewing}
             error={kitError}
             onGenerate={() => void onGenerate()}
             onDownload={(file) => void onDownload(file)}
+            onDownloadComponent={(component) => void onDownloadComponent(component)}
+            onDownloadDocs={() => void onDownloadDocs()}
+            onOverride={(path, value, note) =>
+              void runReview(() => api.setOverride(selectedGroupId, path, value, note))
+            }
+            onClearOverride={(path) => void runReview(() => api.clearOverride(selectedGroupId, path))}
+            onDecide={(cardId, state) => void runReview(() => api.setDecision(selectedGroupId, cardId, state))}
           />
         </aside>
       </main>

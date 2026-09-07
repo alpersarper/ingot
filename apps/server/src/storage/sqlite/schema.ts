@@ -86,6 +86,46 @@ const MIGRATIONS: string[][] = [
     `CREATE UNIQUE INDEX kits_group_version ON kits (group_id, version) WHERE scope = 'group'`,
     `CREATE UNIQUE INDEX kits_library_version ON kits (version) WHERE scope = 'library'`,
   ],
+  [
+    // Review state: what a human decided about a scope, not about one kit
+    // version. Regenerating a kit has to carry overrides forward -- that is the
+    // whole point of an override -- so these rows key on the scope and outlive
+    // every kit generated for it.
+    //
+    // scope_key is the group id, or the literal 'library' for the whole-library
+    // scope. A plain TEXT key rather than a foreign key to groups: the library
+    // scope has no row to point at, and an override should survive its group
+    // being deleted and re-imported under the same slug.
+    `CREATE TABLE token_overrides (
+       scope_key  TEXT NOT NULL,
+       -- Dotted token path, e.g. components.recipes.button.primary.paddingX.
+       path       TEXT NOT NULL,
+       -- The replacement, in the engine's own decision notation.
+       value      TEXT NOT NULL,
+       -- What the engine said when the override was made. Comparing this with
+       -- what the engine says now is how a conflict is detected.
+       base_value TEXT NOT NULL,
+       note       TEXT NOT NULL,
+       created_at TEXT NOT NULL,
+       updated_at TEXT NOT NULL,
+       PRIMARY KEY (scope_key, path)
+     )`,
+    // Decision cards a reviewer has accepted. Only acceptances are stored: an
+    // open card is the absence of a row, and an overridden one is derived from
+    // token_overrides, so there is one place a state can be wrong instead of
+    // three that can disagree.
+    `CREATE TABLE decision_reviews (
+       scope_key  TEXT NOT NULL,
+       -- Stable card id derived from the kit's own content, so an acceptance
+       -- survives regeneration: diag:<code>:<path> or choice:<path>.
+       card_id    TEXT NOT NULL,
+       state      TEXT NOT NULL CHECK (state IN ('accepted')),
+       note       TEXT NOT NULL,
+       created_at TEXT NOT NULL,
+       updated_at TEXT NOT NULL,
+       PRIMARY KEY (scope_key, card_id)
+     )`,
+  ],
 ]
 
 /** The schema version this build of the server expects. */

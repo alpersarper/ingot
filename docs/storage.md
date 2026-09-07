@@ -17,16 +17,26 @@ apps/server/src/storage/
     schema.ts       migrations, applied against PRAGMA user_version
 ```
 
-`Store` is four repositories plus two operations:
+`Store` is five repositories plus two operations:
 
 | Member | Holds |
 | ------ | ----- |
 | `captures` | Capture records, verbatim, with the panel's own tags and screenshot path beside them. |
 | `groups` | Named collections and their ordered membership. A group is what a kit is generated from. |
 | `kits` | Generated kits, versioned per scope, with the engine's output stored byte for byte. |
+| `reviews` | The standing review state for a scope: token overrides and accepted decision cards. |
 | `settings` | Server-side key/value. The pairing token and the LLM API key live here. |
 | `importCaptureSet` | One atomic bulk import: group, records, membership. |
 | `close` | Release the connection. |
+
+`reviews` keys on a **scope** -- a group id, or `null` for the whole library --
+rather than on a kit id, and that is the whole reason the review survives a
+regeneration. A kit is a snapshot; an override is a standing decision about the
+set, so it outlives every kit generated from it and is carried into the next
+version with the engine's own answer beside it for comparison. Only acceptances
+are stored: an untouched card is the absence of a row and an overridden one is
+derived from the overrides, so a card's state has exactly one source and cannot
+disagree with itself.
 
 ## The three rules
 

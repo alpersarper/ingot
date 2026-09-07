@@ -1,14 +1,21 @@
-# Tokens document schema (version 2)
+# Tokens document schema (version 3)
 
 `tokens.json` is the distilled design system for one capture set. It is
 **stack-agnostic**: nothing in it names Tailwind, shadcn or CSS variables. That
 specificity lives entirely in the export layer
-([`packages/engine/src/export/design-md.ts`](../packages/engine/src/export/design-md.ts)),
-so adding an export target never means changing this shape.
+([`packages/engine/src/export/`](../packages/engine/src/export)), so adding an
+export target never means changing this shape.
 
 - Normative machine-readable schema: [`schemas/tokens.schema.json`](../schemas/tokens.schema.json)
 - TypeScript types: [`packages/engine/src/tokens/types.ts`](../packages/engine/src/tokens/types.ts)
 - Worked examples: [`examples/*/tokens.json`](../examples)
+
+Version 3 (engine 0.3.0) added the `user-override` provenance strategy and the
+two fields that carry it -- `supersedes` and `note` -- so a value a human set in
+the panel is a first-class provenance state rather than an annotation, and
+survives regeneration with the engine's own answer beside it. Nothing else in
+the shape changed: a kit nobody has reviewed is byte-identical to the version 2
+document for the same captures apart from the two version stamps.
 
 Version 2 (engine 0.2.0) added the `components` section, the three state colour
 roles, and the `component`/`layout` banding on the spacing scale. Version 1
@@ -78,6 +85,34 @@ not the number of captures: one card contributes four corner radii.
 | `role-assignment` | A colour cluster was given a semantic role by the role heuristics. `summary` names the rule that fired. |
 | `derived` | Nothing suitable was observed; the value was computed from another token. Carries a `derivation`. |
 | `sanctioned-default` | Nothing was observed **and** nothing else in the document implied the value, so the engine supplied one of its own. Carries a `derivation` and never any `captureIds`. Kept separate from `derived` because the two carry different authority: a derived value is a consequence of this kit, a default is the engine's house choice and is the first thing a reviewer should feel free to override. |
+| `user-override` | A human replaced the engine's answer in the panel. Carries `supersedes` -- the whole decision it replaced -- and, when the reviewer gave one, a `note`. `observed` is left exactly as the engine wrote it: an override changes the answer, never the evidence. |
+
+### Overrides
+
+An override is applied by [`applyOverrides`](../packages/engine/src/tokens/overrides.ts),
+which is as pure and as deterministic as `distill` itself: same document, same
+overrides, byte-identical output. It is in the engine rather than in the panel
+because the panel previews an override and the server replays it on every read,
+and both have to get the same answer.
+
+Applying one does three things beyond writing the value:
+
+- **Re-checks what the override invalidated.** A hand-set colour is re-measured
+  against every guaranteed pair, and a control height the engine computed from
+  padding, line box and border is re-derived when one of the three moves. A
+  height the reviewer set by hand is left where they put it.
+- **Reports conflicts rather than resolving them.** A stored override carries
+  `baseValue`: the engine's answer at the moment it was made. When a later
+  distillation disagrees with that, the override still wins the value and the
+  disagreement is raised as an `override.conflict` warning. Neither side is
+  silently clobbered.
+- **Says so out loud.** Every applied override is named in an `override.applied`
+  info diagnostic, and `design.md` grows a `## 10. User overrides` section
+  listing each value, the engine's own answer, and the reviewer's reason.
+
+`tokenSlots(tokens)` enumerates every position an override may target. It is the
+contract between the engine and the panel: a path the panel offers but
+`applyOverrides` cannot write would be an edit that silently did nothing.
 
 ### Derivations
 
@@ -93,8 +128,8 @@ not the number of captures: one card contributes four corner radii.
 
 ```jsonc
 {
-  "schemaVersion": 2,
-  "engine": { "name": "ingot-engine", "version": "0.2.0" },
+  "schemaVersion": 3,
+  "engine": { "name": "ingot-engine", "version": "0.3.0" },
   "source": { /* set id, name, description, capture ids, origins, component-type counts */ },
   "color":      { "mode", "roles", "contrast", "palette" },
   "spacing":    { "baseUnit", "unit", "snappingRule", "layoutRule", "fit", "largestObservedMultiple", "steps" },
@@ -408,3 +443,7 @@ is worth knowing. Codes are stable identifiers:
 | `typography.sizes-dropped` | info | Sizes beyond the scale's capacity. |
 | `typography.single-size` | warning | One size observed; the scale was extended geometrically. |
 | `typography.no-family` / `typography.no-sizes` | warning | Nothing captured; fell back to defaults. |
+| `override.applied` | info | Values a human set in the panel, listed. They are not distilled evidence. |
+| `override.conflict` | warning | A standing override and a later distillation disagree. The override keeps the value. |
+| `override.contrast` | warning | A colour override dropped a guaranteed pair below its floor. The engine does not move a colour a human set. |
+| `override.rejected` | warning | An override naming a token this kit has no slot for, or a value the engine could not read. |

@@ -29,6 +29,13 @@ import { byNumber, byString, chain } from './util/sort'
  *                        a consequence of this kit, a sanctioned default is the
  *                        engine's house choice, and a reader is entitled to
  *                        override the second more freely than the first.
+ * - `user-override`   -- a human replaced the engine's answer in the panel. It
+ *                        is a first-class provenance state rather than an
+ *                        annotation, because a distillation is an opinion and
+ *                        the reviewer's opinion outranks it. The decision it
+ *                        replaced is kept in `supersedes`, and `observed` is
+ *                        left as the engine wrote it -- an override changes the
+ *                        answer, never the evidence.
  */
 export type DecisionStrategy =
   | 'dominant-value'
@@ -37,6 +44,7 @@ export type DecisionStrategy =
   | 'role-assignment'
   | 'derived'
   | 'sanctioned-default'
+  | 'user-override'
 
 /** A distinct value that was observed, and how often. */
 export interface ObservedValue {
@@ -71,6 +79,15 @@ export interface DominantChoice {
   summary: string
   /** Present when `strategy` is `derived` or `sanctioned-default`. */
   derivation?: Derivation
+  /**
+   * Present when `strategy` is `user-override`: the decision the reviewer
+   * replaced. Keeping it is what lets a later regeneration say "you overrode
+   * 8px, and the new evidence says 10px" instead of silently clobbering either
+   * side.
+   */
+  supersedes?: DominantChoice
+  /** Present when `strategy` is `user-override`: the reviewer's own reason. */
+  note?: string
 }
 
 /** How a value was computed when it could not be observed. */
@@ -148,7 +165,7 @@ function pluralise(count: number, noun: string): string {
  * {@link sanction} instead.
  */
 export function decide(
-  strategy: Exclude<DecisionStrategy, 'derived' | 'sanctioned-default'>,
+  strategy: Exclude<DecisionStrategy, 'derived' | 'sanctioned-default' | 'user-override'>,
   chosen: string,
   observed: readonly ObservedValue[],
   options: { unit?: string } = {},
@@ -214,6 +231,29 @@ export function sanction(chosen: string, derivation: Derivation): DominantChoice
     summary: `sanctioned default: ${derivation.detail}`,
     derivation,
   }
+}
+
+/**
+ * Build a {@link DominantChoice} for a value a human set by hand.
+ *
+ * The engine's own decision is carried in `supersedes` rather than thrown away:
+ * the panel needs it to report a conflict when fresh evidence disagrees with an
+ * override, and `design.md` needs it to say what the kit would have chosen. An
+ * override never rewrites `observed` -- the evidence is what it is.
+ */
+export function userOverride(chosen: string, supersedes: DominantChoice, note?: string): DominantChoice {
+  const decision: DominantChoice = {
+    strategy: 'user-override',
+    chosen,
+    chosenCount: 0,
+    totalCount: 0,
+    confidence: 0,
+    competitors: [],
+    summary: `user override: ${chosen} (the engine chose ${supersedes.chosen})`,
+    supersedes,
+  }
+  if (note !== undefined && note !== '') decision.note = note
+  return decision
 }
 
 /** Assemble a {@link Provenance} from an observed tally and a decision. */

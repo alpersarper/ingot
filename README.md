@@ -11,10 +11,11 @@ every decision traceable and overridable.
 ## What is in this repository today
 
 The deterministic distillation engine, proven end to end on fixture data, and
-the panel that stands on it: a local web app in Docker where you import
-captures, generate a kit and see it rendered. The browser extension and the LLM
-assistant are **not** here yet, and neither is token editing -- see
-[docs/panel.md](docs/panel.md#deliberately-not-built-yet).
+the workbench that stands on it: a local web app in Docker where you import
+captures, generate a kit, review every decision the engine made, override the
+ones you disagree with, and watch the preview, the docs and every export turn
+together. The browser extension and the LLM assistant are **not** here yet --
+see [docs/panel.md](docs/panel.md#deliberately-not-built-yet).
 
 ```
 packages/engine/   the distillation core -- pure, no DOM, no I/O, no network
@@ -42,10 +43,14 @@ scrolled past it.)
 
 From there: **Paste a capture set** on the left, paste
 [`fixtures/ghost-warm/set.json`](fixtures/ghost-warm/set.json), **Generate kit**
-on the right. The middle column renders a small sample UI entirely from the
-kit's tokens, and `design.md` and `tokens.json` download from the system panel.
-The downloaded `design.md` is byte-for-byte the one `pnpm skeleton` writes for
-the same captures.
+on the right. The middle column renders a sample screen entirely from the kit's
+tokens, and switches to a browsable component-library documentation view drawn
+by the same components. The right column is the review queue: every diagnostic
+and every close call the engine made, with its evidence and the runner-up as a
+one-click override -- and every token in the kit, with its provenance, editable
+in place. The downloaded `design.md` is byte-for-byte the one `pnpm skeleton`
+writes for the same captures, until you override something, and then it says
+what you changed and what the engine had chosen.
 
 One container, one port, one volume (`/data`: the database, screenshots and the
 pairing token). The LLM API key is stored server-side and is never returned to
@@ -83,7 +88,18 @@ capture set (JSON)
       +--> tokens.json    stack-agnostic tokens, every one carrying provenance
       |
       +--> design.md      Tailwind v4 + shadcn/ui spec, written for an LLM to implement against
+      |
+      +--> <component>.md one control, self-sufficient: its rules plus the tokens it needs
+      |
+      +--> docs.html      the browsable kit documentation, one file, opens from file://
 ```
+
+Between the engine and the exports sits the review: a reviewer overriding a
+token in the panel replaces the engine's answer, and every artefact above is
+rendered from the result. An override is a first-class provenance state that
+survives regeneration -- when fresh captures disagree with it, the disagreement
+is reported and the override keeps the value. See
+[docs/tokens.md](docs/tokens.md#overrides).
 
 Read [`examples/linear-dark/design.md`](examples/linear-dark/design.md) for what
 comes out the far end, and
@@ -114,8 +130,8 @@ provenance looks like when the engine had to work for it.
 
 Every token records the captures that produced it, every raw value that was
 observed, and a machine-readable dominant-choice record -- `"12 of 28 corners at
-8px (runner-up 12px, 8)"` -- so the panel can render the decision and offer the
-runner-up as a one-click override.
+8px (runner-up 12px, 8)"` -- which is what the panel renders as a decision card,
+with the runner-up as a one-click override.
 
 Full format documentation: [`docs/capture-record.md`](docs/capture-record.md)
 and [`docs/tokens.md`](docs/tokens.md). The panel that drives it:

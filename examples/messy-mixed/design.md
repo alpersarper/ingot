@@ -1,6 +1,6 @@
 # Deliberately messy multi-site mix — design system
 
-Distilled by ingot-engine 0.2.0 from 10 captured components across 5 origins.
+Distilled by ingot-engine 0.3.0 from 10 captured components across 5 origins.
 
 Ten components scraped from five unrelated sites: two serif faces fighting three sans stacks, four near-identical greys, a brand blue captured twice at slightly different values, off-scale padding (7px, 10px, 13px, 15px), and two colour pairs that fail WCAG AA before distillation.
 

@@ -11,20 +11,30 @@
  * `pnpm skeleton` writes from the same captures.
  */
 import { Hono } from 'hono'
+import { COMPONENT_DOC_IDS, renderComponentMarkdown } from '@ingot/engine'
+import type { ComponentDocId } from '@ingot/engine'
 import { ApiError } from '../errors'
-import { KitGenerationError, generateKit } from '../kit'
+import { KitGenerationError, effectiveKit, generateKit } from '../kit'
+import type { EffectiveKit } from '../kit'
+import { kitPayload, scopeFrom } from './reviews'
 import type { AppContext, AppEnv } from '../context'
-import type { Kit, KitSummary } from '../storage/store'
+import type { Kit } from '../storage/store'
 import { isRecord, readJsonBody } from '../validate'
 
 /** `?groupId=` absent or `library` means the whole-library scope. */
 function scopeFromQuery(value: string | undefined): string | null {
-  return value === undefined || value === '' || value === 'library' ? null : value
+  return scopeFrom(value)
 }
 
-function summarise(kit: Kit): KitSummary {
-  const { tokensJson: _tokens, designMd: _design, ...summary } = kit
-  return summary
+/** Component ids are a closed list; anything else is a 404, not a render. */
+function componentIdFrom(raw: string): ComponentDocId {
+  const id = raw.endsWith('.md') ? raw.slice(0, -'.md'.length) : raw
+  if (!(COMPONENT_DOC_IDS as readonly string[]).includes(id)) {
+    throw ApiError.notFound(
+      `no component doc named ${id}; this kit documents ${COMPONENT_DOC_IDS.join(', ')}`,
+    )
+  }
+  return id as ComponentDocId
 }
 
 /** A filename a user can find later: the set id and the kit version. */
@@ -32,6 +42,10 @@ function attachment(kit: Kit, file: 'tokens.json' | 'design.md'): string {
   const base = file === 'tokens.json' ? 'tokens' : 'design'
   const extension = file === 'tokens.json' ? 'json' : 'md'
   return `attachment; filename="${kit.setId}-v${kit.version}-${base}.${extension}"`
+}
+
+function componentAttachment(kit: Kit, id: ComponentDocId): string {
+  return `attachment; filename="${kit.setId}-v${kit.version}-${id}.md"`
 }
 
 async function runGeneration(context: AppContext, groupId: string | null): Promise<Kit> {
@@ -55,7 +69,9 @@ export function kitRoutes(context: AppContext): Hono<AppEnv> {
       throw ApiError.badRequest('groupId must be a string, null, or omitted')
     }
     const kit = await runGeneration(context, scopeFromQuery(raw ?? undefined))
-    return c.json({ kit: summarise(kit), tokens: JSON.parse(kit.tokensJson) as unknown }, 201)
+    // The new version inherits the scope's standing overrides, so the panel
+    // gets back what it will actually render -- conflicts included.
+    return c.json(kitPayload(await effectiveKit(store, kit)), 201)
   })
 
   app.get('/', async (c) => {
@@ -69,32 +85,47 @@ export function kitRoutes(context: AppContext): Hono<AppEnv> {
   app.get('/latest', async (c) => {
     const kit = await store.kits.latest(scopeFromQuery(c.req.query('groupId')))
     if (!kit) throw ApiError.notFound('no kit has been generated for that scope yet')
-    return c.json({ kit: summarise(kit), tokens: JSON.parse(kit.tokensJson) as unknown, designMd: kit.designMd })
+    return c.json(kitPayload(await effectiveKit(store, kit)))
   })
 
   app.get('/:id', async (c) => {
-    const kit = await store.kits.get(c.req.param('id'))
-    if (!kit) throw ApiError.notFound(`no kit with id ${c.req.param('id')}`)
-    return c.json({ kit: summarise(kit), tokens: JSON.parse(kit.tokensJson) as unknown, designMd: kit.designMd })
+    return c.json(kitPayload(await load(c.req.param('id'))))
   })
 
   app.get('/:id/tokens.json', async (c) => {
-    const kit = await store.kits.get(c.req.param('id'))
-    if (!kit) throw ApiError.notFound(`no kit with id ${c.req.param('id')}`)
-    return c.body(kit.tokensJson, 200, {
+    const effective = await load(c.req.param('id'))
+    return c.body(effective.tokensJson, 200, {
       'Content-Type': 'application/json; charset=utf-8',
-      'Content-Disposition': attachment(kit, 'tokens.json'),
+      'Content-Disposition': attachment(effective.kit, 'tokens.json'),
     })
   })
 
   app.get('/:id/design.md', async (c) => {
-    const kit = await store.kits.get(c.req.param('id'))
-    if (!kit) throw ApiError.notFound(`no kit with id ${c.req.param('id')}`)
-    return c.body(kit.designMd, 200, {
+    const effective = await load(c.req.param('id'))
+    return c.body(effective.designMd, 200, {
       'Content-Type': 'text/markdown; charset=utf-8',
-      'Content-Disposition': attachment(kit, 'design.md'),
+      'Content-Disposition': attachment(effective.kit, 'design.md'),
     })
   })
+
+  // One component, on its own. Rendered on demand from the effective tokens
+  // rather than stored, because it is a pure function of them and storing nine
+  // more strings per kit would be nine more things to keep in step.
+  app.get('/:id/components/:component', async (c) => {
+    const effective = await load(c.req.param('id'))
+    const id = componentIdFrom(c.req.param('component'))
+    return c.body(renderComponentMarkdown(effective.tokens, id), 200, {
+      'Content-Type': 'text/markdown; charset=utf-8',
+      'Content-Disposition': componentAttachment(effective.kit, id),
+    })
+  })
+
+  /** A stored kit with its scope's review state replayed over it. */
+  async function load(id: string): Promise<EffectiveKit> {
+    const kit = await store.kits.get(id)
+    if (!kit) throw ApiError.notFound(`no kit with id ${id}`)
+    return effectiveKit(store, kit)
+  }
 
   return app
 }
@@ -111,27 +142,36 @@ export function exportRoutes(context: AppContext): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
   const { store } = context
 
-  async function latestOrFail(c: { req: { query: (key: string) => string | undefined } }): Promise<Kit> {
+  async function latestOrFail(c: { req: { query: (key: string) => string | undefined } }): Promise<EffectiveKit> {
     const kit = await store.kits.latest(scopeFromQuery(c.req.query('groupId')))
     if (!kit) {
       throw new ApiError(409, 'no_kit', 'generate a kit before exporting it')
     }
-    return kit
+    return effectiveKit(store, kit)
   }
 
   app.get('/tokens.json', async (c) => {
-    const kit = await latestOrFail(c)
-    return c.body(kit.tokensJson, 200, {
+    const effective = await latestOrFail(c)
+    return c.body(effective.tokensJson, 200, {
       'Content-Type': 'application/json; charset=utf-8',
-      'Content-Disposition': attachment(kit, 'tokens.json'),
+      'Content-Disposition': attachment(effective.kit, 'tokens.json'),
     })
   })
 
   app.get('/design.md', async (c) => {
-    const kit = await latestOrFail(c)
-    return c.body(kit.designMd, 200, {
+    const effective = await latestOrFail(c)
+    return c.body(effective.designMd, 200, {
       'Content-Type': 'text/markdown; charset=utf-8',
-      'Content-Disposition': attachment(kit, 'design.md'),
+      'Content-Disposition': attachment(effective.kit, 'design.md'),
+    })
+  })
+
+  app.get('/components/:component', async (c) => {
+    const effective = await latestOrFail(c)
+    const id = componentIdFrom(c.req.param('component'))
+    return c.body(renderComponentMarkdown(effective.tokens, id), 200, {
+      'Content-Type': 'text/markdown; charset=utf-8',
+      'Content-Disposition': componentAttachment(effective.kit, id),
     })
   })
 

@@ -10,7 +10,8 @@ bet is **cross-site distillation quality**, not one-click extraction. Read
 [README.md](README.md) for scope and what is deliberately not built yet.
 
 Two halves: `packages/engine` decides, and the panel (`apps/server` +
-`apps/panel`) is where a human reviews those decisions. The panel is an ordinary
+`apps/panel`) is where a human reviews those decisions -- and overrides them,
+which is the experience rather than an escape hatch. The panel is an ordinary
 web app that currently runs locally in Docker -- [docs/panel.md](docs/panel.md).
 
 ## Commands
@@ -33,14 +34,33 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
   comparators on every sort, one rounding helper for every emitted number.
   Rationale and the full rule list: [docs/tokens.md](docs/tokens.md#determinism).
 - **The token model stays stack-agnostic.** Tailwind and shadcn naming lives only
-  in `packages/engine/src/export/design-md.ts`. New export targets are siblings
-  of that file, never changes to `packages/engine/src/tokens/types.ts`.
+  in `packages/engine/src/export/`. New export targets are siblings of
+  `design-md.ts`, never changes to `packages/engine/src/tokens/types.ts`.
+- **An override is provenance, not an annotation.** `applyOverrides`
+  (`packages/engine/src/tokens/overrides.ts`) is as pure and as deterministic as
+  `distill`, and it lives in the engine because the panel previews an override
+  and the server replays it on every read. It re-checks what the override
+  invalidated (contrast pairs, derived control heights), and when fresh evidence
+  disagrees with a standing override it **reports** the conflict and leaves the
+  override in force -- neither side is silently clobbered.
+  `tokenSlots(tokens)` is the contract between engine and panel: a path the
+  panel offers but the engine cannot write is an edit that silently does nothing.
+  Rules: [docs/tokens.md](docs/tokens.md#overrides).
+- **One renderer, three surfaces.** The canonical components in
+  `apps/panel/src/preview/components/` draw the live preview, the in-panel docs
+  and the static docs export; the prose and token subsets all three show come
+  from `packages/engine/src/export/component-doc.ts`, which also writes the
+  per-component markdown. A second render path or a second copy of the prose is
+  how a docs page starts documenting a button nobody ships.
 - **Determinism survives the server path.** A `design.md` downloaded from the
   panel is byte-identical to the one `pnpm skeleton` writes from the same
   captures. Records are stored and replayed verbatim, capture order comes from
   group membership positions, and set metadata comes from the group. Enforced by
   `apps/server/test/kit-determinism.test.ts` against the committed `examples/`;
-  if it fails, the bug is in the server, never in `examples/`.
+  if it fails, the bug is in the server, never in `examples/`. Overrides do not
+  weaken it: a kit row stores the engine's own bytes and `effectiveKit()` replays
+  the reviewer's values on read, short-circuiting to the stored strings when
+  there are none.
 - **Storage stays behind `apps/server/src/storage/store.ts`.** Async methods, no
   transaction handle across the seam, total ordering on every list. A Postgres
   adapter must be a new file under `storage/` plus one line in
@@ -53,18 +73,26 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
   than a matter of route registration order. The LLM API key goes in and never
   comes out: no endpoint returns it, and `apps/server/test/api.test.ts` asserts
   that on the response bodies.
-- **The preview has no hardcoded values.** Every visual property of the canonical
-  components in `apps/panel/src/preview/` comes from a `var(--kit-*)` fed by
-  `kit-css.ts`. A literal colour, size or radius in `canonical.css` would put a
+- **The preview and the docs have no hardcoded values.** Every visual property in
+  `canonical.css` and `docs.css` is a `var(--kit-*)` fed by `kit-css.ts` -- no
+  colour, no length, no font size, not even as a fallback. A literal would put a
   value on screen that the exported `design.md` never mentions, which is the one
-  thing that makes a preview lie. The panel's own chrome uses a separate shadcn
-  variable set, so a dark kit in a light panel renders as itself.
+  thing that makes a preview lie, and it is invisible in review because the panel
+  still looks fine. `apps/panel/test/canonical-css.test.ts` reads both
+  stylesheets and enforces it. Values a real screen needs but no token names --
+  a card's radius, the gap between sections, the size of a field label -- are
+  *composed* in `kitComposition()` from steps the kit actually carries, which is
+  what `design.md` tells a consumer to do; they never become literals in the CSS.
+  The panel's own chrome uses a separate shadcn variable set, so a dark kit in a
+  light panel renders as itself. The kit docs are deliberately set *in* the kit.
 - **Every token carries provenance.** Contributing capture ids, every raw value
-  observed, and a machine-readable dominant-choice record. The panel will render
-  these as decisions and overrides, so a token without one is a bug. The
+  observed, and a machine-readable dominant-choice record. The panel renders
+  these as decision cards and overrides, so a token without one is a bug. The
   `strategy` distinguishes measured from computed from `sanctioned-default` --
-  a value the engine supplied because nothing implied one. Keep that three-way
-  split intact: it is what lets a reader know which numbers to argue with.
+  a value the engine supplied because nothing implied one -- from `user-override`,
+  a value a human set. Keep that split intact: it is what lets a reader know
+  which numbers to argue with. An override never rewrites `observed`; it carries
+  the decision it replaced in `supersedes`.
 - **The kit answers, or says it is guessing -- it never goes quiet.** Silence is
   what makes two consumers of one kit ship two different products, so a control
   with no evidence gets a stated default rather than no entry, and a state the

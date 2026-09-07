@@ -1,19 +1,20 @@
 /**
- * The panel smoke test: the whole thin slice, in one walk.
+ * The panel, end to end: pair, import, generate, review, override, export.
  *
- * Pair, import a capture set, generate a kit, see the preview drawn from its
- * tokens, download `design.md`. The server is faked at `fetch`, but the tokens
- * it answers with are the real committed `examples/ghost-warm/tokens.json`, so
- * the preview is rendering genuine engine output rather than a fixture invented
- * to make it pass.
+ * The server is faked at `fetch`, but the tokens it answers with are the real
+ * committed `examples/ghost-warm/tokens.json` and the override it applies goes
+ * through the real engine, so the preview is rendering genuine engine output
+ * and the override flow is exercising the real `applyOverrides`. The only thing
+ * stubbed is the transport.
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { applyOverrides, renderDesignMarkdown } from '@ingot/engine'
+import type { TokenOverride, TokensDocument } from '@ingot/engine'
 import { App } from '@/App'
-import type { TokensDocument } from '@ingot/engine'
 
 /**
  * The repository root. `import.meta.url` is an http URL under jsdom, so the
@@ -38,24 +39,81 @@ const CAPTURE_SET = JSON.parse(readFileSync(join(ROOT, 'fixtures/ghost-warm/set.
 }
 
 const TOKEN = 'a-valid-pairing-token'
-const GROUP = { id: 'group-1', slug: 'ghost-warm', name: 'Ghost warm', description: 'Warm.', origin: 'import', captureCount: CAPTURE_SET.captures.length }
+const GROUP = {
+  id: 'group-1',
+  slug: 'ghost-warm',
+  name: 'Ghost warm',
+  description: 'Warm.',
+  origin: 'import',
+  captureCount: CAPTURE_SET.captures.length,
+}
 
 interface FakeServer {
   calls: Array<{ path: string; method: string; token: string | null }>
   imported: boolean
   kitGenerated: boolean
+  /** Overrides the fake server holds, exactly as the real one would. */
+  overrides: TokenOverride[]
+  accepted: string[]
 }
 
 /**
  * A fake server that behaves like the real one on the points the panel depends
- * on: it refuses without the pairing token, and it has no kit until one is
- * generated.
+ * on: it refuses without the pairing token, it has no kit until one is
+ * generated, and it replays overrides through the engine rather than pretending
+ * they took effect.
  */
 function installFakeServer(): FakeServer {
-  const state: FakeServer = { calls: [], imported: false, kitGenerated: false }
+  const state: FakeServer = { calls: [], imported: false, kitGenerated: false, overrides: [], accepted: [] }
 
   const json = (body: unknown, status = 200): Response =>
     new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+
+  function effective(): { tokens: TokensDocument; designMd: string; conflicts: unknown[]; rejected: unknown[] } {
+    if (state.overrides.length === 0) {
+      return { tokens: TOKENS, designMd: DESIGN_MD, conflicts: [], rejected: [] }
+    }
+    const result = applyOverrides(TOKENS, state.overrides)
+    return {
+      tokens: result.tokens,
+      designMd: renderDesignMarkdown(result.tokens),
+      conflicts: result.conflicts,
+      rejected: result.rejected,
+    }
+  }
+
+  function kitPayload(): unknown {
+    const { tokens, designMd, conflicts, rejected } = effective()
+    return {
+      kit: {
+        id: 'kit-1',
+        groupId: GROUP.id,
+        scope: 'group',
+        version: 1,
+        setId: 'ghost-warm',
+        name: GROUP.name,
+        engineVersion: TOKENS.engine.version,
+        captureIds: CAPTURE_SET.captures.map((capture) => capture.id),
+        warningCount: 0,
+        createdAt: '2026-05-01T00:00:00.000Z',
+      },
+      tokens,
+      designMd,
+      review: {
+        overrides: state.overrides.map((override) => ({
+          path: override.path,
+          value: override.value,
+          baseValue: override.baseValue ?? '',
+          note: override.note ?? '',
+          createdAt: '2026-05-01T00:00:00.000Z',
+          updatedAt: '2026-05-01T00:00:00.000Z',
+        })),
+        conflicts,
+        rejected,
+        accepted: state.accepted,
+      },
+    }
+  }
 
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
@@ -75,8 +133,8 @@ function installFakeServer(): FakeServer {
       return json({
         settings: {
           llm: { configured: false, source: 'none', managedByEnvironment: false },
-          engine: { name: 'ingot-engine', version: '0.2.0' },
-          storage: { adapter: 'sqlite', schemaVersion: 1 },
+          engine: { name: 'ingot-engine', version: TOKENS.engine.version },
+          storage: { adapter: 'sqlite', schemaVersion: 2 },
           allowedOrigins: ['http://localhost:5173'],
         },
       })
@@ -100,9 +158,40 @@ function installFakeServer(): FakeServer {
       state.kitGenerated = true
       return json(kitPayload(), 201)
     }
+    if (path.startsWith('/api/reviews/overrides') && method === 'PUT') {
+      const body = JSON.parse(String(init.body)) as { path: string; value: string; note?: string }
+      // The real server reads the engine's own answer for baseValue; the fake
+      // reads it from the same document for the same reason.
+      state.overrides = [
+        ...state.overrides.filter((entry) => entry.path !== body.path),
+        { path: body.path, value: body.value, ...(body.note === undefined ? {} : { note: body.note }) },
+      ]
+      return json(kitPayload())
+    }
+    if (path.startsWith('/api/reviews/overrides') && method === 'DELETE') {
+      const target = new URL(url, 'http://localhost').searchParams.get('path')
+      state.overrides = state.overrides.filter((entry) => entry.path !== target)
+      return json(kitPayload())
+    }
+    if (path.startsWith('/api/reviews/decisions') && method === 'PUT') {
+      const body = JSON.parse(String(init.body)) as { cardId: string; state: 'accepted' | 'open' }
+      state.accepted =
+        body.state === 'accepted'
+          ? [...new Set([...state.accepted, body.cardId])]
+          : state.accepted.filter((id) => id !== body.cardId)
+      return json(kitPayload())
+    }
     if (path.endsWith('/design.md')) {
-      return new Response(DESIGN_MD, {
-        headers: { 'content-type': 'text/markdown', 'content-disposition': 'attachment; filename="ghost-warm-v1-design.md"' },
+      return new Response(effective().designMd, {
+        headers: {
+          'content-type': 'text/markdown',
+          'content-disposition': 'attachment; filename="ghost-warm-v1-design.md"',
+        },
+      })
+    }
+    if (path.includes('/components/')) {
+      return new Response('# Button', {
+        headers: { 'content-type': 'text/markdown', 'content-disposition': 'attachment; filename="button.md"' },
       })
     }
     return json({ error: { message: `unexpected ${method} ${path}` } }, 404)
@@ -111,79 +200,53 @@ function installFakeServer(): FakeServer {
   return state
 }
 
-function kitPayload(): unknown {
-  return {
-    kit: {
-      id: 'kit-1',
-      groupId: GROUP.id,
-      scope: 'group',
-      version: 1,
-      setId: 'ghost-warm',
-      name: GROUP.name,
-      engineVersion: '0.2.0',
-      captureIds: CAPTURE_SET.captures.map((capture) => capture.id),
-      warningCount: 0,
-      createdAt: '2026-05-01T00:00:00.000Z',
-    },
-    tokens: TOKENS,
-  }
-}
-
 let server: FakeServer
 
 beforeEach(() => {
   server = installFakeServer()
 })
 
+/** Pair, import and generate: the state every review test starts from. */
+async function reachTheWorkbench(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  render(<App />)
+  await user.type(await screen.findByLabelText('Pairing token'), TOKEN)
+  await user.click(screen.getByRole('button', { name: 'Pair' }))
+  await user.click(await screen.findByRole('button', { name: /Continue without a key/ }))
+  await screen.findByRole('heading', { name: 'Collection' })
+
+  await user.click(screen.getByRole('button', { name: /Paste a capture set/ }))
+  // Set the textarea directly: typing a 20KB document keystroke by keystroke
+  // would take minutes and prove nothing extra.
+  fireEvent.change(screen.getByLabelText('Capture set JSON'), { target: { value: JSON.stringify(CAPTURE_SET) } })
+  await user.click(screen.getByRole('button', { name: 'Import set' }))
+  await waitFor(() => expect(screen.getByText('ghost-btn-primary')).toBeTruthy())
+
+  await user.click(screen.getByRole('button', { name: /Generate kit/ }))
+  await screen.findByLabelText('Live preview')
+}
+
 describe('the panel, end to end', () => {
   it('pairs, imports a set, generates a kit, previews it and downloads design.md', async () => {
     const user = userEvent.setup()
-    render(<App />)
+    await reachTheWorkbench(user)
 
-    // 1. First run: unpaired, so the panel asks to be paired rather than
-    //    showing an empty workbench.
-    const tokenField = await screen.findByLabelText('Pairing token')
-    await user.type(tokenField, TOKEN)
-    await user.click(screen.getByRole('button', { name: 'Pair' }))
-
-    // 2. The LLM key step is skippable, because nothing here calls an LLM yet.
-    await user.click(await screen.findByRole('button', { name: /Continue without a key/ }))
-
-    // 3. The workbench, with an empty collection.
-    await screen.findByRole('heading', { name: 'Collection' })
-    expect(screen.getByText(/Nothing captured yet/)).toBeTruthy()
-
-    // 4. Import the capture set by pasting it.
-    await user.click(screen.getByRole('button', { name: /Paste a capture set/ }))
-    // Set the textarea directly: typing a 20KB document keystroke by keystroke
-    // would take minutes and prove nothing extra.
-    fireEvent.change(screen.getByLabelText('Capture set JSON'), {
-      target: { value: JSON.stringify(CAPTURE_SET) },
-    })
-    await user.click(screen.getByRole('button', { name: 'Import set' }))
-
-    await waitFor(() => expect(screen.getByText('ghost-btn-primary')).toBeTruthy())
-
-    // 5. Generate the kit.
-    await user.click(screen.getByRole('button', { name: /Generate kit/ }))
-
-    // 6. The preview renders the canonical components from the kit's tokens...
-    const preview = await screen.findByLabelText('Live preview')
-    const publish = await within(preview).findByRole('button', { name: 'Publish kit' })
-    expect(publish.dataset['variant']).toBe('primary')
+    // The preview renders the canonical components from the kit's tokens...
+    const preview = screen.getByLabelText('Live preview')
+    const publish = within(preview).getAllByRole('button', { name: 'Publish kit' })[0]
+    expect(publish?.dataset['variant']).toBe('primary')
 
     // ...through CSS variables carrying real token values, not hardcoded ones.
     const surface = preview.querySelector<HTMLElement>('.kit-surface')
     expect(surface?.style.getPropertyValue('--kit-color-primary')).toBe(TOKENS.color.roles.primary?.value.hex)
     expect(surface?.style.getPropertyValue('--kit-space-unit')).toBe(`${TOKENS.spacing.baseUnit}px`)
 
-    // 7. The system panel reports the kit the preview is showing.
+    // The system panel reports the kit the preview is showing.
     const system = screen.getByRole('complementary', { name: 'System' })
+    await user.click(within(system).getByRole('tab', { name: 'Export' }))
     expect(within(system).getByText('ghost-warm')).toBeTruthy()
     expect(within(system).getByText('v1')).toBeTruthy()
-    expect(within(system).getByText(TOKENS.color.roles.primary?.value.hex ?? '')).toBeTruthy()
 
-    // 8. And design.md downloads, with the pairing token on the request.
+    // And design.md downloads, with the pairing token on the request.
     await user.click(within(system).getByRole('button', { name: 'design.md' }))
     await waitFor(() => {
       const download = server.calls.find((call) => call.path.endsWith('/design.md'))
@@ -209,5 +272,82 @@ describe('the panel, end to end', () => {
     // The stale token fails the very first call, so the shell must not pretend
     // to be usable.
     expect(await screen.findByLabelText('Pairing token')).toBeTruthy()
+  })
+})
+
+describe('the review loop', () => {
+  it('overrides a token and turns the preview, the docs and design.md together', async () => {
+    const user = userEvent.setup()
+    await reachTheWorkbench(user)
+    const system = screen.getByRole('complementary', { name: 'System' })
+
+    await user.click(within(system).getByRole('tab', { name: 'Tokens' }))
+    // The radius group lists `md`; clicking its value opens the editor.
+    const value = within(system).getByTitle('Override radius.steps.md')
+    expect(value.textContent).toBe(`${TOKENS.radius.steps.md?.value}px`)
+    await user.click(value)
+
+    const field = within(system).getByLabelText('New value for radius.steps.md')
+    fireEvent.change(field, { target: { value: '10px' } })
+    fireEvent.change(within(system).getByLabelText('Reason for overriding radius.steps.md'), {
+      target: { value: 'the captured radius reads timid' },
+    })
+    await user.click(within(system).getByRole('button', { name: 'Override' }))
+
+    // The preview's variable set turns immediately...
+    await waitFor(() => {
+      const surface = screen.getByLabelText('Live preview').querySelector<HTMLElement>('.kit-surface')
+      expect(surface?.style.getPropertyValue('--kit-radius-md')).toBe('10px')
+    })
+
+    // ...the token is marked as the reviewer's, not as evidence...
+    await waitFor(() => expect(within(system).getAllByText('yours').length).toBeGreaterThan(0))
+
+    // ...the docs view shows the same value with the same label...
+    await user.click(within(screen.getByLabelText('Live preview')).getByRole('tab', { name: 'Docs' }))
+    const preview = screen.getByLabelText('Live preview')
+    await waitFor(() => expect(within(preview).getAllByText('user override').length).toBeGreaterThan(0))
+
+    // ...and design.md carries it, with the reason.
+    const design = await (await fetch('/api/kits/kit-1/design.md', { headers: { 'x-ingot-token': TOKEN } })).text()
+    expect(design).toContain('## 10. User overrides')
+    expect(design).toContain('the captured radius reads timid')
+  })
+
+  it('reports a conflict as a card and lets the reviewer take the new evidence', async () => {
+    const user = userEvent.setup()
+    await reachTheWorkbench(user)
+    const system = screen.getByRole('complementary', { name: 'System' })
+
+    // A standing override whose recorded engine answer no longer matches: the
+    // shape a regeneration produces when the captures have moved.
+    server.overrides.push({ path: 'radius.steps.md', value: '10px', baseValue: '4px' })
+    await user.click(within(system).getByRole('button', { name: /Regenerate/ }))
+
+    const card = await within(system).findByText(/Your value and the new evidence disagree/)
+    expect(card).toBeTruthy()
+    expect(within(system).getByText(/the captures now say/)).toBeTruthy()
+
+    // The engine's current answer is offered as a one-click override.
+    await user.click(within(system).getByRole('button', { name: `Take ${TOKENS.radius.steps.md?.value}px` }))
+    await waitFor(() => {
+      const surface = screen.getByLabelText('Live preview').querySelector<HTMLElement>('.kit-surface')
+      expect(surface?.style.getPropertyValue('--kit-radius-md')).toBe(`${TOKENS.radius.steps.md?.value}px`)
+    })
+  })
+
+  it('accepts a decision card and remembers it', async () => {
+    const user = userEvent.setup()
+    await reachTheWorkbench(user)
+    const system = screen.getByRole('complementary', { name: 'System' })
+
+    // ghost-warm distils cleanly, so its only cards are close calls; the radius
+    // decision is one (16 of 28 corners, runner-up 12px).
+    const closeCalls = await within(system).findAllByText(/close call/)
+    await user.click(closeCalls[0] as HTMLElement)
+    await user.click(within(system).getAllByRole('button', { name: 'Accept' })[0] as HTMLElement)
+
+    await waitFor(() => expect(server.accepted.length).toBe(1))
+    expect(within(system).getAllByText('accepted').length).toBeGreaterThan(0)
   })
 })

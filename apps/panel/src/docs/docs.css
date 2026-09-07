@@ -1,0 +1,213 @@
+/*
+ * The kit documentation's own stylesheet.
+ *
+ * The docs are set in the kit they document. That is not a flourish: a docs
+ * page in the panel's chrome would be a page about the kit, and a page in the
+ * kit is the kit -- it is the strongest thing this product can show, and it is
+ * what makes the in-panel docs and the static export the same artefact rather
+ * than two renderings that have to be kept in step.
+ *
+ * Same rule as `canonical.css`: every visual value is a `var(--kit-*)`.
+ * Structure, scroll behaviour and table collapse are not visual values a design
+ * kit decides, and stay literal.
+ */
+
+.kit-docs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--kit-space-section);
+  align-items: start;
+  padding: var(--kit-space-page);
+}
+
+/*
+ * The nav column is a ratio rather than a width: a fixed `14rem` would be a
+ * length this kit never described, and the rule against literals holds here as
+ * firmly as it does in `canonical.css`.
+ */
+@container (min-width: 48rem) {
+  .kit-docs {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 4fr);
+  }
+}
+
+.kit-docs-nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--kit-space-tight);
+  position: sticky;
+  top: 0;
+}
+
+.kit-docs-nav-title {
+  font-size: var(--kit-type-caption-size);
+  line-height: var(--kit-type-caption-leading);
+  font-weight: var(--kit-type-label-weight);
+  letter-spacing: var(--kit-type-caption-tracking);
+  text-transform: uppercase;
+  color: var(--kit-color-text-muted);
+  margin: 0;
+  padding-bottom: var(--kit-space-tight);
+}
+
+.kit-docs-link {
+  display: flex;
+  align-items: center;
+  height: var(--kit-table-row-height);
+  padding: 0 var(--kit-space-snug);
+  border-radius: var(--kit-radius-control);
+  border: var(--kit-border-width) solid transparent;
+  background: transparent;
+  color: var(--kit-color-text);
+  font-family: inherit;
+  font-size: var(--kit-type-label-size);
+  line-height: var(--kit-type-label-leading);
+  font-weight: var(--kit-type-label-weight);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.kit-docs-link:hover {
+  background: var(--kit-color-surface-hover);
+}
+
+.kit-docs-link:focus-visible {
+  outline: var(--kit-ring-width) solid var(--kit-ring-color);
+  outline-offset: var(--kit-ring-offset);
+}
+
+.kit-docs-link[aria-current='true'] {
+  background: var(--kit-color-selected-surface);
+}
+
+.kit-docs-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--kit-space-section);
+  min-width: 0;
+}
+
+.kit-docs-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--kit-space-comfy);
+  min-width: 0;
+  scroll-margin-top: var(--kit-space-comfy);
+}
+
+.kit-docs-heading {
+  font-size: var(--kit-type-display-size);
+  line-height: var(--kit-type-display-leading);
+  font-weight: var(--kit-type-display-weight);
+  letter-spacing: var(--kit-type-display-tracking);
+  color: var(--kit-color-text);
+  margin: 0;
+}
+
+.kit-docs-summary {
+  font-size: var(--kit-type-body-size);
+  line-height: var(--kit-type-body-leading);
+  color: var(--kit-color-text-muted);
+  margin: 0;
+  max-width: 68ch;
+}
+
+.kit-docs-subheading {
+  font-size: var(--kit-type-title-size);
+  line-height: var(--kit-type-title-leading);
+  font-weight: var(--kit-type-title-weight);
+  letter-spacing: var(--kit-type-title-tracking);
+  color: var(--kit-color-text);
+  margin: 0;
+}
+
+.kit-docs-stage {
+  background: var(--kit-color-background);
+  border: var(--kit-border-width) solid var(--kit-color-border);
+  border-radius: var(--kit-radius-card);
+  padding: var(--kit-space-comfy);
+  min-width: 0;
+}
+
+.kit-docs-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--kit-space-snug);
+  min-width: 0;
+}
+
+.kit-docs-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--kit-space-tight);
+  margin: 0;
+  padding-left: var(--kit-space-comfy);
+  color: var(--kit-color-text);
+  font-size: var(--kit-type-body-size);
+  line-height: var(--kit-type-body-leading);
+  max-width: 76ch;
+}
+
+.kit-docs-list[data-tone='do-not'] {
+  color: var(--kit-color-text-muted);
+}
+
+.kit-docs-swatch {
+  display: inline-block;
+  width: var(--kit-space-comfy);
+  height: var(--kit-space-snug);
+  border-radius: var(--kit-radius-control);
+  border: var(--kit-border-width) solid var(--kit-color-border);
+  vertical-align: middle;
+}
+
+.kit-docs-mono {
+  font-family: var(--kit-font-mono);
+  /* Token paths have no spaces; without this the Values table can only be
+     read by scrolling it sideways. */
+  overflow-wrap: anywhere;
+  font-size: var(--kit-type-caption-size);
+  line-height: var(--kit-type-caption-leading);
+  color: var(--kit-color-text-muted);
+}
+
+.kit-docs-origin {
+  display: inline-flex;
+  align-items: center;
+  height: var(--kit-badge-height);
+  padding: 0 var(--kit-badge-padding-x);
+  border-radius: var(--kit-radius-pill);
+  border: var(--kit-border-width) solid var(--kit-color-border);
+  background: var(--kit-color-surface);
+  color: var(--kit-color-text-muted);
+  font-size: var(--kit-badge-text-size);
+  line-height: var(--kit-badge-text-leading);
+  font-weight: var(--kit-badge-weight);
+  white-space: nowrap;
+}
+
+/* An overridden value is the one origin a reader must not skim past. */
+.kit-docs-origin[data-origin='overridden'] {
+  background: var(--kit-color-selected-surface);
+  border-color: var(--kit-color-primary);
+  color: var(--kit-color-text);
+}
+
+.kit-docs-footer {
+  border-top: var(--kit-border-width) solid var(--kit-color-border);
+  padding-top: var(--kit-space-comfy);
+  color: var(--kit-color-text-muted);
+  font-size: var(--kit-type-caption-size);
+  line-height: var(--kit-type-caption-leading);
+  max-width: 76ch;
+}
+
+.kit-docs-lede {
+  display: flex;
+  flex-direction: column;
+  gap: var(--kit-space-tight);
+  padding-bottom: var(--kit-space-comfy);
+  border-bottom: var(--kit-border-width) solid var(--kit-color-border);
+}
