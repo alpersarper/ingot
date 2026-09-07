@@ -112,6 +112,41 @@ describe('the static docs export', () => {
     expect(page).toContain('--kit-radius-md: 10px;')
   })
 
+  it('stays styled whatever a font-stack override carries', () => {
+    // A font stack is the one variable value that is reviewer prose rather than
+    // an engine-canonicalised number, and this export inlines its stylesheet
+    // instead of linking it -- so a value that closes the rule would silently
+    // drop the rest of it and produce a page that merely looks unstyled.
+    const hostile = '"Bad Font"} .kit-button { display: none } x{'
+
+    // The engine refuses it outright at the canonicalisation point...
+    const { rejected } = applyOverrides(tokens, [{ path: 'typography.families.sans', value: hostile }])
+    expect(rejected[0]?.path).toBe('typography.families.sans')
+
+    // ...and the export sanitises on emit too, so no future value can reopen it.
+    const smuggled = JSON.parse(JSON.stringify(tokens)) as TokensDocument
+    smuggled.typography.families.sans.value = hostile
+    const page = renderDocsHtml(smuggled)
+
+    // One `<style>` element, opened and closed exactly once, as before.
+    expect(page.match(/<style>/g)).toHaveLength(1)
+    expect(page.match(/<\/style>/g)).toHaveLength(1)
+
+    const styles = page.slice(page.indexOf('<style>') + '<style>'.length, page.indexOf('</style>'))
+    // The value survives as inert text inside its declaration -- what it may
+    // not do is close that declaration's rule or open one of its own.
+    const sans = styles.split('\n').find((line) => line.includes('--kit-font-sans:')) as string
+    expect(sans).toBeDefined()
+    expect(sans.trim().endsWith(';')).toBe(true)
+    expect(sans.slice(0, -1)).not.toMatch(/[{}<>;]/)
+    // Braces still balance, so the variable rule closes where it is meant to...
+    expect((styles.match(/\{/g) ?? []).length).toBe((styles.match(/\}/g) ?? []).length)
+    // ...and the rules after it are still there, which is exactly what an early
+    // `}` would have eaten.
+    expect(styles).toContain('.kit-button {')
+    expect(styles).toContain('.kit-docs-link {')
+  })
+
   it('names the file so it can be found again', () => {
     expect(docsHtmlFilename('ghost-warm', 3)).toBe('ghost-warm-v3-docs.html')
   })

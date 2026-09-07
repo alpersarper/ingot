@@ -35,6 +35,21 @@ function kit(name = 'ghost-warm'): TokensDocument {
   return distill(fixture(name))
 }
 
+/**
+ * The cells of one markdown table row.
+ *
+ * `design.md` is a generated text contract, so splitting a row the way a
+ * markdown reader does is the way to ask how many columns it really has: an
+ * unescaped pipe in a cell shows up here as an extra column.
+ */
+function splitRow(line: string): string[] {
+  return line
+    .replace(/^\| /, '')
+    .replace(/ \|$/, '')
+    .split(/(?<!\\) \| /)
+    .map((cell) => cell.trim())
+}
+
 describe('the slot enumeration', () => {
   const tokens = kit()
   const slots = tokenSlots(tokens)
@@ -132,6 +147,9 @@ describe('judging a candidate before it is stored', () => {
     const tokens = kit()
     const current = `${tokens.radius.steps.md?.value}px`
     expect(overrideRejection(tokens, { path: 'radius.steps.md', value: current })).toContain('is not an override')
+    expect(overrideRejection(tokens, { path: 'radius.steps.md', value: current }, 'create')).toContain(
+      'is not an override',
+    )
     // Two spellings of one value are one value, so the check is on the
     // canonical form rather than on the string the reviewer happened to type.
     expect(overrideRejection(tokens, { path: 'radius.steps.md', value: ` ${tokens.radius.steps.md?.value} ` })).toContain(
@@ -147,6 +165,63 @@ describe('judging a candidate before it is stored', () => {
 
   it('passes a candidate that really does disagree', () => {
     expect(overrideRejection(kit(), { path: 'radius.steps.md', value: '10px' })).toBeUndefined()
+  })
+
+  it('lets a reviewer restate a value on an override they already own', () => {
+    const tokens = kit()
+    const current = `${tokens.radius.steps.md?.value}px`
+    // Editing is a different question from creating. Resubmitting the same
+    // value -- which is what a note-only edit sends -- must not be refused, or
+    // a reviewer could never add a reason to an override the evidence has
+    // caught up with.
+    expect(overrideRejection(tokens, { path: 'radius.steps.md', value: current }, 'edit')).toBeUndefined()
+    // ...but an edit is still held to everything else.
+    expect(overrideRejection(tokens, { path: 'radius.steps.md', value: 'quite round' }, 'edit')).toContain(
+      'pixel length',
+    )
+  })
+
+  it('judges redundancy against the document it is handed, not the one it was distilled from', () => {
+    const tokens = kit()
+    // Moving the border re-derives every bordered control's height, so the
+    // engine's current answer for that height is no longer the stored one.
+    const { tokens: effective } = applyOverrides(tokens, [{ path: 'border.width', value: '3px' }])
+    const path = 'components.recipes.button.secondary.height'
+    const pristine = readTokenValue(tokens, path) as string
+    expect(readTokenValue(effective, path)).not.toBe(pristine)
+
+    // Pinning the height back to what it was is a real disagreement with what
+    // the kit now says, so it is not redundant.
+    expect(overrideRejection(effective, { path, value: pristine })).toBeUndefined()
+    expect(overrideRejection(effective, { path, value: readTokenValue(effective, path) as string })).toContain(
+      'is not an override',
+    )
+  })
+
+  it('refuses a font stack carrying characters that would escape a CSS rule', () => {
+    const tokens = kit()
+    for (const hostile of ['Bad} .x{color:red', 'Inter; color: red', 'Inter</style><script>', 'Inter\\65 ']) {
+      expect(overrideRejection(tokens, { path: 'typography.families.sans', value: hostile })).toContain(
+        'family names separated by commas',
+      )
+    }
+    // A real stack still lands, quotes, hyphens and all.
+    expect(
+      overrideRejection(tokens, {
+        path: 'typography.families.sans',
+        value: '"Helvetica Neue", -apple-system, .SFNSText, system_ui, sans-serif',
+      }),
+    ).toBeUndefined()
+  })
+
+  it('never writes a hostile font stack into the document', () => {
+    const tokens = kit()
+    const { tokens: next, applied, rejected } = applyOverrides(tokens, [
+      { path: 'typography.families.sans', value: 'Bad} .x{color:red' },
+    ])
+    expect(applied).toEqual([])
+    expect(rejected[0]?.reason).toContain('family names separated by commas')
+    expect(next.typography.families.sans.value).toBe(tokens.typography.families.sans.value)
   })
 })
 
@@ -313,6 +388,97 @@ describe('what an override invalidates', () => {
     }
   })
 
+  it('drops a contrast diagnostic describing a walk on a colour a person replaced', () => {
+    const tokens = kit()
+    const stale = tokens.diagnostics.filter(
+      (entry) => entry.code === 'color.contrast-adjusted' || entry.code === 'color.contrast-unmet',
+    )
+    // The fixture has to carry one, or this proves nothing.
+    expect(stale.length).toBeGreaterThan(0)
+    const role = (stale[0]?.path ?? '').replace('color.roles.', '')
+    expect(tokens.color.roles[role as 'primary']?.contrastAdjustment).toBeDefined()
+
+    const { tokens: next } = applyOverrides(tokens, [{ path: `color.roles.${role}`, value: '#112233' }])
+    // The record went from the token, so the sentence describing it goes too --
+    // it names two hexes the document no longer holds.
+    expect(next.color.roles[role as 'primary']?.contrastAdjustment).toBeUndefined()
+    const survivors = next.diagnostics.filter(
+      (entry) =>
+        (entry.code === 'color.contrast-adjusted' || entry.code === 'color.contrast-unmet') &&
+        entry.path === `color.roles.${role}`,
+    )
+    expect(survivors).toEqual([])
+  })
+
+  it('keeps a contrast diagnostic for a colour nobody touched, at the level the ratios now say', () => {
+    const tokens = kit('messy-mixed')
+    const adjusted = tokens.diagnostics.filter(
+      (entry) => entry.code === 'color.contrast-adjusted' || entry.code === 'color.contrast-unmet',
+    )
+    expect(adjusted.length).toBeGreaterThan(0)
+
+    // Override something else entirely; the untouched roles keep their notes.
+    const { tokens: next } = applyOverrides(tokens, [{ path: 'color.roles.background', value: '#ffffff' }])
+    const failing = new Set(
+      next.color.contrast.filter((pair) => !pair.passes).flatMap((pair) => [pair.foreground, pair.background]),
+    )
+    for (const entry of next.diagnostics) {
+      if (entry.code !== 'color.contrast-adjusted' && entry.code !== 'color.contrast-unmet') continue
+      const role = (entry.path ?? '').replace('color.roles.', '') as 'primary'
+      // Every surviving note still describes a walk the document carries...
+      expect(next.color.roles[role]?.contrastAdjustment).toBeDefined()
+      // ...and its level agrees with the ratios as they now stand, so a pair an
+      // override fixed stops being reported as unmet in `design.md`.
+      expect(entry.code).toBe(failing.has(entry.path ?? '') ? 'color.contrast-unmet' : 'color.contrast-adjusted')
+      expect(entry.level).toBe(failing.has(entry.path ?? '') ? 'warning' : 'info')
+    }
+  })
+
+  it('does not claim agreement on a slot the engine yielded to a person on', () => {
+    const tokens = kit()
+    const path = 'components.recipes.button.secondary.height'
+    const pristine = readTokenValue(tokens, path) as string
+
+    const { converged, tokens: next } = applyOverrides(tokens, [
+      { path: 'border.width', value: '3px' },
+      { path, value: pristine },
+    ])
+
+    // The pin holds...
+    expect(readTokenValue(next, path)).toBe(pristine)
+    // ...but the engine wanted 42px here and stepped aside, so saying it now
+    // independently chooses the reviewer's number would be false.
+    expect(converged.map((entry) => entry.path)).not.toContain(path)
+    const notes = next.diagnostics.filter((entry) => entry.code === 'override.now-agrees')
+    for (const note of notes) expect(note.message).not.toContain(path)
+  })
+
+  it('does not claim agreement on a colour shade pinned back to its pre-override value', () => {
+    const tokens = kit()
+    const shade = 'color.roles.primaryHover'
+    const pristine = readTokenValue(tokens, shade) as string
+
+    const { converged, tokens: next } = applyOverrides(tokens, [
+      { path: 'color.roles.primary', value: '#1155cc' },
+      { path: shade, value: pristine },
+    ])
+
+    expect(readTokenValue(next, shade)).toBe(pristine)
+    expect(next.color.roles.primaryHover?.provenance.decision.strategy).toBe('user-override')
+    expect(converged.map((entry) => entry.path)).not.toContain(shade)
+    expect(next.diagnostics.some((entry) => entry.code === 'override.now-agrees')).toBe(false)
+  })
+
+  it('still reports agreement on a slot nothing was re-derived under', () => {
+    const tokens = kit()
+    const radius = `${tokens.radius.steps.md?.value}px`
+    const { converged } = applyOverrides(tokens, [
+      { path: 'border.width', value: '3px' },
+      { path: 'radius.steps.md', value: radius, baseValue: '4px' },
+    ])
+    expect(converged.map((entry) => entry.path)).toEqual(['radius.steps.md'])
+  })
+
   it('leaves a height the reviewer set by hand exactly where they put it', () => {
     const tokens = kit()
     const recipe = tokens.components.recipes.find((entry) => entry.name === 'button.primary')
@@ -375,6 +541,26 @@ describe('design.md with overrides', () => {
     expect(markdown).toMatch(/`primary`.*user override/)
     // And the header warns before any of the values are read.
     expect(markdown).toContain('set by hand, not distilled')
+  })
+
+  it('survives a reason containing a pipe, which markdown reads as a column break', () => {
+    const note = '8px is too tight | 12px reads better\nand it matches the header'
+    const { tokens: next } = applyOverrides(kit(), [{ path: 'radius.steps.md', value: '10px', note }])
+    const markdown = renderDesignMarkdown(next)
+
+    // §10 is a four-column table. The reviewer's prose must not add a fifth.
+    const rows = markdown
+      .split('\n')
+      .slice(markdown.split('\n').findIndex((line) => line.startsWith('## 10. User overrides')))
+      .filter((line) => line.startsWith('|') && line.includes('radius.steps.md'))
+    expect(rows).toHaveLength(1)
+    const cells = splitRow(rows[0] as string)
+    expect(cells).toHaveLength(4)
+    expect(cells[0]).toBe('`radius.steps.md`')
+    expect(cells[1]).toBe('10px')
+    // The reason is still readable, on one line, with the pipe escaped rather
+    // than swallowed.
+    expect(cells[3]).toBe('8px is too tight \\| 12px reads better and it matches the header')
   })
 
   it('is deterministic with overrides applied', () => {

@@ -395,10 +395,28 @@ function parseShadowValue(raw: string): Parsed | string {
   return { canonical: parsed.css }
 }
 
+/**
+ * What a font stack may be made of.
+ *
+ * A stack is family names separated by commas, each an identifier or a quoted
+ * string. Nothing else belongs in one -- and this is the canonicalisation
+ * point, the last place a value is judged before every surface renders it. A
+ * stack carrying `}`, `;` or `</style>` would escape the CSS rule it is emitted
+ * into and silently truncate the stylesheet around it, so those characters are
+ * refused here rather than left for each consumer to remember to escape.
+ */
+const FONT_STACK_CHARACTERS = /^[A-Za-z0-9 ,._'"-]+$/
+
 function parseFontStack(raw: string): Parsed | string {
   const text = raw.trim().replace(/\s+/g, ' ')
   if (text === '') return 'a font stack cannot be empty'
   if (text.length > 300) return 'that font stack is longer than any this kit would emit'
+  if (!FONT_STACK_CHARACTERS.test(text)) {
+    return (
+      'a font stack is family names separated by commas: letters, digits, spaces, commas, quotes, ' +
+      'hyphens, underscores and full stops only'
+    )
+  }
   return { canonical: text }
 }
 
@@ -472,20 +490,29 @@ export function applyOverrides(
     }
   }
 
-  if (recipesTouched.size > 0) recomputeHeights(next, recipesTouched)
+  // Slots the engine wanted to move and stepped aside from, because a human had
+  // already answered there. They are the one place the pristine value is not
+  // the engine's current answer, so they cannot be reported as converged.
+  const yielded = new Set<string>()
+
+  if (recipesTouched.size > 0) for (const path of recomputeHeights(next, recipesTouched)) yielded.add(path)
   if (colorTouched.size > 0) {
     const shades = rederiveShades(next, colorTouched)
-    enforceShades(next, shades)
+    for (const path of shades.yielded) yielded.add(path)
+    enforceShades(next, shades.rewritten)
     recomputeContrast(next)
     restateCollapsedStates(next)
+    restateContrastAdjustments(next)
   }
+
+  const agreed = converged.filter((entry) => !yielded.has(entry.path))
 
   next.diagnostics = [
     ...next.diagnostics,
-    ...overrideDiagnostics(next, applied, conflicts, converged, rejected, colorTouched),
+    ...overrideDiagnostics(next, applied, conflicts, agreed, rejected, colorTouched),
   ]
 
-  return { tokens: next, applied, conflicts, converged, rejected }
+  return { tokens: next, applied, conflicts, converged: agreed, rejected }
 }
 
 /**
@@ -497,21 +524,37 @@ export function applyOverrides(
  * would already have destroyed whatever override was standing at that path, and
  * the compensating delete would then take the rest.
  *
- * It is also the only place the "agrees with the engine" refusal lives. A
- * *candidate* equal to the engine's own answer is not an override and is
- * refused here; a *standing* override the evidence later caught up with is a
- * decision that was real when it was made, and {@link applyOverrides} keeps it
- * and reports `override.now-agrees`.
+ * It is also the only place the "agrees with the engine" refusal lives, and
+ * that refusal is narrower than it looks:
+ *
+ *   - **`tokens` must be the document the reviewer is looking at**, not the
+ *     pristine distillation. Replaying an override re-derives what depended on
+ *     it, so the engine's current answer for a control height or an interaction
+ *     shade is the re-derived value. Judging against the stored bytes would
+ *     refuse a reviewer pinning a height back to what it was before another
+ *     override moved it -- a value that genuinely disagrees with what the kit
+ *     now says. Pass the effective document with this path's own override left
+ *     out. (`baseValue` is a different question and still comes from the
+ *     pristine document: it is what a later regeneration is compared against.)
+ *   - **`mode` says which question is being asked.** Creating an override that
+ *     merely restates the baseline is not an override and is refused. Editing
+ *     one that already stands -- a new value, a new reason, or the same value on
+ *     an override the evidence has since caught up with -- is a decision the
+ *     reviewer already owns, so the refusal does not apply and the row survives.
+ *
+ * A *standing* override the evidence later caught up with is never rejected at
+ * all: {@link applyOverrides} keeps it and reports `override.now-agrees`.
  */
 export function overrideRejection(
   tokens: TokensDocument,
   candidate: { path: string; value: string },
+  mode: 'create' | 'edit' = 'create',
 ): string | undefined {
   const slot = tokenSlots(tokens).find((entry) => entry.path === candidate.path)
   if (slot === undefined) return 'this kit has no such token, so there is nothing to override'
   const parsed = parseFor(slot, tokens, candidate.value)
   if (typeof parsed === 'string') return parsed
-  if (parsed.canonical === slot.value) {
+  if (mode === 'create' && parsed.canonical === slot.value) {
     return `the engine already chose ${slot.value}; an override that agrees is not an override`
   }
   return undefined
@@ -745,9 +788,19 @@ function writeColorValue(token: ColorToken, color: Oklch): void {
  * engine's own derivation path and is called with the document's current
  * colours. Roles the reviewer set by hand are `pinned`, so a hand-set shade is
  * never recomputed and the shades below it are derived from the value the
- * reviewer gave it. Returns the roles that actually moved, most-upstream first.
+ * reviewer gave it.
+ *
+ * It is called twice, for two different answers. The pinned call carries the
+ * values, chained correctly through whatever the reviewer set. The unpinned
+ * call carries the shape -- every role and what it derives from, in dependency
+ * order -- including the pinned roles the first call deliberately omits, which
+ * is the only way to see that the engine wanted to move a shade and stepped
+ * aside. Returns the roles that moved and the paths it yielded on.
  */
-function rederiveShades(tokens: TokensDocument, touched: ReadonlySet<ColorRoleName>): ColorRoleName[] {
+function rederiveShades(
+  tokens: TokensDocument,
+  touched: ReadonlySet<ColorRoleName>,
+): { rewritten: ColorRoleName[]; yielded: string[] } {
   const pinned = new Set<ColorRoleName>()
   const base: RoleAssignment[] = []
   for (const [name, token] of Object.entries(tokens.color.roles)) {
@@ -759,16 +812,27 @@ function rederiveShades(tokens: TokensDocument, touched: ReadonlySet<ColorRoleNa
     base.push({ role, color, rule: 'current-value', detail: '', derivedFrom: [] })
   }
 
+  const derived = new Map(
+    deriveInteractionShades(base, tokens.color.mode, pinned).map((shade) => [shade.role, shade]),
+  )
+
   // A shade whose source moved has itself moved, so the ones below it in the
-  // chain (`disabledForeground` sits on `disabledSurface`) go stale in turn.
+  // chain (`disabledForeground` sits on `disabledSurface`) go stale in turn. A
+  // pinned shade does not move, so nothing below it goes stale either.
   const stale = new Set<ColorRoleName>(touched)
   const rewritten: ColorRoleName[] = []
+  const yielded: string[] = []
 
-  for (const shade of deriveInteractionShades(base, tokens.color.mode, pinned)) {
-    const moved = shade.derivedFrom.filter((from) => stale.has(from))
+  for (const shape of deriveInteractionShades(base, tokens.color.mode)) {
+    const moved = shape.derivedFrom.filter((from) => stale.has(from))
     if (moved.length === 0) continue
-    const token = tokens.color.roles[shade.role]
-    if (token === undefined) continue
+    if (pinned.has(shape.role)) {
+      yielded.push(`color.roles.${shape.role}`)
+      continue
+    }
+    const shade = derived.get(shape.role)
+    const token = tokens.color.roles[shape.role]
+    if (shade === undefined || token === undefined) continue
 
     writeColorValue(token, shade.color)
     // The adjustment on the record described a walk on the colour this shade
@@ -787,7 +851,7 @@ function rederiveShades(tokens: TokensDocument, touched: ReadonlySet<ColorRoleNa
     rewritten.push(shade.role)
   }
 
-  return rewritten
+  return { rewritten, yielded }
 }
 
 /**
@@ -879,6 +943,46 @@ function restateCollapsedStates(tokens: TokensDocument): void {
 }
 
 /**
+ * Restate the contrast-walk diagnostics for the palette as it now stands.
+ *
+ * A `color.contrast-adjusted` or `color.contrast-unmet` note and the token's own
+ * `contrastAdjustment` are two views of one walk. {@link write} already deletes
+ * the record from a colour a reviewer replaced, and {@link rederiveShades} does
+ * the same for a shade it recomputed, precisely so the kit does not credit the
+ * engine with a move it did not make -- but the sentence saying so lived on,
+ * naming two hexes the document no longer holds, and `color.contrast-unmet` is
+ * a warning, so `design.md` kept declaring a pair unmet that now passes.
+ *
+ * So the note goes wherever the record went, and one that survives has its level
+ * re-decided from the ratios now measured, by the same rule the distiller uses:
+ * a walk is only "unmet" while the role is still in a failing pair.
+ */
+function restateContrastAdjustments(tokens: TokensDocument): void {
+  const failing = new Set(
+    tokens.color.contrast
+      .filter((pair) => !pair.passes)
+      .flatMap((pair) => [pair.foreground, pair.background]),
+  )
+
+  tokens.diagnostics = tokens.diagnostics.flatMap((diagnostic) => {
+    if (diagnostic.code !== 'color.contrast-adjusted' && diagnostic.code !== 'color.contrast-unmet') {
+      return [diagnostic]
+    }
+    const path = diagnostic.path ?? ''
+    const role = path.replace('color.roles.', '') as ColorRoleName
+    if (tokens.color.roles[role]?.contrastAdjustment === undefined) return []
+
+    const unresolved = failing.has(path)
+    const restated: Diagnostic = {
+      ...diagnostic,
+      level: unresolved ? 'warning' : 'info',
+      code: unresolved ? 'color.contrast-unmet' : 'color.contrast-adjusted',
+    }
+    return [restated]
+  })
+}
+
+/**
  * Re-derive the control heights an override invalidated.
  *
  * A height the engine computed from padding, line box and border is a
@@ -886,15 +990,23 @@ function restateCollapsedStates(tokens: TokensDocument): void {
  * ship a recipe whose own numbers do not add up. A height the reviewer set by
  * hand is left exactly where they put it -- that is what overriding it means.
  */
-function recomputeHeights(tokens: TokensDocument, touched: ReadonlySet<string>): void {
+function recomputeHeights(tokens: TokensDocument, touched: ReadonlySet<string>): string[] {
+  const yielded: string[] = []
   for (const recipe of tokens.components.recipes) {
     if (!touched.has('*') && !touched.has(recipe.name)) continue
-    if (recipe.height.provenance.decision.strategy === 'user-override') continue
     const step = tokens.typography.steps.find((entry) => entry.value.name === recipe.typeStep.value)
     if (step === undefined) continue
     const borderPx = recipe.colors.border === null ? 0 : tokens.border.width.value
     const lineBox = round(step.value.fontSize * step.value.lineHeight)
     const height = round(recipe.paddingY.value * 2 + lineBox + borderPx * 2, 2)
+    if (recipe.height.provenance.decision.strategy === 'user-override') {
+      // The formula is worked out even for a height the reviewer set, but only
+      // to answer one question: did the engine actually want a different
+      // number here? If it did, this slot is one the engine yielded on, and
+      // saying the two now agree would be false.
+      if (height !== recipe.height.value) yielded.push(`components.recipes.${recipe.name}.height`)
+      continue
+    }
     if (height === recipe.height.value) continue
     recipe.height.value = height
     recipe.height.provenance = {
@@ -912,6 +1024,7 @@ function recomputeHeights(tokens: TokensDocument, touched: ReadonlySet<string>):
       }),
     }
   }
+  return yielded
 }
 
 /**

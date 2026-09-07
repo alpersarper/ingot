@@ -370,6 +370,7 @@ describe('review: overrides and decisions', () => {
     tokens: {
       radius: { steps: Record<string, { value: number; provenance: { decision: { strategy: string } } } | undefined> }
       color: { roles: Record<string, { value: { hex: string } } | undefined> }
+      components: { recipes: Array<{ name: string; height: { value: number } }> }
       diagnostics: Array<{ code: string; level: string; message: string }>
     }
     designMd: string
@@ -462,6 +463,91 @@ describe('review: overrides and decisions', () => {
     )
     expect(same.status).toBe(422)
     expect(((await same.json()) as { error: { message: string } }).error.message).toContain('is not an override')
+    const { overrides } = await harness.json<{ overrides: unknown[] }>('/api/reviews')
+    expect(overrides).toEqual([])
+  })
+
+  it('lets a reviewer pin a value another override re-derived away from', async () => {
+    const generated = await seed()
+    const path = 'components.recipes.button.secondary.height'
+    const pristine = generated.tokens.components.recipes.find((entry) => entry.name === 'button.secondary')?.height
+      .value
+
+    // Moving the border re-derives every bordered control's height...
+    const moved = (await (
+      await harness.call('/api/reviews/overrides', put({ path: 'border.width', value: '3px' }))
+    ).json()) as KitResponse
+    const rederived = moved.tokens.components.recipes.find((entry) => entry.name === 'button.secondary')?.height.value
+    expect(rederived).not.toBe(pristine)
+
+    // ...so pinning it back to what it was is a real disagreement with what the
+    // kit now says, not a restatement of the engine's answer.
+    const pinned = await harness.call('/api/reviews/overrides', put({ path, value: `${pristine as number}px` }))
+    expect(pinned.status).toBe(200)
+    const after = (await pinned.json()) as KitResponse
+    expect(after.tokens.components.recipes.find((entry) => entry.name === 'button.secondary')?.height.value).toBe(
+      pristine,
+    )
+    // ...and the engine is not credited with independently choosing it.
+    expect(after.tokens.diagnostics.some((entry) => entry.code === 'override.now-agrees')).toBe(false)
+  })
+
+  it('lets a reviewer pin a colour shade back to its pre-override value', async () => {
+    const generated = await seed()
+    const pristineHover = generated.tokens.color.roles['primaryHover']?.value.hex as string
+
+    const moved = (await (
+      await harness.call('/api/reviews/overrides', put({ path: 'color.roles.primary', value: '#1155cc' }))
+    ).json()) as KitResponse
+    expect(moved.tokens.color.roles['primaryHover']?.value.hex).not.toBe(pristineHover)
+
+    const pinned = await harness.call(
+      '/api/reviews/overrides',
+      put({ path: 'color.roles.primaryHover', value: pristineHover }),
+    )
+    expect(pinned.status).toBe(200)
+    expect(((await pinned.json()) as KitResponse).tokens.color.roles['primaryHover']?.value.hex).toBe(pristineHover)
+  })
+
+  it('accepts a reason typed onto an override the evidence has caught up with', async () => {
+    const generated = await seed()
+    const engineRadius = `${generated.tokens.radius.steps['md']?.value as number}px`
+
+    // A standing override the engine now independently agrees with: the shape a
+    // regeneration leaves behind once the captures moved.
+    await harness.store.reviews.setOverride(null, {
+      path: 'radius.steps.md',
+      value: engineRadius,
+      baseValue: '4px',
+      note: '',
+    })
+
+    const edited = await harness.call(
+      '/api/reviews/overrides',
+      put({ path: 'radius.steps.md', value: engineRadius, note: 'still the right call' }),
+    )
+    expect(edited.status).toBe(200)
+
+    const { overrides } = await harness.json<{
+      overrides: Array<{ path: string; value: string; note: string }>
+    }>('/api/reviews')
+    // The row survives the edit and carries the reason...
+    expect(overrides).toEqual([
+      expect.objectContaining({ path: 'radius.steps.md', value: engineRadius, note: 'still the right call' }),
+    ])
+    // ...and the token is still attributed to the reviewer.
+    const body = (await edited.json()) as KitResponse
+    expect(body.tokens.radius.steps['md']?.provenance.decision.strategy).toBe('user-override')
+    expect(body.designMd).toContain('still the right call')
+  })
+
+  it('refuses a reason longer than a reason', async () => {
+    await seed()
+    const response = await harness.call(
+      '/api/reviews/overrides',
+      put({ path: 'radius.steps.md', value: '10px', note: 'x'.repeat(501) }),
+    )
+    expect(response.status).toBe(400)
     const { overrides } = await harness.json<{ overrides: unknown[] }>('/api/reviews')
     expect(overrides).toEqual([])
   })

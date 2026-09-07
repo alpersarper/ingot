@@ -76,6 +76,16 @@ export interface DecisionCard {
   evidence: string[]
   /** One-click resolutions, most credible first. */
   options: CardOption[]
+  /**
+   * Whether `path` is a token the engine can actually write.
+   *
+   * Most diagnostics point at a container -- `typography.steps`,
+   * `components.recipes`, `color.palette` -- rather than at a slot, and
+   * `tokenSlots` is the contract that says so. Offering an edit box on one of
+   * those can only ever produce a 422, whatever the reviewer types, so a card
+   * that is not editable is informational and shows no way to set a value.
+   */
+  editable: boolean
   state: CardState
 }
 
@@ -91,17 +101,24 @@ export interface CardInputs {
 /**
  * Diagnostics that are statements rather than decisions.
  *
- * `override.applied` reports what a human already did, and `override.conflict`
- * has a card of its own with the evidence attached. Listing either here would
- * ask somebody to review their own decision twice.
+ * `override.applied` reports what a human already did, `override.conflict` has a
+ * card of its own with the evidence attached, and `override.now-agrees` says the
+ * evidence caught up with a standing decision -- its own message ends "nothing
+ * needs doing". A card for any of them would put a number on the Review tab that
+ * the reviewer can only clear by accepting a non-decision, on every read.
+ *
+ * `override.contrast` and `override.rejected` are deliberately *not* here: both
+ * describe something that is wrong and wants a person, so both stay as cards.
  */
-const NOT_A_DECISION = new Set(['override.applied', 'override.conflict'])
+const NOT_A_DECISION = new Set(['override.applied', 'override.conflict', 'override.now-agrees'])
 
 const SEVERITY_ORDER: Record<CardSeverity, number> = { conflict: 0, warning: 1, info: 2 }
 
 /** Build the review queue. Deterministic: same kit and state, same order. */
 export function decisionCards({ tokens, conflicts, overriddenPaths, accepted }: CardInputs): DecisionCard[] {
   const cards: DecisionCard[] = []
+  const slots = tokenSlots(tokens)
+  const editablePaths = new Set(slots.map((slot) => slot.path))
 
   for (const conflict of conflicts) {
     cards.push({
@@ -117,13 +134,28 @@ export function decisionCards({ tokens, conflicts, overriddenPaths, accepted }: 
         `the captures now say ${conflict.engineValue}`,
       ],
       options: [{ kind: 'clear', label: `Revert to the engine (${conflict.engineValue})` }],
+      editable: editablePaths.has(conflict.path),
       state: accepted.has(`conflict:${conflict.path}`) ? 'accepted' : 'open',
     })
   }
 
+  // A kit can carry several diagnostics with one code on one path -- messy-mixed
+  // reports three `typography.adjacent-sizes` collisions on `typography.steps`.
+  // Without the ordinal all three share an id, which is a duplicate React key
+  // and, worse, one `(scope, card_id)` row: accepting the collision the reviewer
+  // read would settle two they never saw. The ordinal is their position among
+  // the diagnostics sharing that code and path, which is stable across a
+  // regeneration in a way the message text -- carrying numbers that move between
+  // distillations -- is not.
+  const occurrences = new Map<string, number>()
+
   for (const diagnostic of tokens.diagnostics) {
     if (NOT_A_DECISION.has(diagnostic.code)) continue
-    const id = `diag:${diagnostic.code}:${diagnostic.path ?? ''}`
+    const group = `diag:${diagnostic.code}:${diagnostic.path ?? ''}`
+    const ordinal = occurrences.get(group) ?? 0
+    occurrences.set(group, ordinal + 1)
+
+    const id = `${group}#${ordinal}`
     const card: DecisionCard = {
       id,
       kind: 'diagnostic',
@@ -132,13 +164,14 @@ export function decisionCards({ tokens, conflicts, overriddenPaths, accepted }: 
       detail: diagnostic.message,
       evidence: [],
       options: [],
+      editable: diagnostic.path !== undefined && editablePaths.has(diagnostic.path),
       state: cardState(id, diagnostic.path, overriddenPaths, accepted),
     }
     if (diagnostic.path !== undefined) card.path = diagnostic.path
     cards.push(card)
   }
 
-  for (const slot of tokenSlots(tokens)) {
+  for (const slot of slots) {
     const decision = slot.provenance.decision
     if (decision.strategy === 'user-override') continue
     if (decision.competitors.length === 0) continue
@@ -165,6 +198,7 @@ export function decisionCards({ tokens, conflicts, overriddenPaths, accepted }: 
           value: competitor.value,
           label: `Use ${competitor.value}`,
         })),
+      editable: true,
       state: cardState(id, slot.path, overriddenPaths, accepted),
     })
   }

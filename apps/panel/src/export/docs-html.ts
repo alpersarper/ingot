@@ -41,12 +41,27 @@ function escapeHtml(value: string): string {
     .replace(/"/g, '&quot;')
 }
 
+/**
+ * A custom-property value, made safe for the one `<style>` block this file has.
+ *
+ * Every value the engine emits is canonicalised, so nothing should ever trip
+ * here -- the font stack is validated at its own parser for exactly this reason.
+ * But this is the single export that inlines its stylesheet rather than linking
+ * it, and the failure is silent: a value carrying `}` closes the rule and drops
+ * the rest of `canonical.css` and `docs.css`, producing a page that opens, looks
+ * merely unstyled, and reports nothing. A second guard at the boundary means no
+ * future token kind can reopen that.
+ */
+function cssValue(value: string): string {
+  return value.replace(/[{};<>\\]/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
 /** The kit's variables as a CSS rule rather than a 120-property style attribute. */
 function variableRule(tokens: TokensDocument): string {
   const variables = kitCssVariables(tokens)
   const body = Object.keys(variables)
     .sort()
-    .map((name) => `  ${name}: ${variables[name] as string};`)
+    .map((name) => `  ${name}: ${cssValue(variables[name] as string)};`)
     .join('\n')
   return `.ingot-kit-root {\n${body}\n}`
 }

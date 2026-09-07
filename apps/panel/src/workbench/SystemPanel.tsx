@@ -293,7 +293,9 @@ function ReviewCard({
 
                 {card.path === undefined
                   ? null
-                  : card.options.map((option) => (
+                  : card.options
+                      .filter((option) => option.kind === 'clear' || card.editable)
+                      .map((option) => (
                       <Button
                         key={option.label}
                         size="sm"
@@ -323,7 +325,7 @@ function ReviewCard({
                 ) : null}
               </div>
 
-              {card.path === undefined ? null : (
+              {card.path === undefined || !card.editable ? null : (
                 <div className="flex gap-1.5">
                   <Input
                     className="h-7 font-mono text-xs"

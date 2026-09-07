@@ -160,14 +160,24 @@ function installFakeServer(): FakeServer {
     }
     if (path.startsWith('/api/reviews/overrides') && method === 'PUT') {
       const body = JSON.parse(String(init.body)) as { path: string; value: string; note?: string }
-      // The real server judges the candidate against the pristine kit *before*
-      // storing anything, and answers 422 when the engine would refuse it --
-      // including the case where the value merely restates the engine's own
-      // answer. The fake calls the same engine entry point rather than
-      // approximating it, so the panel is never tested against a server that is
-      // more permissive than the one it ships against.
-      const rejection = overrideRejection(TOKENS, { path: body.path, value: body.value })
+      // The real route judges the candidate *before* storing anything, and it
+      // asks the question the same way: against the effective document with
+      // this path's own override left out, and as an edit rather than a
+      // creation when the reviewer already owns the path. The fake calls the
+      // same engine entry point on the same baseline rather than approximating
+      // it, so the panel is never tested against a server that is either more
+      // permissive or more restrictive than the one it ships against.
+      const others = state.overrides.filter((entry) => entry.path !== body.path)
+      const baseline = others.length === 0 ? TOKENS : applyOverrides(TOKENS, others).tokens
+      const editing = state.overrides.some((entry) => entry.path === body.path)
+      const rejection = overrideRejection(
+        baseline,
+        { path: body.path, value: body.value },
+        editing ? 'edit' : 'create',
+      )
       if (rejection !== undefined) return json({ error: { message: rejection } }, 422)
+      // `baseValue` is the other question, and it still comes from the pristine
+      // kit: it is what a later regeneration is compared against.
       const baseValue = readTokenValue(TOKENS, body.path)
       state.overrides = [
         ...state.overrides.filter((entry) => entry.path !== body.path),

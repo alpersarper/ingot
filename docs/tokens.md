@@ -114,12 +114,26 @@ Applying one does three things beyond writing the value:
   by hand is pinned: it is neither recomputed nor bypassed by the shades below
   it. Without this a kit would ship a blue `primary` whose hover was still the
   old green, under a derivation naming a colour the document no longer holds.
+  The diagnostics follow the values: `color.state-collapsed` is restated for the
+  palette now on screen, and a `color.contrast-adjusted` or
+  `color.contrast-unmet` note is dropped wherever the token's own
+  `contrastAdjustment` was dropped -- otherwise a sentence would keep describing
+  a walk between two hexes the document no longer holds, and `design.md` would
+  keep declaring a pair unmet that an override has since fixed.
 - **Distinguishes a candidate from a standing decision.** A *candidate* whose
   value already equals the engine's answer is not an override and is refused --
   that check is `overrideRejection`, which the server calls before it stores
-  anything. A *standing* override the evidence has since caught up with is a
-  decision that was real when it was made: it keeps its `user-override`
-  provenance and the convergence is reported once, as `override.now-agrees`.
+  anything. It is asked of the *effective* document, with the candidate's own
+  path left out, because replaying an override re-derives what depends on it and
+  the engine's current answer for a dependent height or shade is the re-derived
+  value; and it applies to creating an override, not to editing one the reviewer
+  already owns. (`baseValue` is a different question and still comes from the
+  pristine distillation: it is what a later regeneration is compared against.)
+  A *standing* override the evidence has since caught up with is a decision that
+  was real when it was made: it keeps its `user-override` provenance and the
+  convergence is reported once, as `override.now-agrees` -- except on a slot the
+  engine yielded on, where the pristine value is not the engine's own answer and
+  claiming agreement would be false.
 - **Says so out loud.** Every applied override is named in an `override.applied`
   info diagnostic, and `design.md` grows a `## 10. User overrides` section
   listing each value, the engine's own answer, and the reviewer's reason.

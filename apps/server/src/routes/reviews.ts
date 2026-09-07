@@ -6,13 +6,19 @@
  * the endpoints look the way they do:
  *
  *   - **A candidate is judged before it is stored.** The engine decides whether
- *     an override is applicable, and it decides it on a throwaway read of the
- *     pristine kit. Storing first and compensating on refusal would let a
- *     mistyped edit destroy the override already standing at that path.
- *   - **The server computes `baseValue`, not the client.** It is the engine's
- *     answer at the moment the override was made and it is the whole conflict
- *     mechanism, so it is read from the kit on the server rather than accepted
- *     from a browser that could get it wrong or stale.
+ *     an override is applicable, on a throwaway document. Storing first and
+ *     compensating on refusal would let a mistyped edit destroy the override
+ *     already standing at that path.
+ *   - **Two different baselines, for two different questions.** `baseValue` is
+ *     the engine's answer in the *pristine* distillation, because that is what a
+ *     later regeneration is compared against; it must not start tracking other
+ *     overrides. Whether a candidate is redundant is asked of the *effective*
+ *     document instead -- every other override replayed, this path's own left
+ *     out -- because that is the value the reviewer is looking at, and replaying
+ *     an override re-derives the heights and shades that depend on it.
+ *   - **The server computes both, not the client.** They are read from the kit
+ *     on the server rather than accepted from a browser that could get them
+ *     wrong or stale.
  *   - **Every write answers with the whole effective kit.** An override changes
  *     the preview, the docs and every export at once; returning the new kit
  *     means the panel re-renders from one authoritative answer instead of
@@ -22,14 +28,31 @@
  *     than an annotation on a snapshot.
  */
 import { Hono } from 'hono'
-import { overrideRejection, readTokenValue } from '@ingot/engine'
+import { applyOverrides, overrideRejection, readTokenValue } from '@ingot/engine'
 import type { TokensDocument } from '@ingot/engine'
 import { ApiError } from '../errors'
-import { effectiveKit } from '../kit'
+import { effectiveKit, toEngineOverride } from '../kit'
 import type { EffectiveKit } from '../kit'
 import type { AppContext, AppEnv } from '../context'
 import type { Kit, ReviewScope } from '../storage/store'
 import { optionalString, readJsonBody, requireString } from '../validate'
+
+/**
+ * The longest reason the panel will carry into `design.md`.
+ *
+ * A reason is a sentence explaining a decision, and it is rendered in a table
+ * cell in the kit's primary deliverable. Bounding it at the boundary keeps one
+ * paste of a whole document out of every reader's `design.md`.
+ */
+const NOTE_MAX = 500
+
+function reviewerNote(body: Record<string, unknown>): string {
+  const note = optionalString(body, 'note') ?? ''
+  if (note.length > NOTE_MAX) {
+    throw ApiError.badRequest(`note must be at most ${NOTE_MAX} characters; that one is ${note.length}`)
+  }
+  return note
+}
 
 /** `groupId` absent, empty or `library` means the whole-library scope. */
 export function scopeFrom(value: string | null | undefined): ReviewScope {
@@ -92,7 +115,7 @@ export function reviewRoutes(context: AppContext): Hono<AppEnv> {
     const scope = scopeFrom(optionalString(body, 'groupId') ?? null)
     const path = requireString(body, 'path')
     const value = requireString(body, 'value')
-    const note = optionalString(body, 'note') ?? ''
+    const note = reviewerNote(body)
 
     const kit = await latestKit(scope)
     // The engine's own answer, read from the kit as generated -- not from the
@@ -103,13 +126,27 @@ export function reviewRoutes(context: AppContext): Hono<AppEnv> {
       throw ApiError.unprocessable(`this kit has no token at ${path}, so there is nothing to override`)
     }
 
+    // What the reviewer is actually looking at: the standing decisions for every
+    // *other* path replayed, so a dependent height or interaction shade carries
+    // its re-derived value rather than the stored one. This path's own override
+    // is left out, because the question is what the engine says without it.
+    const standing = await store.reviews.overrides(scope)
+    const others = standing.filter((entry) => entry.path !== path).map(toEngineOverride)
+    const baseline = others.length === 0 ? base : applyOverrides(base, others).tokens
+
     // An override the engine refuses is a bad request, not a stored value -- and
     // the judgement has to come *before* the write. `setOverride` upserts on
     // (scope, path), so persisting first would already have destroyed whatever
     // override was standing there, and the compensating delete would then take
     // the rest: a typo in an edit would silently discard a decision that was
     // working. Nothing is written unless the engine would accept it.
-    const rejection = overrideRejection(base, { path, value })
+    //
+    // Editing an override the reviewer already owns is judged as an edit: a new
+    // reason on an unchanged value, or the same value on one the evidence has
+    // since caught up with, is a decision they already made and must not be
+    // refused -- still less deleted.
+    const editing = standing.some((entry) => entry.path === path)
+    const rejection = overrideRejection(baseline, { path, value }, editing ? 'edit' : 'create')
     if (rejection !== undefined) throw ApiError.unprocessable(rejection)
 
     await store.reviews.setOverride(scope, { path, value, baseValue, note })
@@ -130,7 +167,7 @@ export function reviewRoutes(context: AppContext): Hono<AppEnv> {
     const scope = scopeFrom(optionalString(body, 'groupId') ?? null)
     const cardId = requireString(body, 'cardId')
     const state = requireString(body, 'state')
-    const note = optionalString(body, 'note') ?? ''
+    const note = reviewerNote(body)
 
     if (state === 'accepted') await store.reviews.acceptDecision(scope, cardId, note)
     else if (state === 'open') await store.reviews.reopenDecision(scope, cardId)
