@@ -363,6 +363,24 @@ export function describeStoreContract(name: string, createStore: () => Store | P
         ])
       })
 
+      it('keeps the conflict an override answered, and clears it when none was', async () => {
+        await store.reviews.setOverride(null, {
+          path: 'border.width',
+          value: '4px',
+          baseValue: '3px',
+          resolvedConflict: { value: '2px', baseValue: '1px' },
+        })
+        const [withRecord] = await store.reviews.overrides(null)
+        expect(withRecord?.resolvedConflict).toEqual({ value: '2px', baseValue: '1px' })
+
+        // A later edit that answered nothing must not inherit the old record:
+        // it would claim the reviewer responded to a conflict they never saw.
+        await store.reviews.setOverride(null, { path: 'border.width', value: '5px', baseValue: '3px' })
+        const [without] = await store.reviews.overrides(null)
+        expect(without?.value).toBe('5px')
+        expect(without?.resolvedConflict).toBeUndefined()
+      })
+
       it('outlives the group that owned it being deleted', async () => {
         const group = await store.groups.create({ slug: 'ghost-warm', name: 'Ghost', description: 'Warm.' })
         await store.reviews.setOverride(group.id, { path: 'border.width', value: '2px', baseValue: '1px' })

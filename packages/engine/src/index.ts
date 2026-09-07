@@ -33,6 +33,7 @@ export type { ComponentDoc, ComponentDocId, DocColorRow, DocTokenRow, DocVariant
 // override and the server can replay it and both get the same document.
 export {
   applyOverrides,
+  canonicalOverrideValue,
   hasOverrides,
   originOf,
   overriddenSlots,
@@ -101,6 +102,7 @@ export type {
   DominantChoice,
   ObservedValue,
   Provenance,
+  ResolvedConflict,
 } from './provenance'
 
 export { ENGINE_NAME, ENGINE_VERSION } from './version'

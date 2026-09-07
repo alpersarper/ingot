@@ -98,8 +98,18 @@ export interface ColorTokens {
 export type SpacingBand = 'component' | 'layout'
 
 export interface SpacingStep {
-  /** Step name: the multiplier as a string, so `"2"` is `2 x baseUnit`. */
+  /**
+   * Opaque stable identifier for the step.
+   *
+   * Distillation mints it from the multiplier, so a freshly distilled `"2"` is
+   * `2 x baseUnit` -- but it is an identity, not an assertion. It is the
+   * override path key (`spacing.steps.2`) and the `--kit-space-<name>` variable
+   * suffix, so it stays put when a reviewer overrides the step to a length off
+   * the base scale; renumbering it would break every reference to it instead.
+   * {@link SpacingStep.multiple} is the field that carries the arithmetic.
+   */
   name: string
+  /** `px / baseUnit`. Not necessarily a whole number once a human has been here. */
   multiple: number
   px: number
   band: SpacingBand

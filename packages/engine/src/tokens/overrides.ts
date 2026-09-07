@@ -29,7 +29,7 @@ import { parseShadow } from '../shadow/shadow'
 import { round } from '../util/num'
 import { byString, chain } from '../util/sort'
 import { derive, userOverride } from '../provenance'
-import type { DominantChoice, Provenance } from '../provenance'
+import type { DominantChoice, Provenance, ResolvedConflict } from '../provenance'
 import type { ContrastAdjustment } from '../color/contrast'
 import type {
   ColorRoleName,
@@ -101,6 +101,15 @@ export interface TokenOverride {
   baseValue?: string
   /** The reviewer's own reason, carried into `design.md`. */
   note?: string
+  /**
+   * The conflict this value was chosen in answer to, when it was.
+   *
+   * Set by the write path when a reviewer changes an override while fresh
+   * evidence disagrees with it: that write retires the `override.conflict`
+   * report, so what retired it is recorded on the token rather than the report
+   * simply going quiet.
+   */
+  resolvedConflict?: ResolvedConflict
 }
 
 /** An override that landed. */
@@ -464,7 +473,7 @@ export function applyOverrides(
 
     const engineValue = slot.value
 
-    write(next, slot, parsed.canonical, override.note, colorTouched, recipesTouched)
+    write(next, slot, parsed.canonical, override.note, colorTouched, recipesTouched, override.resolvedConflict)
     const entry: AppliedOverride = { path: override.path, value: parsed.canonical, engineValue }
     if (override.note !== undefined && override.note !== '') entry.note = override.note
     applied.push(entry)
@@ -560,6 +569,26 @@ export function overrideRejection(
   return undefined
 }
 
+/**
+ * What `value` would become at `path`, or `undefined` when it is not writable.
+ *
+ * The write boundary needs this to answer one question the raw strings cannot:
+ * did the reviewer actually change the value, or only its reason? `"10 px"` and
+ * `"10px"` are one value, and only the engine knows that -- so "unchanged" is
+ * decided on the canonical form rather than on the spelling that happened to be
+ * typed, and a note-only edit is recognised as one however it was submitted.
+ */
+export function canonicalOverrideValue(
+  tokens: TokensDocument,
+  path: string,
+  value: string,
+): string | undefined {
+  const slot = tokenSlots(tokens).find((entry) => entry.path === path)
+  if (slot === undefined) return undefined
+  const parsed = parseFor(slot, tokens, value)
+  return typeof parsed === 'string' ? undefined : parsed.canonical
+}
+
 /** A structural copy. The document is plain JSON, so this is exact. */
 function clone(tokens: TokensDocument): TokensDocument {
   return JSON.parse(JSON.stringify(tokens)) as TokensDocument
@@ -614,11 +643,12 @@ function write(
   note: string | undefined,
   colorTouched: Set<ColorRoleName>,
   recipesTouched: Set<string>,
+  resolvedConflict?: ResolvedConflict,
 ): void {
   const stamp = (token: { provenance: Provenance }): void => {
     token.provenance = {
       ...token.provenance,
-      decision: userOverride(value, token.provenance.decision, note),
+      decision: userOverride(value, token.provenance.decision, note, resolvedConflict),
     }
   }
 

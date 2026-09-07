@@ -88,6 +88,30 @@ export interface DominantChoice {
   supersedes?: DominantChoice
   /** Present when `strategy` is `user-override`: the reviewer's own reason. */
   note?: string
+  /**
+   * Present when `strategy` is `user-override` and this value was chosen in
+   * answer to a standing conflict.
+   *
+   * Changing an override while fresh evidence disagrees with it retires the
+   * `override.conflict` report, because the reviewer has now answered it. That
+   * answer is a decision in its own right and is recorded rather than left as a
+   * value that merely changed -- the same discipline that keeps `supersedes`.
+   */
+  resolvedConflict?: ResolvedConflict
+}
+
+/**
+ * The conflict an override was chosen in answer to.
+ *
+ * Read together with the decision's own `chosen` and `supersedes`: the reviewer
+ * held `value`, set back when the engine said `baseValue`; the captures then
+ * moved to what `supersedes` records, and `chosen` is how they answered.
+ */
+export interface ResolvedConflict {
+  /** The override value the reviewer abandoned. */
+  value: string
+  /** The engine's answer at the time they set that abandoned value. */
+  baseValue: string
 }
 
 /** How a value was computed when it could not be observed. */
@@ -241,7 +265,12 @@ export function sanction(chosen: string, derivation: Derivation): DominantChoice
  * override, and `design.md` needs it to say what the kit would have chosen. An
  * override never rewrites `observed` -- the evidence is what it is.
  */
-export function userOverride(chosen: string, supersedes: DominantChoice, note?: string): DominantChoice {
+export function userOverride(
+  chosen: string,
+  supersedes: DominantChoice,
+  note?: string,
+  resolvedConflict?: ResolvedConflict,
+): DominantChoice {
   const decision: DominantChoice = {
     strategy: 'user-override',
     chosen,
@@ -249,10 +278,14 @@ export function userOverride(chosen: string, supersedes: DominantChoice, note?: 
     totalCount: 0,
     confidence: 0,
     competitors: [],
-    summary: `user override: ${chosen} (the engine chose ${supersedes.chosen})`,
+    summary:
+      resolvedConflict === undefined
+        ? `user override: ${chosen} (the engine chose ${supersedes.chosen})`
+        : `user override: ${chosen} (the engine chose ${supersedes.chosen}); chosen in answer to the conflict against ${resolvedConflict.value}, which was set when the engine said ${resolvedConflict.baseValue}`,
     supersedes,
   }
   if (note !== undefined && note !== '') decision.note = note
+  if (resolvedConflict !== undefined) decision.resolvedConflict = resolvedConflict
   return decision
 }
 

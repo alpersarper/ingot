@@ -12,7 +12,13 @@ import { dirname, join } from 'node:path'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { applyOverrides, overrideRejection, readTokenValue, renderDesignMarkdown } from '@ingot/engine'
+import {
+  applyOverrides,
+  canonicalOverrideValue,
+  overrideRejection,
+  readTokenValue,
+  renderDesignMarkdown,
+} from '@ingot/engine'
 import type { TokenOverride, TokensDocument } from '@ingot/engine'
 import { App } from '@/App'
 
@@ -177,15 +183,29 @@ function installFakeServer(): FakeServer {
       )
       if (rejection !== undefined) return json({ error: { message: rejection } }, 422)
       // `baseValue` is the other question, and it still comes from the pristine
-      // kit: it is what a later regeneration is compared against.
-      const baseValue = readTokenValue(TOKENS, body.path)
+      // kit: it is what a later regeneration is compared against. Like the real
+      // route, it is refreshed only by a write that moves the value -- a
+      // conflict is retired by responding to it, and adding a reason is not a
+      // response.
+      const standing = state.overrides.find((entry) => entry.path === body.path)
+      const engineValue = readTokenValue(TOKENS, body.path)
+      const changed =
+        standing === undefined ||
+        canonicalOverrideValue(TOKENS, body.path, standing.value) !==
+          canonicalOverrideValue(TOKENS, body.path, body.value)
+      const baseValue = standing !== undefined && !changed ? standing.baseValue : engineValue
+      const answered =
+        standing !== undefined && changed && standing.baseValue !== engineValue
+          ? { value: standing.value, baseValue: standing.baseValue as string }
+          : undefined
       state.overrides = [
         ...state.overrides.filter((entry) => entry.path !== body.path),
         {
           path: body.path,
           value: body.value,
-          ...(baseValue === null ? {} : { baseValue }),
+          ...(baseValue === null || baseValue === undefined ? {} : { baseValue }),
           ...(body.note === undefined ? {} : { note: body.note }),
+          ...(answered === undefined ? {} : { resolvedConflict: answered }),
         },
       ]
       return json(kitPayload())

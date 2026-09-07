@@ -94,6 +94,7 @@ export function SystemPanel(props: SystemPanelProps): ReactNode {
       tokens,
       conflicts: review?.conflicts ?? [],
       overriddenPaths: new Set((review?.overrides ?? []).map((entry) => entry.path)),
+      rejectedPaths: new Set((review?.rejected ?? []).map((entry) => entry.path)),
       accepted: new Set(review?.accepted ?? []),
     })
   }, [tokens, review])

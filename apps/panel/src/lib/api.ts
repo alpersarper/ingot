@@ -204,12 +204,6 @@ export const api = {
     }
   },
 
-  /** The overrides and accepted decisions for a scope, before any kit exists. */
-  async review(groupId: string | null): Promise<{ overrides: StoredOverride[]; kitId: string | null }> {
-    const query = groupId === null ? '' : `?groupId=${encodeURIComponent(groupId)}`
-    return get(`/api/reviews${query}`)
-  },
-
   /**
    * Replace one token's value by hand.
    *

@@ -12,7 +12,9 @@
  *   - **Two different baselines, for two different questions.** `baseValue` is
  *     the engine's answer in the *pristine* distillation, because that is what a
  *     later regeneration is compared against; it must not start tracking other
- *     overrides. Whether a candidate is redundant is asked of the *effective*
+ *     overrides. It is refreshed only by a write that moves the value: a
+ *     conflict is retired by the reviewer responding to it, and adding a reason
+ *     is not a response. Whether a candidate is redundant is asked of the *effective*
  *     document instead -- every other override replayed, this path's own left
  *     out -- because that is the value the reviewer is looking at, and replaying
  *     an override re-derives the heights and shades that depend on it.
@@ -28,8 +30,8 @@
  *     than an annotation on a snapshot.
  */
 import { Hono } from 'hono'
-import { applyOverrides, overrideRejection, readTokenValue } from '@ingot/engine'
-import type { TokensDocument } from '@ingot/engine'
+import { applyOverrides, canonicalOverrideValue, overrideRejection, readTokenValue } from '@ingot/engine'
+import type { ResolvedConflict, TokensDocument } from '@ingot/engine'
 import { ApiError } from '../errors'
 import { effectiveKit, toEngineOverride } from '../kit'
 import type { EffectiveKit } from '../kit'
@@ -145,11 +147,37 @@ export function reviewRoutes(context: AppContext): Hono<AppEnv> {
     // reason on an unchanged value, or the same value on one the evidence has
     // since caught up with, is a decision they already made and must not be
     // refused -- still less deleted.
-    const editing = standing.some((entry) => entry.path === path)
-    const rejection = overrideRejection(baseline, { path, value }, editing ? 'edit' : 'create')
+    const existing = standing.find((entry) => entry.path === path)
+    const rejection = overrideRejection(baseline, { path, value }, existing === undefined ? 'create' : 'edit')
     if (rejection !== undefined) throw ApiError.unprocessable(rejection)
 
-    await store.reviews.setOverride(scope, { path, value, baseValue, note })
+    // Did the reviewer move the value, or only annotate it? Asked of the
+    // canonical forms, because "10 px" and "10px" are one value and only the
+    // engine knows that.
+    const changed =
+      existing === undefined ||
+      canonicalOverrideValue(base, path, existing.value) !== canonicalOverrideValue(base, path, value)
+
+    // `baseValue` is refreshed only by a write that moves the value. A conflict
+    // is retired by the reviewer *responding* to it, and annotating is not a
+    // response: refreshing on a note-only edit would silently drop a standing
+    // `override.conflict` the reviewer never meant to answer.
+    const record = existing === undefined || changed ? baseValue : existing.baseValue
+
+    // ...and when a value change does answer a standing conflict, what it
+    // answered is kept, so the report does not merely go quiet.
+    const answered: ResolvedConflict | undefined =
+      existing !== undefined && changed && existing.baseValue !== baseValue
+        ? { value: existing.value, baseValue: existing.baseValue }
+        : undefined
+
+    await store.reviews.setOverride(scope, {
+      path,
+      value,
+      baseValue: record,
+      note,
+      ...(answered === undefined ? {} : { resolvedConflict: answered }),
+    })
     return c.json(kitPayload(await effectiveKit(store, kit)))
   })
 

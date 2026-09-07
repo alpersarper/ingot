@@ -31,7 +31,7 @@
  * {@link IdFactory} and a {@link Clock} rather than calling `randomUUID` or
  * `Date.now` themselves, which is what lets the tests pin both.
  */
-import type { CaptureRecord } from '@ingot/engine'
+import type { CaptureRecord, ResolvedConflict } from '@ingot/engine'
 
 /** Mints stable, unique ids. Injected so tests can make them predictable. */
 export type IdFactory = () => string
@@ -263,6 +263,14 @@ export interface StoredOverride {
   baseValue: string
   /** The reviewer's reason. Empty string when they gave none. */
   note: string
+  /**
+   * The conflict this value was chosen in answer to, when it was.
+   *
+   * Absent on an override that answered nothing. Changing a value while fresh
+   * evidence disagrees with it retires the `override.conflict` report, so what
+   * retired it is kept rather than the report merely going quiet.
+   */
+  resolvedConflict?: ResolvedConflict
   createdAt: string
   updatedAt: string
 }
@@ -272,6 +280,8 @@ export interface OverrideInput {
   value: string
   baseValue: string
   note?: string
+  /** Cleared when absent, so a later edit does not inherit an old retirement. */
+  resolvedConflict?: ResolvedConflict
 }
 
 /**

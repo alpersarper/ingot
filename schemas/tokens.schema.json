@@ -163,8 +163,8 @@
                     "additionalProperties": false,
                     "required": ["name", "multiple", "px", "band"],
                     "properties": {
-                      "name": { "type": "string" },
-                      "multiple": { "type": "number", "minimum": 0 },
+                      "name": { "type": "string", "description": "Opaque stable identifier, minted from the multiplier at distillation. It is the override path key and the --kit-space-<name> variable suffix, so it stays put when a reviewer overrides the step off the base scale; multiple is the field that carries the arithmetic." },
+                      "multiple": { "type": "number", "minimum": 0, "description": "px / baseUnit. Not necessarily a whole number once a reviewer has overridden the step." },
                       "px": { "type": "number", "minimum": 0 },
                       "band": { "enum": ["component", "layout"], "description": "component: at or below the largest observed length; each step's provenance records whether it was observed or gap-filled. layout: extrapolated past it so page-level rhythm has somewhere on-scale to live." }
                     }
@@ -445,6 +445,16 @@
           "description": "Present when strategy is user-override: the decision a human replaced. Keeping it is what lets a later distillation report a conflict instead of silently clobbering either side."
         },
         "note": { "type": "string", "description": "Present when strategy is user-override: the reviewer's own reason." },
+        "resolvedConflict": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "baseValue"],
+          "description": "Present when strategy is user-override and this value was chosen in answer to a standing conflict. value is the override the reviewer abandoned; baseValue is the engine's answer at the time they set it. Changing an override while fresh evidence disagrees retires the override.conflict report, and this records what retired it.",
+          "properties": {
+            "value": { "type": "string" },
+            "baseValue": { "type": "string" }
+          }
+        },
         "derivation": {
           "type": "object",
           "additionalProperties": false,

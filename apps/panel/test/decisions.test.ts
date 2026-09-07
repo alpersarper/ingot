@@ -40,11 +40,13 @@ function cardsFor(
   tokens: TokensDocument,
   accepted: string[] = [],
   overridden: string[] = [],
+  rejected: string[] = [],
 ): ReturnType<typeof decisionCards> {
   return decisionCards({
     tokens,
     conflicts: [],
     overriddenPaths: new Set(overridden),
+    rejectedPaths: new Set(rejected),
     accepted: new Set(accepted),
   })
 }
@@ -161,5 +163,62 @@ describe('a statement is not a decision', () => {
     // want a person, so they stay cards.
     const { tokens: next } = applyOverrides(tokens, [{ path: 'color.roles.tertiary', value: '#ff0000' }])
     expect(cardsFor(next).some((card) => card.title === 'override.rejected')).toBe(true)
+  })
+})
+
+describe('an override the engine refused', () => {
+  const tokens = kit('ghost-warm')
+
+  /**
+   * A stored override whose slot this kit does not have.
+   *
+   * The real path to this is a regeneration: `tokenSlots` only emits
+   * `typography.families.mono`, `color.roles.destructive` and the destructive
+   * button's recipe when the captures support them, so a kit that loses one
+   * leaves a standing override with nowhere to land.
+   */
+  const stranded = { path: 'color.roles.tertiary', value: '#ff0000' }
+  const { tokens: next, rejected } = applyOverrides(tokens, [stranded])
+
+  it('is really refused, so the rest of this describes something that happens', () => {
+    expect(rejected.map((entry) => entry.path)).toEqual([stranded.path])
+    expect(next.diagnostics.some((entry) => entry.code === 'override.rejected')).toBe(true)
+  })
+
+  it('reads as open rather than as a value in force', () => {
+    // The panel holds the stored row, which is what previously settled the card.
+    const cards = cardsFor(next, [], [stranded.path], [stranded.path])
+    const card = cards.find((entry) => entry.title === 'override.rejected')
+    expect(card).toBeDefined()
+    expect(card?.state).toBe('open')
+  })
+
+  it('counts toward the number on the Review tab', () => {
+    const cards = cardsFor(next, [], [stranded.path], [stranded.path])
+    const card = cards.find((entry) => entry.title === 'override.rejected')
+    expect(cards.filter((entry) => entry.state === 'open')).toContainEqual(card)
+    expect(openCount(cards)).toBe(openCount(cardsFor(tokens)) + 1)
+  })
+
+  it('offers the one exit that always works: clearing it', () => {
+    const cards = cardsFor(next, [], [stranded.path], [stranded.path])
+    const card = cards.find((entry) => entry.title === 'override.rejected')
+    // The slot is gone, so there is nothing to retype into...
+    expect(card?.editable).toBe(false)
+    // ...but the stored row can always be removed.
+    expect(card?.options).toEqual([{ kind: 'clear', label: 'Clear this override' }])
+    expect(card?.path).toBe(stranded.path)
+  })
+
+  it('is the rejection, not the stored row, that decides this', () => {
+    const state = (rejectedPaths: string[]): string | undefined =>
+      cardsFor(next, [], [stranded.path], rejectedPaths).find((entry) => entry.title === 'override.rejected')
+        ?.state
+
+    // A stored row on its own used to settle the card -- which is the bug: the
+    // row exists either way, and it says nothing about whether the value landed.
+    expect(state([])).toBe('overridden')
+    // Told what the engine actually did with it, the card stays open.
+    expect(state([stranded.path])).toBe('open')
   })
 })

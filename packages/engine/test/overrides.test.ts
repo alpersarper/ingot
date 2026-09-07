@@ -12,6 +12,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { distill, serializeTokens } from '../src/distill'
+import { round } from '../src/util/num'
 import { renderDesignMarkdown } from '../src/export/design-md'
 import {
   applyOverrides,
@@ -518,6 +519,57 @@ describe('conflicts between an override and new evidence', () => {
   })
 })
 
+describe('a conflict the reviewer answered', () => {
+  const tokens = kit()
+  const engineValue = `${tokens.border.width.value}px`
+
+  /** The shape the write path stores once a value change answers a conflict. */
+  const answered: TokenOverride = {
+    path: 'border.width',
+    value: '4px',
+    baseValue: engineValue,
+    resolvedConflict: { value: '2px', baseValue: '0.5px' },
+  }
+
+  it('raises no conflict, because the reviewer has responded to it', () => {
+    const { conflicts, tokens: next } = applyOverrides(tokens, [answered])
+    expect(conflicts).toEqual([])
+    expect(next.diagnostics.some((entry) => entry.code === 'override.conflict')).toBe(false)
+  })
+
+  it('records what was answered on the token, so the report does not just go quiet', () => {
+    const { tokens: next } = applyOverrides(tokens, [answered])
+    const decision = next.border.width.provenance.decision
+    expect(decision.strategy).toBe('user-override')
+    expect(decision.chosen).toBe('4px')
+    expect(decision.resolvedConflict).toEqual({ value: '2px', baseValue: '0.5px' })
+    // The engine's own answer it replaced is still there beside it.
+    expect(decision.supersedes?.chosen).toBe(engineValue)
+    expect(decision.summary).toContain('in answer to the conflict against 2px')
+  })
+
+  it('says so in design.md, which is what a consumer actually reads', () => {
+    const markdown = renderDesignMarkdown(applyOverrides(tokens, [answered]).tokens)
+    expect(markdown).toContain('answered a conflict with new evidence rather than simply being edited')
+    expect(markdown).toContain('`border.width` is now 4px')
+    expect(markdown).toContain('It was 2px, set when the engine said 0.5px')
+  })
+
+  it('says nothing about answered conflicts on an override that answered none', () => {
+    const markdown = renderDesignMarkdown(
+      applyOverrides(tokens, [{ path: 'border.width', value: '4px', baseValue: engineValue }]).tokens,
+    )
+    expect(markdown).toContain('## 10. User overrides')
+    expect(markdown).not.toContain('answered a conflict with new evidence')
+  })
+
+  it('stays deterministic carrying the record', () => {
+    expect(serializeTokens(applyOverrides(kit(), [answered]).tokens)).toBe(
+      serializeTokens(applyOverrides(kit(), [answered]).tokens),
+    )
+  })
+})
+
 describe('design.md with overrides', () => {
   it('says nothing about overrides when there are none', () => {
     const markdown = renderDesignMarkdown(kit())
@@ -561,6 +613,41 @@ describe('design.md with overrides', () => {
     // The reason is still readable, on one line, with the pipe escaped rather
     // than swallowed.
     expect(cells[3]).toBe('8px is too tight \\| 12px reads better and it matches the header')
+  })
+
+  it('never states a spacing rule the table beneath it contradicts', () => {
+    const tokens = kit()
+    const base = tokens.spacing.baseUnit
+    const step = tokens.spacing.steps[1]
+    expect(step).toBeDefined()
+
+    // Un-reviewed, every step is snapped onto the base unit, so the blanket
+    // rule is true and is stated.
+    expect(renderDesignMarkdown(tokens)).toContain(`is a multiple of ${base}px`)
+
+    // A reviewer may set a step off that scale. The document must then stop
+    // asserting the rule its own table breaks.
+    const offScale = base * 3 + 1
+    const { tokens: next } = applyOverrides(tokens, [
+      { path: `spacing.steps.${step?.value.name as string}`, value: `${offScale}px` },
+    ])
+    const markdown = renderDesignMarkdown(next)
+    expect(markdown).not.toContain(`is a multiple of ${base}px`)
+    expect(markdown).toContain(`\`${step?.value.name as string}\` (${offScale}px)`)
+    expect(markdown).toContain('A step name is an identifier, not a multiplier')
+
+    // ...and the step says in the table that a person put it there, rather than
+    // leaving a reader to notice the arithmetic does not work.
+    const row = markdown
+      .split('\n')
+      .find((line) => line.startsWith(`| \`${step?.value.name as string}\``) && line.includes(`${offScale}px`))
+    expect(row).toBeDefined()
+    expect(row).toContain('*(user override)*')
+
+    // The name is an identifier and does not move; `multiple` carries the truth.
+    const after = next.spacing.steps.find((entry) => entry.value.name === step?.value.name)
+    expect(after?.value.px).toBe(offScale)
+    expect(after?.value.multiple).toBe(round(offScale / base, 3))
   })
 
   it('is deterministic with overrides applied', () => {

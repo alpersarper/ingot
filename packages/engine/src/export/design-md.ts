@@ -288,6 +288,9 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
   // --- spacing --------------------------------------------------------------
   const layoutSteps = spacing.steps.filter((step) => step.value.band === 'layout')
   const componentSteps = spacing.steps.filter((step) => step.value.band === 'component')
+  const offScaleSteps = spacing.steps.filter(
+    (step) => round(step.value.px % spacing.baseUnit, 4) !== 0,
+  )
   push(
     '## 4. Spacing',
     '',
@@ -299,7 +302,7 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
       ['Step', 'px', 'Band', 'Tailwind'],
       spacing.steps.map((step) => [
         `\`${step.value.name}\``,
-        `${step.value.px}px`,
+        `${step.value.px}px${mark(`spacing.steps.${step.value.name}`)}`,
         step.value.band,
         step.value.px === 0 ? '`p-0` / `gap-0`' : `\`p-[${step.value.px}px]\` / \`gap-[${step.value.px}px]\``,
       ]),
@@ -307,7 +310,12 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
     '',
     '### Spacing rules',
     '',
-    `- Every padding, margin and gap is a multiple of ${spacing.baseUnit}px drawn from the table above.`,
+    // Distillation snaps every step onto the base unit, so this rule is true of
+    // any kit nobody has reviewed. A reviewer may set a step off that scale, and
+    // then the blanket claim would be one the table beneath it contradicts.
+    offScaleSteps.length === 0
+      ? `- Every padding, margin and gap is a multiple of ${spacing.baseUnit}px drawn from the table above.`
+      : `- Use only the lengths in the table above. Most are multiples of the ${spacing.baseUnit}px base unit; ${offScaleSteps.map((step) => `\`${step.value.name}\` (${step.value.px}px)`).join(', ')} ${offScaleSteps.length === 1 ? 'is' : 'are'} not, because ${offScaleSteps.length === 1 ? 'it was' : 'they were'} set by hand. A step name is an identifier, not a multiplier.`,
     componentSteps.length > 0
       ? `- Inside a control or a card, use the component steps (up to ${componentSteps[componentSteps.length - 1]?.value.px ?? 0}px). They stay within the range the sources actually use.`
       : '- No component steps were observed; every step in this table is extrapolated.',
@@ -572,6 +580,29 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
       'When a later distillation disagrees with an override, the disagreement is raised as an `override.conflict` warning above rather than resolved silently: the override keeps the value, and a human decides whether the new evidence changes their mind.',
       '',
     )
+
+    // A conflict the reviewer answered is a decision of its own. Letting the
+    // warning simply stop appearing would be the silent clobbering the rest of
+    // this document exists to avoid, so what retired it is stated here.
+    const answered = overridden.filter(
+      (slot) => slot.provenance.decision.resolvedConflict !== undefined,
+    )
+    if (answered.length > 0) {
+      push(
+        `${answered.length === 1 ? 'One of these' : `${answered.length} of these`} answered a conflict with new evidence rather than simply being edited:`,
+        '',
+        ...answered.map((slot) => {
+          const decision = slot.provenance.decision
+          const resolved = decision.resolvedConflict as { value: string; baseValue: string }
+          return (
+            `- \`${slot.path}\` is now ${slot.value}. It was ${resolved.value}, set when the engine said ` +
+            `${resolved.baseValue}; the captures then moved to ${decision.supersedes?.chosen ?? 'a different answer'}, ` +
+            'and that disagreement was answered here.'
+          )
+        }),
+        '',
+      )
+    }
   }
 
   return finish(out)

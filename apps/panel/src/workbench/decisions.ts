@@ -92,8 +92,25 @@ export interface DecisionCard {
 export interface CardInputs {
   tokens: TokensDocument
   conflicts: readonly OverrideConflict[]
-  /** Paths that currently carry an override. */
+  /**
+   * Paths that carry a stored override, applied or not.
+   *
+   * The stored rows, straight from the review payload. A row is not the same as
+   * a value in force, which is why `rejectedPaths` comes with it.
+   */
   overriddenPaths: ReadonlySet<string>
+  /**
+   * Paths whose stored override the engine refused on this replay.
+   *
+   * A slot can disappear between kit versions -- `typography.families.mono`,
+   * `color.roles.destructive` and the destructive button's recipe are only
+   * emitted when the captures support them -- and a value can stop parsing
+   * against a scale that no longer has the step it names. Either way the
+   * reviewer's value is not in force, so it must not settle its card: being
+   * told a value is applied when it was dropped is the one thing worse than
+   * being told nothing.
+   */
+  rejectedPaths: ReadonlySet<string>
   /** Card ids the reviewer has accepted. */
   accepted: ReadonlySet<string>
 }
@@ -115,10 +132,19 @@ const NOT_A_DECISION = new Set(['override.applied', 'override.conflict', 'overri
 const SEVERITY_ORDER: Record<CardSeverity, number> = { conflict: 0, warning: 1, info: 2 }
 
 /** Build the review queue. Deterministic: same kit and state, same order. */
-export function decisionCards({ tokens, conflicts, overriddenPaths, accepted }: CardInputs): DecisionCard[] {
+export function decisionCards({
+  tokens,
+  conflicts,
+  overriddenPaths,
+  rejectedPaths,
+  accepted,
+}: CardInputs): DecisionCard[] {
   const cards: DecisionCard[] = []
   const slots = tokenSlots(tokens)
   const editablePaths = new Set(slots.map((slot) => slot.path))
+
+  // What is actually in force, which is what a card state may be built from.
+  const appliedPaths = new Set([...overriddenPaths].filter((path) => !rejectedPaths.has(path)))
 
   for (const conflict of conflicts) {
     cards.push({
@@ -165,9 +191,15 @@ export function decisionCards({ tokens, conflicts, overriddenPaths, accepted }: 
       evidence: [],
       options: [],
       editable: diagnostic.path !== undefined && editablePaths.has(diagnostic.path),
-      state: cardState(id, diagnostic.path, overriddenPaths, accepted),
+      state: cardState(id, diagnostic.path, appliedPaths, accepted),
     }
     if (diagnostic.path !== undefined) card.path = diagnostic.path
+    // A refused override is a real problem with only one certain exit: the
+    // value cannot be applied, and the slot it named may not exist any more, so
+    // retyping is not always available but clearing always is.
+    if (diagnostic.code === 'override.rejected' && diagnostic.path !== undefined) {
+      card.options = [{ kind: 'clear', label: 'Clear this override' }]
+    }
     cards.push(card)
   }
 
@@ -199,7 +231,7 @@ export function decisionCards({ tokens, conflicts, overriddenPaths, accepted }: 
           label: `Use ${competitor.value}`,
         })),
       editable: true,
-      state: cardState(id, slot.path, overriddenPaths, accepted),
+      state: cardState(id, slot.path, appliedPaths, accepted),
     })
   }
 
@@ -217,12 +249,14 @@ export function decisionCards({ tokens, conflicts, overriddenPaths, accepted }: 
 function cardState(
   id: string,
   path: string | undefined,
-  overriddenPaths: ReadonlySet<string>,
+  appliedPaths: ReadonlySet<string>,
   accepted: ReadonlySet<string>,
 ): CardState {
   // An override settles a card without anyone having to accept it as well:
-  // acting on a decision is a stronger answer than agreeing with it.
-  if (path !== undefined && overriddenPaths.has(path)) return 'overridden'
+  // acting on a decision is a stronger answer than agreeing with it. Only an
+  // override the engine actually applied counts -- a refused one is a decision
+  // that did not land, and a card it settled would be a lie.
+  if (path !== undefined && appliedPaths.has(path)) return 'overridden'
   return accepted.has(id) ? 'accepted' : 'open'
 }
 

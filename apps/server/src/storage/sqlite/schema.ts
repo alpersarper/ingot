@@ -133,6 +133,17 @@ const MIGRATIONS: string[][] = [
        PRIMARY KEY (scope_key, card_id)
      )`,
   ],
+  [
+    // What retired a standing conflict, when one did. Changing an override
+    // while fresh evidence disagrees with it answers the `override.conflict`
+    // report, and the answer is a decision of its own: without these the report
+    // would simply stop appearing, which is the silent clobbering the whole
+    // conflict mechanism exists to prevent. Both are NULL together on an
+    // override that answered nothing, and both are cleared by any later value
+    // change that had no conflict standing against it.
+    `ALTER TABLE token_overrides ADD COLUMN resolved_value TEXT`,
+    `ALTER TABLE token_overrides ADD COLUMN resolved_base TEXT`,
+  ],
 ]
 
 /** The schema version this build of the server expects. */

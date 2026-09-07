@@ -105,7 +105,13 @@ Applying one does three things beyond writing the value:
   `baseValue`: the engine's answer at the moment it was made. When a later
   distillation disagrees with that, the override still wins the value and the
   disagreement is raised as an `override.conflict` warning. Neither side is
-  silently clobbered.
+  silently clobbered. A conflict is retired only by the reviewer *responding* to
+  it: the write path refreshes `baseValue` when the value moves and preserves it
+  when only the reason does, so annotating an override does not quietly drop the
+  report. A response that does retire one is itself recorded, as
+  `resolvedConflict` on the override's own decision, and `design.md` §10 names
+  what was answered — a warning that simply stopped appearing would be the
+  clobbering this mechanism exists to prevent.
 - **Re-derives what depended on the value.** Overriding a base colour re-derives
   the interaction shades computed from it -- `primaryHover`, `primaryActive`,
   `selectedSurface` and the disabled pair -- through the engine's own derivation
@@ -334,7 +340,15 @@ verbatim:
 > multiple of the base unit; exact `.5` ties round up. A non-zero length shorter
 > than half the base unit snaps up to one base unit rather than collapsing to 0,
 > because a visible gap must stay visible. Steps are named by their multiplier,
-> so step `"3"` is 3 x the base unit.
+> so a freshly distilled step `"3"` is 3 x the base unit.
+
+A step's `name` is an **opaque stable identifier**, minted from that multiplier
+and then left alone. It is the override path key (`spacing.steps.3`) and the
+`--kit-space-<name>` variable suffix, so a reviewer overriding a step to a length
+off the base scale keeps the name and every reference to it; `multiple` is the
+field that carries the arithmetic, and it stops being a whole number in exactly
+that case. `design.md` states the "every length is a multiple of the base unit"
+rule only when the shipped steps really are all exact multiples.
 
 Snapping *is* the clustering: lengths that land on the same multiple are the same
 step, and each step's `observed` lists the raw values it absorbed. Gaps in the
