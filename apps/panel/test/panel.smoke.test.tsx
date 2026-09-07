@@ -18,6 +18,7 @@ import {
   overrideRejection,
   readTokenValue,
   renderDesignMarkdown,
+  standingConflict,
 } from '@ingot/engine'
 import type { TokenOverride, TokensDocument } from '@ingot/engine'
 import { App } from '@/App'
@@ -111,6 +112,7 @@ function installFakeServer(): FakeServer {
           value: override.value,
           baseValue: override.baseValue ?? '',
           note: override.note ?? '',
+          ...(override.resolvedConflict === undefined ? {} : { resolvedConflict: override.resolvedConflict }),
           createdAt: '2026-05-01T00:00:00.000Z',
           updatedAt: '2026-05-01T00:00:00.000Z',
         })),
@@ -194,17 +196,27 @@ function installFakeServer(): FakeServer {
         canonicalOverrideValue(TOKENS, body.path, standing.value) !==
           canonicalOverrideValue(TOKENS, body.path, body.value)
       const baseValue = standing !== undefined && !changed ? standing.baseValue : engineValue
+      // Whether a conflict was standing is the engine's determination, asked of
+      // the same baseline, rather than a lookalike condition -- the real route
+      // does the same, and a fake that guessed would let the panel ship against
+      // a server it does not match. Any earlier answer is carried forward.
       const answered =
-        standing !== undefined && changed && standing.baseValue !== engineValue
-          ? { value: standing.value, baseValue: standing.baseValue as string }
-          : undefined
+        standing === undefined
+          ? undefined
+          : changed && standingConflict(baseline, standing) !== undefined
+            ? { value: standing.value, baseValue: standing.baseValue as string }
+            : standing.resolvedConflict
+      // A write that says nothing about the reason leaves the standing one in
+      // place; an explicitly empty one clears it. The reviewer wrote it and
+      // design.md prints it, so it is not something a value change discards.
+      const note = body.note ?? standing?.note
       state.overrides = [
         ...state.overrides.filter((entry) => entry.path !== body.path),
         {
           path: body.path,
           value: body.value,
           ...(baseValue === null || baseValue === undefined ? {} : { baseValue }),
-          ...(body.note === undefined ? {} : { note: body.note }),
+          ...(note === undefined || note === '' ? {} : { note }),
           ...(answered === undefined ? {} : { resolvedConflict: answered }),
         },
       ]
@@ -415,6 +427,61 @@ describe('the review loop', () => {
     // ...and it reaches the document the reviewer hands to a consumer.
     const design = await (await fetch('/api/kits/kit-1/design.md', { headers: { 'x-ingot-token': TOKEN } })).text()
     expect(design).toContain('the captured radius reads timid')
+  })
+
+  it('keeps the reason when a conflict is answered from its card', async () => {
+    const user = userEvent.setup()
+    await reachTheWorkbench(user)
+    const system = screen.getByRole('complementary', { name: 'System' })
+
+    // The reviewer overrides a value and says why. design.md prints that reason.
+    await user.click(within(system).getByRole('tab', { name: 'Tokens' }))
+    await user.click(within(system).getByTitle('Override radius.steps.md'))
+    fireEvent.change(within(system).getByLabelText('New value for radius.steps.md'), {
+      target: { value: '10px' },
+    })
+    fireEvent.change(within(system).getByLabelText('Reason for overriding radius.steps.md'), {
+      target: { value: 'brand asked for rounder corners' },
+    })
+    await user.click(within(system).getByRole('button', { name: 'Override' }))
+    await waitFor(() => expect(server.overrides[0]?.note).toBe('brand asked for rounder corners'))
+
+    // The evidence then moves under it, which is what raises the conflict.
+    ;(server.overrides[0] as TokenOverride).baseValue = '4px'
+    await user.click(within(system).getByRole('button', { name: /Regenerate/ }))
+    await user.click(within(system).getByRole('tab', { name: /^Review/ }))
+    await within(system).findByText(/Your value and the new evidence disagree/)
+
+    // Answering it from the card is a value change, not a retraction of the
+    // reason: the card sends no reason, and the standing one has to survive.
+    fireEvent.change(within(system).getByLabelText('Override radius.steps.md'), { target: { value: '8px' } })
+    await user.click(within(system).getByRole('button', { name: 'Set' }))
+
+    await waitFor(() => expect(server.overrides[0]?.value).toBe('8px'))
+    expect(server.overrides[0]?.note).toBe('brand asked for rounder corners')
+    const design = await (await fetch('/api/kits/kit-1/design.md', { headers: { 'x-ingot-token': TOKEN } })).text()
+    expect(design).toContain('## 10. User overrides')
+    expect(design).toContain('brand asked for rounder corners')
+  })
+
+  it('counts only the overrides the exports actually carry', async () => {
+    const user = userEvent.setup()
+    await reachTheWorkbench(user)
+    const system = screen.getByRole('complementary', { name: 'System' })
+
+    // One override the engine applies, and one it refuses because this kit has
+    // no such slot -- the shape a regeneration leaves when a step disappears.
+    server.overrides.push({ path: 'radius.steps.md', value: '10px', baseValue: '6px' })
+    server.overrides.push({ path: 'radius.steps.full', value: '999px', baseValue: '999px' })
+    await user.click(within(system).getByRole('button', { name: /Regenerate/ }))
+    await user.click(within(system).getByRole('tab', { name: 'Export' }))
+
+    // The refused one is in none of the files, so the count must not claim it.
+    expect(within(system).getByText(/carries your 1 override,/)).toBeTruthy()
+    expect(within(system).queryByText(/carries your 2 overrides/)).toBeNull()
+    // ...and it is named rather than hidden.
+    expect(within(system).getByText(/could not be applied to this kit/)).toBeTruthy()
+    expect(within(system).getByText('radius.steps.full')).toBeTruthy()
   })
 
   it('accepts a decision card and remembers it', async () => {

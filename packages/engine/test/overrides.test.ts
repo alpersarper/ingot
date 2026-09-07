@@ -657,3 +657,85 @@ describe('design.md with overrides', () => {
     )
   })
 })
+
+describe('a typography step, which is three slots behind one record', () => {
+  const tokens = kit()
+  const step = tokens.typography.steps.find((entry) => entry.value.name === 'base')
+  const engineSize = `${step?.value.fontSize as number}px`
+  const engineLineHeight = String(step?.value.lineHeight as number)
+  const sized = applyOverrides(tokens, [
+    { path: 'typography.steps.base.fontSize', value: '18px', baseValue: engineSize, note: 'body reads small' },
+  ]).tokens
+
+  it('marks only the field the reviewer set', () => {
+    expect(overriddenSlots(sized).map((slot) => slot.path)).toEqual(['typography.steps.base.fontSize'])
+    const origin = (path: string): string | undefined =>
+      tokenSlots(sized).filter((slot) => slot.path === path).map(originOf)[0]
+    expect(origin('typography.steps.base.fontSize')).toBe('overridden')
+    expect(origin('typography.steps.base.lineHeight')).not.toBe('overridden')
+    expect(origin('typography.steps.base.fontWeight')).not.toBe('overridden')
+  })
+
+  it('leaves the untouched fields reading as the engine\'s own decision', () => {
+    const lineHeight = tokenSlots(sized).find((slot) => slot.path === 'typography.steps.base.lineHeight')
+    expect(lineHeight?.value).toBe(engineLineHeight)
+    expect(lineHeight?.provenance.decision.strategy).toBe(step?.provenance.decision.strategy)
+    expect(lineHeight?.provenance.decision.chosen).toBe(step?.provenance.decision.chosen)
+    expect(lineHeight?.provenance.decision.note).toBeUndefined()
+  })
+
+  it('does not refuse a reviewer editing an untouched sibling field', () => {
+    // The sibling reads as the engine's own value, so setting a *different* one
+    // is an ordinary creation and restating it is refused as one -- exactly the
+    // judgement any untouched slot gets.
+    expect(overrideRejection(sized, { path: 'typography.steps.base.lineHeight', value: '1.7' })).toBeUndefined()
+    expect(overrideRejection(sized, { path: 'typography.steps.base.lineHeight', value: engineLineHeight })).toContain(
+      'an override that agrees is not an override',
+    )
+  })
+
+  it('names one value in design.md, and states the engine answer for that field', () => {
+    const markdown = renderDesignMarkdown(sized)
+    expect(markdown).toContain('1 value below was set by hand in the Ingot panel')
+    const rows = markdown
+      .split('\n')
+      .slice(markdown.split('\n').findIndex((line) => line.startsWith('## 10. User overrides')))
+      .filter((line) => line.startsWith('| `typography.steps.base.'))
+    expect(rows).toHaveLength(1)
+    expect(splitRow(rows[0] as string)).toEqual([
+      '`typography.steps.base.fontSize`',
+      '18px',
+      engineSize,
+      'body reads small',
+    ])
+  })
+
+  it('keeps both when two fields of one step are set, and neither claims the third', () => {
+    const both = applyOverrides(tokens, [
+      { path: 'typography.steps.base.fontSize', value: '18px', baseValue: engineSize },
+      { path: 'typography.steps.base.lineHeight', value: '1.7', baseValue: engineLineHeight },
+    ]).tokens
+    expect(overriddenSlots(both).map((slot) => slot.path)).toEqual([
+      'typography.steps.base.fontSize',
+      'typography.steps.base.lineHeight',
+    ])
+    expect(both.typography.steps.find((entry) => entry.value.name === 'base')?.value).toMatchObject({
+      fontSize: 18,
+      lineHeight: 1.7,
+    })
+    // The earlier override is not swallowed by the later one: the size still
+    // says what it replaced, rather than pointing at the line height's answer.
+    const size = tokenSlots(both).find((slot) => slot.path === 'typography.steps.base.fontSize')
+    expect(size?.provenance.decision.supersedes?.chosen).toBe(engineSize)
+  })
+
+  it('stays deterministic', () => {
+    const overrides: TokenOverride[] = [
+      { path: 'typography.steps.base.lineHeight', value: '1.7' },
+      { path: 'typography.steps.base.fontSize', value: '18px' },
+    ]
+    expect(serializeTokens(applyOverrides(kit(), overrides).tokens)).toBe(
+      serializeTokens(applyOverrides(kit(), overrides).tokens),
+    )
+  })
+})

@@ -617,6 +617,83 @@ describe('review: overrides and decisions', () => {
     expect(overrides).toEqual([expect.objectContaining({ baseValue: engineWidth })])
   })
 
+  it('keeps the record of an answered conflict through a later note-only edit', async () => {
+    await seed()
+    await harness.store.reviews.setOverride(null, {
+      path: 'border.width',
+      value: '2px',
+      baseValue: '0.5px',
+      note: '',
+    })
+    // The reviewer answers the conflict by moving the value...
+    await harness.call('/api/reviews/overrides', put({ path: 'border.width', value: '4px' }))
+
+    // ...and later opens the same token only to write down why. Annotating is
+    // not un-answering, so the record of what was answered has to survive it:
+    // without it, `tokens.json` and design.md would quietly stop saying that a
+    // disagreement was ever resolved.
+    const annotated = await harness.call(
+      '/api/reviews/overrides',
+      put({ path: 'border.width', value: '4px', note: 'the hairline reads too thin at this scale' }),
+    )
+    expect(annotated.status).toBe(200)
+    const after = (await annotated.json()) as KitResponse
+    expect(after.tokens.border.width.provenance.decision.resolvedConflict).toEqual({
+      value: '2px',
+      baseValue: '0.5px',
+    })
+    expect(after.designMd).toContain('answered a conflict with new evidence')
+    expect(after.designMd).toContain('the hairline reads too thin at this scale')
+  })
+
+  it('does not claim a conflict was answered when the evidence had caught up', async () => {
+    const generated = await seed()
+    const engineWidth = `${generated.tokens.border.width.value}px`
+    // A standing override the captures have since arrived at independently:
+    // the engine reports convergence here, never a conflict.
+    await harness.store.reviews.setOverride(null, {
+      path: 'border.width',
+      value: engineWidth,
+      baseValue: '0.5px',
+      note: '',
+    })
+    const converged = await harness.json<KitResponse>('/api/kits/latest')
+    expect(converged.review.conflicts).toEqual([])
+
+    // Changing the value now answers nothing, because nothing was disagreeing.
+    const changed = await harness.call('/api/reviews/overrides', put({ path: 'border.width', value: '3px' }))
+    expect(changed.status).toBe(200)
+    const after = (await changed.json()) as KitResponse
+    expect(after.tokens.border.width.provenance.decision.resolvedConflict).toBeUndefined()
+    expect(after.designMd).not.toContain('answered a conflict with new evidence')
+  })
+
+  it('leaves the reviewer\'s reason alone when a write supplies none, and clears it when one says to', async () => {
+    await seed()
+    await harness.call(
+      '/api/reviews/overrides',
+      put({ path: 'radius.steps.md', value: '10px', note: 'brand asked for rounder corners' }),
+    )
+
+    // What a decision card sends: a value, no statement about the reason. The
+    // reason is the reviewer's own writing and design.md prints it, so a write
+    // that says nothing about it must not blank it.
+    const fromCard = await harness.call('/api/reviews/overrides', put({ path: 'radius.steps.md', value: '8px' }))
+    expect(fromCard.status).toBe(200)
+    expect((await fromCard.json() as KitResponse).designMd).toContain('brand asked for rounder corners')
+    const { overrides } = await harness.json<{ overrides: Array<{ value: string; note: string }> }>('/api/reviews')
+    expect(overrides).toEqual([
+      expect.objectContaining({ value: '8px', note: 'brand asked for rounder corners' }),
+    ])
+
+    // An explicitly empty reason is a statement, and does clear it.
+    const cleared = await harness.call(
+      '/api/reviews/overrides',
+      put({ path: 'radius.steps.md', value: '8px', note: '' }),
+    )
+    expect((await cleared.json() as KitResponse).designMd).not.toContain('brand asked for rounder corners')
+  })
+
   it('does not claim a conflict was answered when there was none', async () => {
     await seed()
     await harness.call('/api/reviews/overrides', put({ path: 'border.width', value: '2px' }))

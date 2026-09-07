@@ -265,6 +265,11 @@ export function tokenSlots(tokens: TokensDocument): TokenSlot[] {
     })
   }
 
+  // A type step is one token behind three slots, so each slot is given the
+  // provenance that answers for *its* field rather than the step's shared
+  // record -- otherwise overriding the size would label the line height and the
+  // weight as hand-set too. {@link fieldProvenance} reads the decision's own
+  // `fields` record; nothing downstream has to work it out again.
   for (const step of tokens.typography.steps) {
     const base = `typography.steps.${step.value.name}`
     slots.push({
@@ -273,7 +278,7 @@ export function tokenSlots(tokens: TokensDocument): TokenSlot[] {
       label: `${step.value.name} size`,
       kind: 'length',
       value: `${step.value.fontSize}px`,
-      provenance: step.provenance,
+      provenance: fieldProvenance(step.provenance, 'fontSize'),
     })
     slots.push({
       path: `${base}.lineHeight`,
@@ -281,7 +286,7 @@ export function tokenSlots(tokens: TokensDocument): TokenSlot[] {
       label: `${step.value.name} line height`,
       kind: 'ratio',
       value: String(step.value.lineHeight),
-      provenance: step.provenance,
+      provenance: fieldProvenance(step.provenance, 'lineHeight'),
     })
     slots.push({
       path: `${base}.fontWeight`,
@@ -289,7 +294,7 @@ export function tokenSlots(tokens: TokensDocument): TokenSlot[] {
       label: `${step.value.name} weight`,
       kind: 'weight',
       value: String(step.value.fontWeight),
-      provenance: step.provenance,
+      provenance: fieldProvenance(step.provenance, 'fontWeight'),
     })
   }
 
@@ -344,6 +349,45 @@ function recipeSlot(
     value,
     provenance: token.provenance,
   }
+}
+
+/**
+ * Whether a decision answers for `field`.
+ *
+ * A decision with no `fields` record answers for the whole token, which is what
+ * every engine decision and every override on a single-valued token is.
+ */
+function covers(decision: DominantChoice, field: string): boolean {
+  return decision.fields === undefined || decision.fields.includes(field)
+}
+
+/**
+ * The decision that answers for one field of a multi-field token.
+ *
+ * Overriding a type step's size leaves the line height and the weight where the
+ * engine put them, but all three read one provenance record. Walking the
+ * `supersedes` chain past the overrides that named other fields is what lets a
+ * slot report its own authority: the size says "yours", the line height still
+ * says what the engine decided and why. The chain is walked for `supersedes`
+ * too, so "the engine chose" on an overridden field names the engine's decision
+ * rather than another field's override.
+ */
+function decisionForField(decision: DominantChoice, field: string): DominantChoice {
+  let current = decision
+  while (current.strategy === 'user-override' && !covers(current, field)) {
+    const next = current.supersedes
+    if (next === undefined) break
+    current = next
+  }
+  if (current.strategy !== 'user-override' || current.supersedes === undefined) return current
+  const superseded = decisionForField(current.supersedes, field)
+  return superseded === current.supersedes ? current : { ...current, supersedes: superseded }
+}
+
+/** A token's provenance as one of its fields sees it. */
+function fieldProvenance(provenance: Provenance, field: string): Provenance {
+  const decision = decisionForField(provenance.decision, field)
+  return decision === provenance.decision ? provenance : { ...provenance, decision }
 }
 
 /** The current value at `path`, or `null` when the path is not a slot. */
@@ -486,16 +530,9 @@ export function applyOverrides(
       // agrees is a different thing and is still refused, at the write boundary
       // -- see {@link overrideRejection}.
       converged.push({ path: override.path, value: parsed.canonical })
-    } else if (override.baseValue !== undefined && override.baseValue !== engineValue) {
-      conflicts.push({
-        path: override.path,
-        value: parsed.canonical,
-        baseValue: override.baseValue,
-        engineValue,
-        message:
-          `\`${override.path}\` was overridden to ${parsed.canonical} when the engine said ${override.baseValue}. ` +
-          `The captures now say ${engineValue}. Your value is still in force; re-check it, or clear the override to take ${engineValue}.`,
-      })
+    } else {
+      const conflict = conflictBetween(override, parsed.canonical, engineValue)
+      if (conflict !== undefined) conflicts.push(conflict)
     }
   }
 
@@ -522,6 +559,54 @@ export function applyOverrides(
   ]
 
   return { tokens: next, applied, conflicts, converged: agreed, rejected }
+}
+
+/**
+ * The disagreement between one override and the engine's current answer.
+ *
+ * Two things have to be true for a conflict: the override still says something
+ * different from the engine, *and* the engine has moved since the override was
+ * made. An override the evidence has caught up with is convergence, not a
+ * conflict, and an override the engine never agreed with in the first place is
+ * simply an override.
+ */
+function conflictBetween(
+  override: TokenOverride,
+  value: string,
+  engineValue: string,
+): OverrideConflict | undefined {
+  if (value === engineValue) return undefined
+  if (override.baseValue === undefined || override.baseValue === engineValue) return undefined
+  return {
+    path: override.path,
+    value,
+    baseValue: override.baseValue,
+    engineValue,
+    message:
+      `\`${override.path}\` was overridden to ${value} when the engine said ${override.baseValue}. ` +
+      `The captures now say ${engineValue}. Your value is still in force; re-check it, or clear the override to take ${engineValue}.`,
+  }
+}
+
+/**
+ * The conflict a stored override stands in against `tokens`, or `undefined`.
+ *
+ * The same determination {@link applyOverrides} makes when it decides whether to
+ * report `override.conflict`, asked of one override on its own. The write
+ * boundary needs it to know whether an edit *answered* a conflict, and asking
+ * the engine is the point: a route that reimplemented the predicate would drift
+ * from it, and `design.md` would go on to state that a disagreement was
+ * answered when none was ever reported.
+ */
+export function standingConflict(
+  tokens: TokensDocument,
+  override: TokenOverride,
+): OverrideConflict | undefined {
+  const slot = tokenSlots(tokens).find((entry) => entry.path === override.path)
+  if (slot === undefined) return undefined
+  const parsed = parseFor(slot, tokens, override.value)
+  if (typeof parsed === 'string') return undefined
+  return conflictBetween(override, parsed.canonical, slot.value)
 }
 
 /**
@@ -645,10 +730,20 @@ function write(
   recipesTouched: Set<string>,
   resolvedConflict?: ResolvedConflict,
 ): void {
-  const stamp = (token: { provenance: Provenance }): void => {
+  // `field` is given only for a token that holds several overridable fields: it
+  // is recorded on the decision so every surface can tell which of them a human
+  // actually set. The whole prior decision stays in `supersedes` either way, so
+  // an earlier override of a sibling field is never dropped.
+  const stamp = (token: { provenance: Provenance }, field?: string): void => {
     token.provenance = {
       ...token.provenance,
-      decision: userOverride(value, token.provenance.decision, note, resolvedConflict),
+      decision: userOverride(
+        value,
+        token.provenance.decision,
+        note,
+        resolvedConflict,
+        field === undefined ? undefined : [field],
+      ),
     }
   }
 
@@ -729,7 +824,7 @@ function write(
     else if (field === 'lineHeight') step.value.lineHeight = Number(value)
     else if (field === 'fontWeight') step.value.fontWeight = Number(value)
     else return
-    stamp(step)
+    stamp(step, field)
     // `baseSize` restates the `base` step's size rather than holding a second
     // opinion, so it follows the step instead of drifting away from it.
     if (name === 'base' && field === 'fontSize') tokens.typography.baseSize = pixels(value)

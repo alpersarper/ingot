@@ -445,6 +445,11 @@
           "description": "Present when strategy is user-override: the decision a human replaced. Keeping it is what lets a later distillation report a conflict instead of silently clobbering either side."
         },
         "note": { "type": "string", "description": "Present when strategy is user-override: the reviewer's own reason." },
+        "fields": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Present when strategy is user-override on a token holding several overridable fields (a typography step carries a size, a line height and a weight behind one record): the fields this decision set, sorted. A field not named here was left where the engine put it, and every surface reads this rather than treating the whole token as hand-set."
+        },
         "resolvedConflict": {
           "type": "object",
           "additionalProperties": false,

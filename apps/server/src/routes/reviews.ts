@@ -30,7 +30,13 @@
  *     than an annotation on a snapshot.
  */
 import { Hono } from 'hono'
-import { applyOverrides, canonicalOverrideValue, overrideRejection, readTokenValue } from '@ingot/engine'
+import {
+  applyOverrides,
+  canonicalOverrideValue,
+  overrideRejection,
+  readTokenValue,
+  standingConflict,
+} from '@ingot/engine'
 import type { ResolvedConflict, TokensDocument } from '@ingot/engine'
 import { ApiError } from '../errors'
 import { effectiveKit, toEngineOverride } from '../kit'
@@ -48,9 +54,18 @@ import { optionalString, readJsonBody, requireString } from '../validate'
  */
 const NOTE_MAX = 500
 
-function reviewerNote(body: Record<string, unknown>): string {
-  const note = optionalString(body, 'note') ?? ''
-  if (note.length > NOTE_MAX) {
+/**
+ * The reason this write supplies, or `undefined` when it supplies none.
+ *
+ * The distinction is the point. A write with no `note` at all -- answering a
+ * conflict from its card, taking a runner-up in one click -- is not a statement
+ * about the reason, so whatever the reviewer already wrote stands; the Tokens
+ * editor keeps it by prefilling, and the two paths have to agree. An explicitly
+ * empty note is a statement, and clears it.
+ */
+function reviewerNote(body: Record<string, unknown>): string | undefined {
+  const note = optionalString(body, 'note')
+  if (note !== undefined && note.length > NOTE_MAX) {
     throw ApiError.badRequest(`note must be at most ${NOTE_MAX} characters; that one is ${note.length}`)
   }
   return note
@@ -117,7 +132,7 @@ export function reviewRoutes(context: AppContext): Hono<AppEnv> {
     const scope = scopeFrom(optionalString(body, 'groupId') ?? null)
     const path = requireString(body, 'path')
     const value = requireString(body, 'value')
-    const note = reviewerNote(body)
+    const submittedNote = reviewerNote(body)
 
     const kit = await latestKit(scope)
     // The engine's own answer, read from the kit as generated -- not from the
@@ -165,17 +180,24 @@ export function reviewRoutes(context: AppContext): Hono<AppEnv> {
     const record = existing === undefined || changed ? baseValue : existing.baseValue
 
     // ...and when a value change does answer a standing conflict, what it
-    // answered is kept, so the report does not merely go quiet.
+    // answered is kept, so the report does not merely go quiet. Whether one was
+    // standing is the engine's determination, asked of the document the
+    // reviewer is looking at: an approximation of it here is how `design.md`
+    // came to announce disagreements that were never reported. Every other write
+    // carries any earlier answer forward rather than writing NULL over it.
     const answered: ResolvedConflict | undefined =
-      existing !== undefined && changed && existing.baseValue !== baseValue
-        ? { value: existing.value, baseValue: existing.baseValue }
-        : undefined
+      existing === undefined
+        ? undefined
+        : changed && standingConflict(baseline, toEngineOverride(existing)) !== undefined
+          ? { value: existing.value, baseValue: existing.baseValue }
+          : existing.resolvedConflict
 
     await store.reviews.setOverride(scope, {
       path,
       value,
       baseValue: record,
-      note,
+      // An absent note leaves the standing reason alone; an empty one clears it.
+      note: submittedNote ?? existing?.note ?? '',
       ...(answered === undefined ? {} : { resolvedConflict: answered }),
     })
     return c.json(kitPayload(await effectiveKit(store, kit)))
@@ -195,7 +217,7 @@ export function reviewRoutes(context: AppContext): Hono<AppEnv> {
     const scope = scopeFrom(optionalString(body, 'groupId') ?? null)
     const cardId = requireString(body, 'cardId')
     const state = requireString(body, 'state')
-    const note = reviewerNote(body)
+    const note = reviewerNote(body) ?? ''
 
     if (state === 'accepted') await store.reviews.acceptDecision(scope, cardId, note)
     else if (state === 'open') await store.reviews.reopenDecision(scope, cardId)

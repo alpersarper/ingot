@@ -89,6 +89,18 @@ export interface DominantChoice {
   /** Present when `strategy` is `user-override`: the reviewer's own reason. */
   note?: string
   /**
+   * Present when `strategy` is `user-override` on a token that holds more than
+   * one overridable field: the fields this decision set.
+   *
+   * A typography step is one token carrying a size, a line height and a weight,
+   * so one provenance record answers for three overridable positions. Without
+   * this, setting the size would mark all three as hand-set -- `design.md` would
+   * name three overrides for one edit and state an engine answer belonging to a
+   * different field. This is the record of what was actually touched, and every
+   * surface that labels a value reads it rather than approximating it.
+   */
+  fields?: string[]
+  /**
    * Present when `strategy` is `user-override` and this value was chosen in
    * answer to a standing conflict.
    *
@@ -264,12 +276,17 @@ export function sanction(chosen: string, derivation: Derivation): DominantChoice
  * the panel needs it to report a conflict when fresh evidence disagrees with an
  * override, and `design.md` needs it to say what the kit would have chosen. An
  * override never rewrites `observed` -- the evidence is what it is.
+ *
+ * `fields` is given only for a token that holds several overridable fields, and
+ * names the ones this decision set. Omitting it means the decision answers for
+ * the whole token, which is what every single-valued token needs.
  */
 export function userOverride(
   chosen: string,
   supersedes: DominantChoice,
   note?: string,
   resolvedConflict?: ResolvedConflict,
+  fields?: readonly string[],
 ): DominantChoice {
   const decision: DominantChoice = {
     strategy: 'user-override',
@@ -286,6 +303,7 @@ export function userOverride(
   }
   if (note !== undefined && note !== '') decision.note = note
   if (resolvedConflict !== undefined) decision.resolvedConflict = resolvedConflict
+  if (fields !== undefined) decision.fields = [...fields].sort(byString)
   return decision
 }
 

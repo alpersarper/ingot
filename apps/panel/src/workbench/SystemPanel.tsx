@@ -187,6 +187,7 @@ function TabButton({
 
 function ReviewTab({
   cards,
+  review,
   busy,
   onDecide,
   onOverride,
@@ -201,12 +202,20 @@ function ReviewTab({
     )
   }
 
+  // The reason already standing at a card's path. A card that resolves a value
+  // must not blank it: the reason is the reviewer's own writing and design.md
+  // prints it, so a card writes one only where there is none to lose.
+  const notes = new Map(
+    (review?.overrides ?? []).filter((entry) => entry.note !== '').map((entry) => [entry.path, entry.note]),
+  )
+
   return (
     <ul className="flex flex-col">
       {cards.map((card) => (
         <ReviewCard
           key={card.id}
           card={card}
+          hasReason={card.path !== undefined && notes.has(card.path)}
           busy={busy}
           onDecide={onDecide}
           onOverride={onOverride}
@@ -231,12 +240,15 @@ const SEVERITY_TONE = {
 
 function ReviewCard({
   card,
+  hasReason,
   busy,
   onDecide,
   onOverride,
   onClearOverride,
 }: {
   card: DecisionCard
+  /** Whether this card's path already carries a reason the reviewer wrote. */
+  hasReason: boolean
   busy: boolean
   onDecide: (cardId: string, state: 'accepted' | 'open') => void
   onOverride: (path: string, value: string, note?: string) => void
@@ -309,7 +321,11 @@ function ReviewCard({
                             : onOverride(
                                 card.path as string,
                                 option.value,
-                                `chosen over the engine's pick from the ${card.kind === 'conflict' ? 'conflict' : 'close call'} on ${card.path}`,
+                                // Sending no reason leaves the standing one in
+                                // place, which is what the Tokens editor does.
+                                hasReason
+                                  ? undefined
+                                  : `chosen over the engine's pick from the ${card.kind === 'conflict' ? 'conflict' : 'close call'} on ${card.path}`,
                               )
                         }
                       >
@@ -442,7 +458,13 @@ function ExportTab({
   onDownloadComponent,
   onDownloadDocs,
 }: SystemPanelProps & { kit: KitSummary }): ReactNode {
-  const overrides = review?.overrides.length ?? 0
+  // Only the overrides the engine actually applied on this replay are in the
+  // files. A stored row the engine refused -- a slot the regenerated kit no
+  // longer has, a value that stopped parsing -- reaches no export, so counting
+  // it here would promise a reader something none of these downloads contains.
+  const refused = new Set((review?.rejected ?? []).map((entry) => entry.path))
+  const carried = (review?.overrides ?? []).filter((entry) => !refused.has(entry.path)).length
+  const dropped = (review?.overrides ?? []).filter((entry) => refused.has(entry.path))
 
   return (
     <div>
@@ -452,13 +474,20 @@ function ExportTab({
           <Field label="Version" value={`v${kit.version}`} />
           <Field label="Engine" value={kit.engineVersion} mono />
           <Field label="Captures" value={String(kit.captureIds.length)} />
-          <Field label="Overrides" value={overrides === 0 ? 'none' : String(overrides)} />
+          <Field label="Overrides" value={carried === 0 ? 'none' : String(carried)} />
         </dl>
         <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-          {overrides === 0
+          {carried === 0
             ? 'Every value in these files is distilled evidence.'
-            : `Every file below carries your ${overrides} override${overrides === 1 ? '' : 's'}, and design.md names ${overrides === 1 ? 'it' : 'them'} with your reason.`}
+            : `Every file below carries your ${carried} override${carried === 1 ? '' : 's'}, and design.md names ${carried === 1 ? 'it' : 'them'} with your reason.`}
         </p>
+        {dropped.length === 0 ? null : (
+          <p className="mt-1 text-[11px] leading-relaxed text-amber-600 dark:text-amber-500">
+            {dropped.length === 1 ? 'One more override' : `${dropped.length} more overrides`} could not be applied to
+            this kit and {dropped.length === 1 ? 'is' : 'are'} in none of these files:{' '}
+            <span className="font-mono">{dropped.map((entry) => entry.path).join(', ')}</span>. The Review tab says why.
+          </p>
+        )}
       </section>
 
       <section className="border-b border-border px-4 py-3">

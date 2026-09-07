@@ -75,7 +75,10 @@ export function TokenRow({ slot, origin, note, busy, onOverride, onClear }: Toke
       setEditing(false)
       return
     }
-    onOverride(slot.path, next, nextReason === '' ? undefined : nextReason)
+    // The reason is sent only when this edit changed it -- including when it
+    // was cleared, which is a decision and is sent as an empty one. Leaving it
+    // out says "no statement about the reason", and the standing one survives.
+    onOverride(slot.path, next, reasonChanged ? nextReason : undefined)
     setEditing(false)
   }
 

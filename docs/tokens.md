@@ -148,6 +148,14 @@ Applying one does three things beyond writing the value:
 contract between the engine and the panel: a path the panel offers but
 `applyOverrides` cannot write would be an edit that silently did nothing.
 
+A few slots share one token. A typography step carries a size, a line height and
+a weight behind a single provenance record, so an override there records which
+fields it set, in `fields` on the decision. That record is what every surface
+reads — the slot enumeration, the origin label, `design.md` §10 and the
+per-component markdown — so setting the size of a step leaves its line height
+reading as measured, with the engine's own decision still attached, rather than
+claiming two values a human never touched.
+
 ### Derivations
 
 ```jsonc

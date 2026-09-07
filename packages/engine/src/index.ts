@@ -41,6 +41,7 @@ export {
   readTokenValue,
   recipeByName,
   roleHex,
+  standingConflict,
   supersededBy,
   tokenSlots,
 } from './tokens/overrides'

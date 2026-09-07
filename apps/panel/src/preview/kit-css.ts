@@ -167,7 +167,12 @@ export function kitCssVariables(tokens: TokensDocument): KitCssVariables {
   }
 
   variables['--kit-font-sans'] = tokens.typography.families.sans.value
-  variables['--kit-font-mono'] = tokens.typography.families.mono?.value ?? 'ui-monospace, monospace'
+  // A kit whose captures showed no monospace face has no mono family, and
+  // naming a stack of the engine's own here would put a typeface on screen --
+  // in the preview and in the exported docs -- that no `design.md` mentions.
+  // The sans stack is one the kit actually carries, so it is what code spans
+  // and token paths are set in until a capture says otherwise.
+  variables['--kit-font-mono'] = tokens.typography.families.mono?.value ?? 'var(--kit-font-sans)'
   for (const step of tokens.typography.steps) {
     const { name, fontSize, lineHeight, fontWeight, letterSpacing } = step.value
     variables[`--kit-text-${name}-size`] = `${fontSize}px`
