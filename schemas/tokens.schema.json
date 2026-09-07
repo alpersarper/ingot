@@ -458,10 +458,11 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["value", "baseValue"],
-          "description": "Present when strategy is user-override and this value was chosen in answer to a standing conflict. value is the override the reviewer abandoned; baseValue is the engine's answer at the time they set it. Changing an override while fresh evidence disagrees retires the override.conflict report, and this records what retired it.",
+          "description": "Present when strategy is user-override and this value was chosen in answer to a standing conflict. value is the override the reviewer abandoned; baseValue is the engine's answer at the time they set it; engineValue is the answer the engine had moved to, which is the one that was answered. Changing an override while fresh evidence disagrees retires the override.conflict report, and this records what retired it.",
           "properties": {
             "value": { "type": "string" },
-            "baseValue": { "type": "string" }
+            "baseValue": { "type": "string" },
+            "engineValue": { "type": "string" }
           }
         },
         "derivation": {

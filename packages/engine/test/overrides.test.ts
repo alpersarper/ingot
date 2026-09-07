@@ -628,7 +628,7 @@ describe('a conflict the reviewer answered', () => {
     path: 'border.width',
     value: '4px',
     baseValue: engineValue,
-    resolvedConflict: { value: '2px', baseValue: '0.5px' },
+    resolvedConflict: { value: '2px', baseValue: '0.5px', engineValue: '1.5px' },
   }
 
   it('raises no conflict, because the reviewer has responded to it', () => {
@@ -642,7 +642,7 @@ describe('a conflict the reviewer answered', () => {
     const decision = next.border.width.provenance.decision
     expect(decision.strategy).toBe('user-override')
     expect(decision.chosen).toBe('4px')
-    expect(decision.resolvedConflict).toEqual({ value: '2px', baseValue: '0.5px' })
+    expect(decision.resolvedConflict).toEqual({ value: '2px', baseValue: '0.5px', engineValue: '1.5px' })
     // The engine's own answer it replaced is still there beside it.
     expect(decision.supersedes?.chosen).toBe(engineValue)
     expect(decision.summary).toContain('in answer to the conflict against 2px')
@@ -653,6 +653,26 @@ describe('a conflict the reviewer answered', () => {
     expect(markdown).toContain('answered a conflict with new evidence rather than simply being edited')
     expect(markdown).toContain('`border.width` is now 4px')
     expect(markdown).toContain('It was 2px, set when the engine said 0.5px')
+    // The answer that was answered comes off the record. The engine's answer in
+    // *this* version is a different number, and naming it would credit the
+    // reviewer with responding to something they never saw.
+    expect(markdown).toContain('the captures then moved to 1.5px')
+    expect(markdown).not.toContain(`the captures then moved to ${engineValue}`)
+  })
+
+  it('does not call a disagreement answered while the same document reports it open', () => {
+    // The record describes a conflict that was retired. A later distillation
+    // moved the engine again, so `override.conflict` stands for this very path:
+    // §10 saying it was answered would have one half of the document contradict
+    // the other.
+    const reopened: TokenOverride = { ...answered, baseValue: '2.5px' }
+    const { tokens: next, conflicts } = applyOverrides(tokens, [reopened])
+    expect(conflicts.map((entry) => entry.path)).toEqual(['border.width'])
+
+    const markdown = renderDesignMarkdown(next)
+    expect(markdown).toContain('**override.conflict**')
+    expect(markdown).toContain('## 10. User overrides')
+    expect(markdown).not.toContain('answered a conflict with new evidence')
   })
 
   it('says nothing about answered conflicts on an override that answered none', () => {

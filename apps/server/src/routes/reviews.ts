@@ -189,14 +189,26 @@ export function reviewRoutes(context: AppContext): Hono<AppEnv> {
     // answered is kept, so the report does not merely go quiet. Whether one was
     // standing is the engine's determination, asked of the document the
     // reviewer is looking at: an approximation of it here is how `design.md`
-    // came to announce disagreements that were never reported. Every other write
-    // carries any earlier answer forward rather than writing NULL over it.
+    // came to announce disagreements that were never reported. The engine's own
+    // report is what the record is built from, `engineValue` included, so no
+    // surface has to re-derive which answer was the one responded to.
+    //
+    // The rest of the lifecycle follows from what the record claims. A note-only
+    // edit changes nothing about the answer, so an earlier one stands. A value
+    // change with no conflict standing retires nothing, and keeping the old
+    // record would bind the new value to a retirement it had no part in, so it
+    // is cleared.
+    const retired = changed && existing !== undefined
+      ? standingConflict(baseline, toEngineOverride(existing))
+      : undefined
     const answered: ResolvedConflict | undefined =
       existing === undefined
         ? undefined
-        : changed && standingConflict(baseline, toEngineOverride(existing)) !== undefined
-          ? { value: existing.value, baseValue: existing.baseValue }
-          : existing.resolvedConflict
+        : retired !== undefined
+          ? { value: existing.value, baseValue: existing.baseValue, engineValue: retired.engineValue }
+          : changed
+            ? undefined
+            : existing.resolvedConflict
 
     await store.reviews.setOverride(scope, {
       path,

@@ -584,20 +584,39 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
     // A conflict the reviewer answered is a decision of its own. Letting the
     // warning simply stop appearing would be the silent clobbering the rest of
     // this document exists to avoid, so what retired it is stated here.
+    //
+    // A path the warnings above report as *still* in conflict is left out: the
+    // record describes a disagreement that was answered, and printing it beside
+    // a live `override.conflict` for the same token would have one half of this
+    // document contradict the other.
+    const open = new Set(
+      tokens.diagnostics
+        .filter((diagnostic) => diagnostic.code === 'override.conflict' && diagnostic.path !== undefined)
+        .map((diagnostic) => diagnostic.path as string),
+    )
     const answered = overridden.filter(
-      (slot) => slot.provenance.decision.resolvedConflict !== undefined,
+      (slot) => slot.provenance.decision.resolvedConflict !== undefined && !open.has(slot.path),
     )
     if (answered.length > 0) {
       push(
         `${answered.length === 1 ? 'One of these' : `${answered.length} of these`} answered a conflict with new evidence rather than simply being edited:`,
         '',
         ...answered.map((slot) => {
-          const decision = slot.provenance.decision
-          const resolved = decision.resolvedConflict as { value: string; baseValue: string }
+          const resolved = slot.provenance.decision.resolvedConflict as {
+            value: string
+            baseValue: string
+            engineValue?: string
+          }
+          // The engine's answer that was answered is on the record. It is not
+          // the engine's answer *now*, which is what a later regeneration would
+          // hand back and what nobody responded to.
+          const moved =
+            resolved.engineValue === undefined
+              ? 'the captures then moved'
+              : `the captures then moved to ${resolved.engineValue}`
           return (
             `- \`${slot.path}\` is now ${slot.value}. It was ${resolved.value}, set when the engine said ` +
-            `${resolved.baseValue}; the captures then moved to ${decision.supersedes?.chosen ?? 'a different answer'}, ` +
-            'and that disagreement was answered here.'
+            `${resolved.baseValue}; ${moved}, and that disagreement was answered here.`
           )
         }),
         '',

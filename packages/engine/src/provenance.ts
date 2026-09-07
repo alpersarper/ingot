@@ -130,15 +130,27 @@ export interface DominantChoice {
 /**
  * The conflict an override was chosen in answer to.
  *
- * Read together with the decision's own `chosen` and `supersedes`: the reviewer
- * held `value`, set back when the engine said `baseValue`; the captures then
- * moved to what `supersedes` records, and `chosen` is how they answered.
+ * Read on its own, in this order: the reviewer held `value`, set back when the
+ * engine said `baseValue`; the engine then moved to `engineValue`, and the
+ * decision's own `chosen` is how they answered that. Every number the sentence
+ * needs is here, because the one it used to borrow -- `supersedes.chosen` --
+ * is the engine's answer in *this* kit version, which after a later
+ * regeneration is a value nobody ever answered.
  */
 export interface ResolvedConflict {
   /** The override value the reviewer abandoned. */
   value: string
   /** The engine's answer at the time they set that abandoned value. */
   baseValue: string
+  /**
+   * The engine's answer that was answered: what it said at the moment the
+   * reviewer responded, which is what made this a conflict rather than an edit.
+   *
+   * Optional only because a record written before it was carried can still be
+   * read; a surface with no value here says the engine moved without naming a
+   * number rather than substituting one.
+   */
+  engineValue?: string
 }
 
 /** How a value was computed when it could not be observed. */

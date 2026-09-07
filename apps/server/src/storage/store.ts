@@ -268,7 +268,10 @@ export interface StoredOverride {
    *
    * Absent on an override that answered nothing. Changing a value while fresh
    * evidence disagrees with it retires the `override.conflict` report, so what
-   * retired it is kept rather than the report merely going quiet.
+   * retired it is kept rather than the report merely going quiet. A note-only
+   * edit leaves the record alone -- annotating is not answering -- and a value
+   * change with no conflict standing clears it, because that value retired
+   * nothing.
    */
   resolvedConflict?: ResolvedConflict
   createdAt: string

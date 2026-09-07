@@ -368,10 +368,13 @@ export function describeStoreContract(name: string, createStore: () => Store | P
           path: 'border.width',
           value: '4px',
           baseValue: '3px',
-          resolvedConflict: { value: '2px', baseValue: '1px' },
+          // Three values, because the sentence design.md prints needs all
+          // three: what was abandoned, what the engine said then, and the
+          // answer that was actually responded to.
+          resolvedConflict: { value: '2px', baseValue: '1px', engineValue: '3px' },
         })
         const [withRecord] = await store.reviews.overrides(null)
-        expect(withRecord?.resolvedConflict).toEqual({ value: '2px', baseValue: '1px' })
+        expect(withRecord?.resolvedConflict).toEqual({ value: '2px', baseValue: '1px', engineValue: '3px' })
 
         // A later edit that answered nothing must not inherit the old record:
         // it would claim the reviewer responded to a conflict they never saw.

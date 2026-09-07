@@ -85,6 +85,7 @@ interface OverrideRow {
   note: string
   resolved_value: string | null
   resolved_base: string | null
+  resolved_engine: string | null
   created_at: string
   updated_at: string
 }
@@ -501,7 +502,7 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
     async overrides(scope) {
       return db
         .prepare<[string], OverrideRow>(
-          'SELECT path, value, base_value, note, resolved_value, resolved_base, created_at, updated_at FROM token_overrides WHERE scope_key = ? ORDER BY path',
+          'SELECT path, value, base_value, note, resolved_value, resolved_base, resolved_engine, created_at, updated_at FROM token_overrides WHERE scope_key = ? ORDER BY path',
         )
         .all(scopeKey(scope))
         .map(hydrateOverride)
@@ -513,14 +514,15 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
       // set is the same decision revised, not a new one.
       db.prepare(
         `INSERT INTO token_overrides
-           (scope_key, path, value, base_value, note, resolved_value, resolved_base, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           (scope_key, path, value, base_value, note, resolved_value, resolved_base, resolved_engine, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (scope_key, path) DO UPDATE SET
            value = excluded.value,
            base_value = excluded.base_value,
            note = excluded.note,
            resolved_value = excluded.resolved_value,
            resolved_base = excluded.resolved_base,
+           resolved_engine = excluded.resolved_engine,
            updated_at = excluded.updated_at`,
       ).run(
         scopeKey(scope),
@@ -530,12 +532,13 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
         input.note ?? '',
         input.resolvedConflict?.value ?? null,
         input.resolvedConflict?.baseValue ?? null,
+        input.resolvedConflict?.engineValue ?? null,
         now,
         now,
       )
       const row = db
         .prepare<[string, string], OverrideRow>(
-          'SELECT path, value, base_value, note, resolved_value, resolved_base, created_at, updated_at FROM token_overrides WHERE scope_key = ? AND path = ?',
+          'SELECT path, value, base_value, note, resolved_value, resolved_base, resolved_engine, created_at, updated_at FROM token_overrides WHERE scope_key = ? AND path = ?',
         )
         .get(scopeKey(scope), input.path)
       if (!row) throw new Error(`override ${input.path} vanished during write`)
@@ -661,7 +664,11 @@ function hydrateOverride(row: OverrideRow): StoredOverride {
     updatedAt: row.updated_at,
   }
   if (row.resolved_value !== null && row.resolved_base !== null) {
-    stored.resolvedConflict = { value: row.resolved_value, baseValue: row.resolved_base }
+    stored.resolvedConflict = {
+      value: row.resolved_value,
+      baseValue: row.resolved_base,
+      ...(row.resolved_engine === null ? {} : { engineValue: row.resolved_engine }),
+    }
   }
   return stored
 }

@@ -111,7 +111,10 @@ export interface TokenOverride {
    * Set by the write path when a reviewer changes an override while fresh
    * evidence disagrees with it: that write retires the `override.conflict`
    * report, so what retired it is recorded on the token rather than the report
-   * simply going quiet.
+   * simply going quiet. It describes one answered disagreement and is not a
+   * standing claim: a later value change that answered nothing arrives without
+   * it, and a path the engine reports as still in conflict is one `design.md`
+   * does not describe as answered.
    */
   resolvedConflict?: ResolvedConflict
 }

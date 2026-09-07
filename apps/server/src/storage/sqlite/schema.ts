@@ -124,7 +124,10 @@ const MIGRATIONS: string[][] = [
     `CREATE TABLE decision_reviews (
        scope_key  TEXT NOT NULL,
        -- Stable card id derived from the kit's own content, so an acceptance
-       -- survives regeneration: diag:<code>:<path> or choice:<path>.
+       -- survives regeneration. Three forms, one per source of card:
+       -- conflict:<path>, diag:<code>:<path>#<ordinal> -- the ordinal
+       -- separates several diagnostics sharing one code and path -- and
+       -- choice:<path>.
        card_id    TEXT NOT NULL,
        state      TEXT NOT NULL CHECK (state IN ('accepted')),
        note       TEXT NOT NULL,
@@ -138,11 +141,21 @@ const MIGRATIONS: string[][] = [
     // while fresh evidence disagrees with it answers the `override.conflict`
     // report, and the answer is a decision of its own: without these the report
     // would simply stop appearing, which is the silent clobbering the whole
-    // conflict mechanism exists to prevent. Both are NULL together on an
-    // override that answered nothing, and both are cleared by any later value
-    // change that had no conflict standing against it.
+    // conflict mechanism exists to prevent. They are NULL together on an
+    // override that answered nothing; a note-only edit leaves them alone,
+    // because annotating is not answering; and any later value change with no
+    // conflict standing against it clears them, because that value retired
+    // nothing and must not inherit a retirement it had no part in.
     `ALTER TABLE token_overrides ADD COLUMN resolved_value TEXT`,
     `ALTER TABLE token_overrides ADD COLUMN resolved_base TEXT`,
+  ],
+  [
+    // The engine's answer the reviewer actually responded to. Without it the
+    // only engine value on hand is the one the *current* kit distils, which
+    // after another regeneration is a number nobody ever answered -- and
+    // `design.md` said it had been. NULL on a record written before this
+    // column, which reads as "the engine moved" rather than naming a value.
+    `ALTER TABLE token_overrides ADD COLUMN resolved_engine TEXT`,
   ],
 ]
 

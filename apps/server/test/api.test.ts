@@ -382,7 +382,12 @@ describe('review: overrides and decisions', () => {
       border: {
         width: {
           value: number
-          provenance: { decision: { strategy: string; resolvedConflict?: { value: string; baseValue: string } } }
+          provenance: {
+            decision: {
+              strategy: string
+              resolvedConflict?: { value: string; baseValue: string; engineValue?: string }
+            }
+          }
         }
       }
       diagnostics: Array<{ code: string; level: string; message: string }>
@@ -613,7 +618,7 @@ describe('review: overrides and decisions', () => {
     // document a consumer reads.
     const decision = after.tokens.border.width.provenance.decision
     expect(decision.strategy).toBe('user-override')
-    expect(decision.resolvedConflict).toEqual({ value: '2px', baseValue: '0.5px' })
+    expect(decision.resolvedConflict).toEqual({ value: '2px', baseValue: '0.5px', engineValue: engineWidth })
     expect(after.designMd).toContain('answered a conflict with new evidence')
     expect(after.designMd).toContain('`border.width` is now 4px')
 
@@ -626,7 +631,8 @@ describe('review: overrides and decisions', () => {
   })
 
   it('keeps the record of an answered conflict through a later note-only edit', async () => {
-    await seed()
+    const generated = await seed()
+    const engineWidth = `${generated.tokens.border.width.value}px`
     await harness.store.reviews.setOverride(null, {
       path: 'border.width',
       value: '2px',
@@ -649,6 +655,7 @@ describe('review: overrides and decisions', () => {
     expect(after.tokens.border.width.provenance.decision.resolvedConflict).toEqual({
       value: '2px',
       baseValue: '0.5px',
+      engineValue: engineWidth,
     })
     expect(after.designMd).toContain('answered a conflict with new evidence')
     expect(after.designMd).toContain('the hairline reads too thin at this scale')
@@ -751,7 +758,7 @@ describe('review: overrides and decisions', () => {
     })
 
     it('still reports a conflict it has not answered, and records answering it', async () => {
-      const { stored } = await moveTheHeight()
+      const { stored, rederived } = await moveTheHeight()
       // A decision carried forward from before the border moved: what it was
       // set against is no longer what the engine says.
       await harness.store.reviews.setOverride(null, { path, value: '48px', baseValue: stored, note: '' })
@@ -765,8 +772,85 @@ describe('review: overrides and decisions', () => {
       // a report that simply stopped appearing would be the silent clobbering
       // the conflict mechanism exists to prevent.
       expect(after.review.conflicts).toEqual([])
-      expect(decisionOf(after)?.resolvedConflict).toEqual({ value: '48px', baseValue: stored })
+      expect(decisionOf(after)?.resolvedConflict).toEqual({
+        value: '48px',
+        baseValue: stored,
+        engineValue: rederived,
+      })
       expect(after.designMd).toContain('answered a conflict with new evidence')
+    })
+  })
+
+  describe('the record of an answered conflict', () => {
+    const path = 'components.recipes.input.height'
+    const decisionOf = (payload: KitResponse) =>
+      payload.tokens.components.recipes.find((recipe) => recipe.name === 'input')?.height.provenance.decision
+    const heightOf = (payload: KitResponse): string =>
+      `${payload.tokens.components.recipes.find((recipe) => recipe.name === 'input')?.height.value as number}px`
+
+    /**
+     * A conflict answered while another override is in force.
+     *
+     * Widening the border re-derives the height, so the answer the reviewer
+     * responds to is not the height the stored kit distils -- which is what
+     * tells the two numbers apart in what design.md goes on to say.
+     */
+    async function answerAConflict(): Promise<{ stored: string; answered: string }> {
+      const generated = await seed()
+      const widened = await harness.call('/api/reviews/overrides', put({ path: 'border.width', value: '3px' }))
+      const answeredValue = heightOf((await widened.json()) as KitResponse)
+      expect(answeredValue).not.toBe(heightOf(generated))
+
+      // A decision carried forward from before the evidence moved.
+      await harness.store.reviews.setOverride(null, { path, value: '48px', baseValue: '20px', note: '' })
+      const conflicted = await harness.json<KitResponse>('/api/kits/latest')
+      expect(conflicted.review.conflicts.map((entry) => entry.path)).toEqual([path])
+
+      const response = await harness.call('/api/reviews/overrides', put({ path, value: '50px' }))
+      expect(response.status).toBe(200)
+      return { stored: heightOf(generated), answered: answeredValue }
+    }
+
+    it('names the answer that was answered, not the one this version distils', async () => {
+      const { stored, answered } = await answerAConflict()
+      const after = await harness.json<KitResponse>('/api/kits/latest')
+
+      expect(decisionOf(after)?.resolvedConflict).toEqual({
+        value: '48px',
+        baseValue: '20px',
+        engineValue: answered,
+      })
+      expect(after.designMd).toContain(`the captures then moved to ${answered}`)
+      expect(after.designMd).not.toContain(`the captures then moved to ${stored}`)
+    })
+
+    it('never reports one path as both answered and in conflict', async () => {
+      const { stored } = await answerAConflict()
+      // The other override goes away, so the engine's answer for this slot moves
+      // back and disagrees with what it said when the conflict was answered.
+      const cleared = await harness.call('/api/reviews/overrides?path=border.width', { method: 'DELETE' })
+      expect(cleared.status).toBe(200)
+
+      const after = (await cleared.json()) as KitResponse
+      expect(after.review.conflicts.map((entry) => entry.path)).toEqual([path])
+      expect(after.designMd).toContain('**override.conflict**')
+      expect(after.designMd).toContain(stored)
+      // One document, one story: the warning above and §10 must not disagree.
+      expect(after.designMd).not.toContain('answered a conflict with new evidence')
+    })
+
+    it('clears the record when a later value change answered nothing', async () => {
+      await answerAConflict()
+      const edited = await harness.call('/api/reviews/overrides', put({ path, value: '52px' }))
+      const after = (await edited.json()) as KitResponse
+
+      expect(after.review.conflicts).toEqual([])
+      expect(decisionOf(after)?.resolvedConflict).toBeUndefined()
+      expect(after.designMd).not.toContain('answered a conflict with new evidence')
+      const { overrides } = await harness.json<{
+        overrides: Array<{ path: string; resolvedConflict?: unknown }>
+      }>('/api/reviews')
+      expect(overrides.find((entry) => entry.path === path)?.resolvedConflict).toBeUndefined()
     })
   })
 

@@ -112,9 +112,15 @@ Applying one does three things beyond writing the value:
   refreshes `baseValue` when the value moves and preserves it when only the
   reason does, so annotating an override does not quietly drop the report. A
   response that does retire one is itself recorded, as `resolvedConflict` on the
-  override's own decision, and `design.md` §10 names what was answered — a
-  warning that simply stopped appearing would be the clobbering this mechanism
-  exists to prevent.
+  override's own decision — the abandoned value, the engine's answer when it was
+  set, and the answer that was actually responded to — and `design.md` §10 names
+  what was answered from that record rather than from the engine's answer in the
+  current version, which after another regeneration is a number nobody answered.
+  A warning that simply stopped appearing would be the clobbering this mechanism
+  exists to prevent; so would a §10 paragraph calling a disagreement answered
+  while the warnings above still report it, so a path in conflict is left out of
+  that paragraph, and a value change that answered nothing clears the record
+  rather than inheriting it.
 - **Re-derives what depended on the value.** Overriding a base colour re-derives
   the interaction shades computed from it -- `primaryHover`, `primaryActive`,
   `selectedSurface` and the disabled pair -- through the engine's own derivation
