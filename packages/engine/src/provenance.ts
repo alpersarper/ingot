@@ -90,6 +90,21 @@ export interface DominantChoice {
   note?: string
   /**
    * Present when `strategy` is `user-override` on a token that holds more than
+   * one overridable field: what stood in the field this decision set, before it
+   * did.
+   *
+   * `supersedes` is the whole decision that was replaced, and on a multi-field
+   * token that decision answers for the token rather than for one field -- a
+   * typography step's `chosen` is its font size, whatever field was overridden.
+   * Saying "the engine chose 15px" of a line height is exactly the kind of thing
+   * the kit must not say, so the field's own prior value is recorded here and is
+   * what every surface reads when it names the engine's answer for this field.
+   * The replaced decision itself is left intact, because the token's other
+   * fields still read it.
+   */
+  supersededValue?: string
+  /**
+   * Present when `strategy` is `user-override` on a token that holds more than
    * one overridable field: the fields this decision set.
    *
    * A typography step is one token carrying a size, a line height and a weight,
@@ -277,17 +292,26 @@ export function sanction(chosen: string, derivation: Derivation): DominantChoice
  * override, and `design.md` needs it to say what the kit would have chosen. An
  * override never rewrites `observed` -- the evidence is what it is.
  *
- * `fields` is given only for a token that holds several overridable fields, and
- * names the ones this decision set. Omitting it means the decision answers for
- * the whole token, which is what every single-valued token needs.
+ * `fields` and `supersededValue` are given only for a token that holds several
+ * overridable fields: which of them this decision set, and what stood in it
+ * before. Omitting them means the decision answers for the whole token, which is
+ * what every single-valued token needs -- there, `supersedes.chosen` is already
+ * the engine's answer for the one value in play.
  */
 export function userOverride(
   chosen: string,
   supersedes: DominantChoice,
-  note?: string,
-  resolvedConflict?: ResolvedConflict,
-  fields?: readonly string[],
+  options: {
+    note?: string
+    resolvedConflict?: ResolvedConflict
+    fields?: readonly string[]
+    supersededValue?: string
+  } = {},
 ): DominantChoice {
+  const { note, resolvedConflict, fields, supersededValue } = options
+  // What the engine said for the field this decision is about, which on a
+  // multi-field token is not what the replaced decision's own `chosen` says.
+  const replaced = supersededValue ?? supersedes.chosen
   const decision: DominantChoice = {
     strategy: 'user-override',
     chosen,
@@ -297,13 +321,14 @@ export function userOverride(
     competitors: [],
     summary:
       resolvedConflict === undefined
-        ? `user override: ${chosen} (the engine chose ${supersedes.chosen})`
-        : `user override: ${chosen} (the engine chose ${supersedes.chosen}); chosen in answer to the conflict against ${resolvedConflict.value}, which was set when the engine said ${resolvedConflict.baseValue}`,
+        ? `user override: ${chosen} (the engine chose ${replaced})`
+        : `user override: ${chosen} (the engine chose ${replaced}); chosen in answer to the conflict against ${resolvedConflict.value}, which was set when the engine said ${resolvedConflict.baseValue}`,
     supersedes,
   }
   if (note !== undefined && note !== '') decision.note = note
   if (resolvedConflict !== undefined) decision.resolvedConflict = resolvedConflict
   if (fields !== undefined) decision.fields = [...fields].sort(byString)
+  if (supersededValue !== undefined) decision.supersededValue = supersededValue
   return decision
 }
 

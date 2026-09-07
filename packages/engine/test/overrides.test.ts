@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest'
 import { distill, serializeTokens } from '../src/distill'
 import { round } from '../src/util/num'
 import { renderDesignMarkdown } from '../src/export/design-md'
+import { renderComponentMarkdown } from '../src/export/component-md'
 import {
   applyOverrides,
   baselineFor,
@@ -829,6 +830,58 @@ describe('a typography step, which is three slots behind one record', () => {
     // says what it replaced, rather than pointing at the line height's answer.
     const size = tokenSlots(both).find((slot) => slot.path === 'typography.steps.base.fontSize')
     expect(size?.provenance.decision.supersedes?.chosen).toBe(engineSize)
+  })
+
+  it('states the engine answer for the field that was set, not the step\'s size', () => {
+    // The step's own decision answers for the whole token, and its `chosen` is
+    // the font size whatever field was overridden. A line height whose stated
+    // engine answer is a pixel length is the kind of thing this document must
+    // never say.
+    const engineWeight = String(step?.value.fontWeight as number)
+    for (const [field, value, engineAnswer] of [
+      ['lineHeight', '1.5', engineLineHeight],
+      ['fontWeight', '500', engineWeight],
+    ] as const) {
+      const path = `typography.steps.base.${field}`
+      const next = applyOverrides(tokens, [{ path, value, baseValue: engineAnswer, note: 'airier' }]).tokens
+      const slot = tokenSlots(next).find((entry) => entry.path === path)
+      expect(slot?.provenance.decision.supersedes?.chosen).toBe(engineAnswer)
+      expect(slot?.provenance.decision.summary).toContain(`the engine chose ${engineAnswer}`)
+
+      // design.md §10 and the per-component "What was overridden" table read
+      // that one record, so both name the field's own prior value.
+      const row = renderDesignMarkdown(next)
+        .split('\n')
+        .filter((line) => line.startsWith(`| \`${path}\``))
+      expect(row).toHaveLength(1)
+      expect(splitRow(row[0] as string)).toEqual([`\`${path}\``, value, engineAnswer, 'airier'])
+
+      // The per-component markdown reads the same record, so a row it prints
+      // for an overridden field names that field's answer too. (Button docs
+      // reference the size and the line height of the step they use; the weight
+      // is not one of their rows, so there is nothing there to be wrong about.)
+      const component = renderComponentMarkdown(next, 'button')
+        .split('\n')
+        .filter((line) => line.includes('type step base') && line.includes('airier'))
+      for (const line of component) expect(line).not.toContain(engineSize)
+      if (field === 'lineHeight') {
+        expect(component).toHaveLength(1)
+        expect(splitRow(component[0] as string)).toEqual(['type step base line height', value, engineAnswer, 'airier'])
+      }
+    }
+  })
+
+  it('gives each of two overridden fields its own engine answer', () => {
+    const both = applyOverrides(tokens, [
+      { path: 'typography.steps.base.fontSize', value: '18px', baseValue: engineSize },
+      { path: 'typography.steps.base.lineHeight', value: '1.7', baseValue: engineLineHeight },
+    ]).tokens
+    const answerFor = (path: string): string | undefined =>
+      tokenSlots(both).find((slot) => slot.path === path)?.provenance.decision.supersedes?.chosen
+    // One chain, two questions: narrowing it for the line height must not make
+    // the size report the line height's answer.
+    expect(answerFor('typography.steps.base.fontSize')).toBe(engineSize)
+    expect(answerFor('typography.steps.base.lineHeight')).toBe(engineLineHeight)
   })
 
   it('stays deterministic', () => {

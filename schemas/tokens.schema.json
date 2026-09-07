@@ -445,6 +445,10 @@
           "description": "Present when strategy is user-override: the decision a human replaced. Keeping it is what lets a later distillation report a conflict instead of silently clobbering either side."
         },
         "note": { "type": "string", "description": "Present when strategy is user-override: the reviewer's own reason." },
+        "supersededValue": {
+          "type": "string",
+          "description": "Present when strategy is user-override on a token holding several overridable fields: what stood in the field this decision set, before it did. The replaced decision in supersedes answers for the whole token (a typography step's chosen is its font size whatever field was overridden), so this is what a surface reads when it names the engine's answer for this field."
+        },
         "fields": {
           "type": "array",
           "items": { "type": "string" },

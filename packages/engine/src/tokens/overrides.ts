@@ -374,7 +374,11 @@ function covers(decision: DominantChoice, field: string): boolean {
  * slot report its own authority: the size says "yours", the line height still
  * says what the engine decided and why. The chain is walked for `supersedes`
  * too, so "the engine chose" on an overridden field names the engine's decision
- * rather than another field's override.
+ * rather than another field's override -- and the decision it lands on reports
+ * *this* field's prior value, from the `supersededValue` the override recorded,
+ * rather than the token-wide `chosen` that answers for the size. The replaced
+ * decision is copied rather than rewritten, because the sibling fields still
+ * read it and it answers differently for each of them.
  */
 function decisionForField(decision: DominantChoice, field: string): DominantChoice {
   let current = decision
@@ -384,7 +388,11 @@ function decisionForField(decision: DominantChoice, field: string): DominantChoi
     current = next
   }
   if (current.strategy !== 'user-override' || current.supersedes === undefined) return current
-  const superseded = decisionForField(current.supersedes, field)
+  const resolved = decisionForField(current.supersedes, field)
+  const superseded =
+    current.supersededValue === undefined || resolved.chosen === current.supersededValue
+      ? resolved
+      : { ...resolved, chosen: current.supersededValue }
   return superseded === current.supersedes ? current : { ...current, supersedes: superseded }
 }
 
@@ -705,15 +713,15 @@ export function standingConflict(
  * It is also the only place the "agrees with the engine" refusal lives, and
  * that refusal is narrower than it looks:
  *
- *   - **`tokens` must be the document the reviewer is looking at**, not the
- *     pristine distillation. Replaying an override re-derives what depended on
- *     it, so the engine's current answer for a control height or an interaction
- *     shade is the re-derived value. Judging against the stored bytes would
- *     refuse a reviewer pinning a height back to what it was before another
- *     override moved it -- a value that genuinely disagrees with what the kit
- *     now says. Pass the effective document with this path's own override left
- *     out. (`baseValue` is a different question and still comes from the
- *     pristine document: it is what a later regeneration is compared against.)
+ *   - **`tokens` is the baseline**, not the pristine distillation. Replaying an
+ *     override re-derives what depended on it, so the engine's current answer
+ *     for a control height or an interaction shade is the re-derived value.
+ *     Judging against the stored bytes would refuse a reviewer pinning a height
+ *     back to what it was before another override moved it -- a value that
+ *     genuinely disagrees with what the kit now says. {@link baselineFor} builds
+ *     the document this takes: every other override replayed, this path's own
+ *     left out. (`baseValue` is recorded from that same baseline, because it is
+ *     an input to the conflict comparison later made against it.)
  *   - **`mode` says which question is being asked.** Creating an override that
  *     merely restates the baseline is not an override and is refused. Editing
  *     one that already stands -- a new value, a new reason, or the same value on
@@ -814,20 +822,22 @@ function write(
   recipesTouched: Set<string>,
   resolvedConflict?: ResolvedConflict,
 ): void {
-  // `field` is given only for a token that holds several overridable fields: it
-  // is recorded on the decision so every surface can tell which of them a human
-  // actually set. The whole prior decision stays in `supersedes` either way, so
+  // `field` is given only for a token that holds several overridable fields.
+  // Two things are recorded for it: which field a human set, and what stood in
+  // that field before -- `slot.value`, read from this document before any of
+  // this replay's writes. The replaced decision answers for the whole token, so
+  // its own `chosen` is the step's font size whatever field was overridden, and
+  // that is what a surface would otherwise print as the engine's answer for a
+  // line height. The whole prior decision stays in `supersedes` either way, so
   // an earlier override of a sibling field is never dropped.
   const stamp = (token: { provenance: Provenance }, field?: string): void => {
     token.provenance = {
       ...token.provenance,
-      decision: userOverride(
-        value,
-        token.provenance.decision,
-        note,
-        resolvedConflict,
-        field === undefined ? undefined : [field],
-      ),
+      decision: userOverride(value, token.provenance.decision, {
+        ...(note === undefined ? {} : { note }),
+        ...(resolvedConflict === undefined ? {} : { resolvedConflict }),
+        ...(field === undefined ? {} : { fields: [field], supersededValue: slot.value }),
+      }),
     }
   }
 

@@ -85,7 +85,7 @@ not the number of captures: one card contributes four corner radii.
 | `role-assignment` | A colour cluster was given a semantic role by the role heuristics. `summary` names the rule that fired. |
 | `derived` | Nothing suitable was observed; the value was computed from another token. Carries a `derivation`. |
 | `sanctioned-default` | Nothing was observed **and** nothing else in the document implied the value, so the engine supplied one of its own. Carries a `derivation` and never any `captureIds`. Kept separate from `derived` because the two carry different authority: a derived value is a consequence of this kit, a default is the engine's house choice and is the first thing a reviewer should feel free to override. |
-| `user-override` | A human replaced the engine's answer in the panel. Carries `supersedes` -- the whole decision it replaced -- and, when the reviewer gave one, a `note`. `observed` is left exactly as the engine wrote it: an override changes the answer, never the evidence. |
+| `user-override` | A human replaced the engine's answer in the panel. Carries `supersedes` -- the whole decision it replaced -- and, when the reviewer gave one, a `note`. `observed` is left exactly as the engine wrote it: an override changes the answer, never the evidence. On a token holding several overridable fields it also carries `fields` and `supersededValue`: which field was set, and what stood in that field before. |
 
 ### Overrides
 
@@ -172,11 +172,13 @@ contract between the engine and the panel: a path the panel offers but
 
 A few slots share one token. A typography step carries a size, a line height and
 a weight behind a single provenance record, so an override there records which
-fields it set, in `fields` on the decision. That record is what every surface
-reads — the slot enumeration, the origin label, `design.md` §10 and the
-per-component markdown — so setting the size of a step leaves its line height
-reading as measured, with the engine's own decision still attached, rather than
-claiming two values a human never touched.
+fields it set, in `fields` on the decision, and what stood in that field before,
+in `supersededValue`. Both are what every surface reads — the slot enumeration,
+the origin label, `design.md` §10 and the per-component markdown — so setting the
+size of a step leaves its line height reading as measured, with the engine's own
+decision still attached, rather than claiming two values a human never touched;
+and overriding the line height reports the line height the engine chose rather
+than the step's font size, which is what the shared record's own `chosen` names.
 
 ### Derivations
 
