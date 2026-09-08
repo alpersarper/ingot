@@ -1,25 +1,33 @@
 /*
  * The canonical components' stylesheet.
  *
- * Every value here is a `var(--kit-*)`, without exception. That is the rule the
- * architecture note calls "tokens paint, they cannot break the skeleton": the
- * geometry, the interaction states and the rhythm are our workmanship and live
- * here; the numbers and colours come from the user's kit and live in
- * `kit-css.ts`. A hardcoded colour or radius in this file would be a value the
+ * Every visual value here is a `var(--kit-*)`, without exception -- no colour,
+ * no length, no radius, no font size, not even as a fallback. That is the rule
+ * the architecture note calls "tokens paint, they cannot break the skeleton":
+ * the geometry, the interaction states and the rhythm are our workmanship and
+ * live here; the numbers and colours come from the user's kit and are decided
+ * in `kit-css.ts`. A literal in this file would put a value on screen that the
  * exported `design.md` never mentions, which is the one thing that makes a
- * preview lie.
+ * preview lie. `test/canonical-css.test.ts` reads this file and enforces it.
  *
- * Card is composed from the scales rather than from a recipe, because the
- * engine emits no card recipe -- a card is a surface, a border and a radius,
- * and inventing a recipe for it would be inventing evidence.
+ * What is *not* a visual value stays literal on purpose: layout structure
+ * (`display`, `flex-direction`), transition timing, and cursor. None of those
+ * are things a design kit decides, and turning them into tokens would be
+ * pretending the captures said something about them.
+ *
+ * Forced states. Every interactive rule is written as a pair of selectors --
+ * the real pseudo-class and a `[data-force]` attribute -- sharing one
+ * declaration block. That is what lets a documentation page show hover and
+ * pressed without a pointer, using the same declarations the live control uses
+ * rather than an approximation of them.
  */
 
 .kit-surface {
   background: var(--kit-color-background);
   color: var(--kit-color-text);
   font-family: var(--kit-font-sans);
-  font-size: var(--kit-text-base-size);
-  line-height: var(--kit-text-base-leading);
+  font-size: var(--kit-type-body-size);
+  line-height: var(--kit-type-body-leading);
   container-type: inline-size;
 }
 
@@ -29,7 +37,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: calc(var(--kit-space-unit) * 0.75);
+  gap: var(--kit-space-tight);
   border-style: solid;
   border-width: var(--kit-border-width);
   cursor: pointer;
@@ -41,7 +49,8 @@
     color 120ms ease;
 }
 
-.kit-button:focus-visible {
+.kit-button:focus-visible,
+.kit-button[data-force='focus'] {
   outline: var(--kit-ring-width) solid var(--kit-ring-color);
   outline-offset: var(--kit-ring-offset);
 }
@@ -60,12 +69,14 @@
   font-weight: var(--kit-button-primary-weight);
   background: var(--kit-button-primary-surface);
   color: var(--kit-button-primary-foreground);
-  border-color: var(--kit-button-primary-border, transparent);
+  border-color: var(--kit-button-primary-border);
 }
-.kit-button[data-variant='primary']:hover:not(:disabled) {
+.kit-button[data-variant='primary']:hover:not(:disabled),
+.kit-button[data-variant='primary'][data-force='hover'] {
   background: var(--kit-button-primary-hover-surface);
 }
-.kit-button[data-variant='primary']:active:not(:disabled) {
+.kit-button[data-variant='primary']:active:not(:disabled),
+.kit-button[data-variant='primary'][data-force='active'] {
   background: var(--kit-color-primary-active);
 }
 
@@ -78,9 +89,12 @@
   font-weight: var(--kit-button-secondary-weight);
   background: var(--kit-button-secondary-surface);
   color: var(--kit-button-secondary-foreground);
-  border-color: var(--kit-button-secondary-border, transparent);
+  border-color: var(--kit-button-secondary-border);
 }
-.kit-button[data-variant='secondary']:hover:not(:disabled) {
+.kit-button[data-variant='secondary']:hover:not(:disabled),
+.kit-button[data-variant='secondary'][data-force='hover'],
+.kit-button[data-variant='secondary']:active:not(:disabled),
+.kit-button[data-variant='secondary'][data-force='active'] {
   background: var(--kit-button-secondary-hover-surface);
 }
 
@@ -93,9 +107,12 @@
   font-weight: var(--kit-button-ghost-weight);
   background: var(--kit-button-ghost-surface);
   color: var(--kit-button-ghost-foreground);
-  border-color: var(--kit-button-ghost-border, transparent);
+  border-color: var(--kit-button-ghost-border);
 }
-.kit-button[data-variant='ghost']:hover:not(:disabled) {
+.kit-button[data-variant='ghost']:hover:not(:disabled),
+.kit-button[data-variant='ghost'][data-force='hover'],
+.kit-button[data-variant='ghost']:active:not(:disabled),
+.kit-button[data-variant='ghost'][data-force='active'] {
   background: var(--kit-button-ghost-hover-surface);
 }
 
@@ -108,9 +125,15 @@
   font-weight: var(--kit-button-destructive-weight);
   background: var(--kit-button-destructive-surface);
   color: var(--kit-button-destructive-foreground);
-  border-color: var(--kit-button-destructive-border, transparent);
+  border-color: var(--kit-button-destructive-border);
 }
-.kit-button[data-variant='destructive']:hover:not(:disabled) {
+/*
+ * The engine derives no hover fill for a destructive button, and `design.md`
+ * says so: keep the fill constant and let the focus ring carry the feedback,
+ * rather than inventing a darker red the kit never measured.
+ */
+.kit-button[data-variant='destructive']:hover:not(:disabled),
+.kit-button[data-variant='destructive'][data-force='hover'] {
   background: var(--kit-button-destructive-hover-surface);
 }
 
@@ -131,28 +154,32 @@
   cursor: not-allowed;
 }
 
-/* ----------------------------------------------------------------- input -- */
+/* ------------------------------------------------------------ form field -- */
 
 .kit-field {
   display: flex;
   flex-direction: column;
-  gap: calc(var(--kit-space-unit) * 0.75);
+  gap: var(--kit-space-tight);
+  min-width: 0;
 }
 
 .kit-label {
-  font-size: var(--kit-text-sm-size, var(--kit-text-base-size));
-  line-height: var(--kit-text-sm-leading, var(--kit-text-base-leading));
-  font-weight: var(--kit-input-weight);
+  font-size: var(--kit-type-label-size);
+  line-height: var(--kit-type-label-leading);
+  font-weight: var(--kit-type-label-weight);
+  letter-spacing: var(--kit-type-label-tracking);
+  /* A label is not a hint: it is `text`, at full strength. */
   color: var(--kit-color-text);
 }
 
-.kit-input {
+.kit-input,
+.kit-select {
   width: 100%;
   height: var(--kit-input-height);
   padding: 0 var(--kit-input-padding-x);
   border-style: solid;
   border-width: var(--kit-border-width);
-  border-color: var(--kit-input-border, var(--kit-color-border));
+  border-color: var(--kit-input-border);
   border-radius: var(--kit-input-radius);
   background: var(--kit-input-surface);
   color: var(--kit-input-foreground);
@@ -162,26 +189,92 @@
   transition: border-color 120ms ease;
 }
 
+.kit-select {
+  height: var(--kit-select-height);
+  padding: 0 var(--kit-select-padding-x);
+  border-color: var(--kit-select-border);
+  border-radius: var(--kit-select-radius);
+  background: var(--kit-select-surface);
+  color: var(--kit-select-foreground);
+  font-size: var(--kit-select-text-size);
+  line-height: var(--kit-select-text-leading);
+  appearance: none;
+}
+
+.kit-select-shell {
+  position: relative;
+  display: block;
+}
+
+/*
+ * The chevron is drawn, not imported: it is two borders on a rotated square,
+ * so it takes the control's own label colour and needs no icon asset and no
+ * size the kit never described.
+ */
+.kit-select-chevron {
+  position: absolute;
+  top: 50%;
+  right: var(--kit-select-padding-x);
+  width: var(--kit-space-tight);
+  height: var(--kit-space-tight);
+  border-right: var(--kit-border-width) solid var(--kit-color-text-muted);
+  border-bottom: var(--kit-border-width) solid var(--kit-color-text-muted);
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+}
+
 .kit-input::placeholder {
   color: var(--kit-color-text-muted);
 }
 
-.kit-input:focus-visible {
+.kit-input:focus-visible,
+.kit-input[data-force='focus'],
+.kit-select:focus-visible,
+.kit-select[data-force='focus'] {
   outline: var(--kit-ring-width) solid var(--kit-ring-color);
   outline-offset: var(--kit-ring-offset);
   border-color: var(--kit-color-primary);
 }
 
-.kit-input:disabled {
+.kit-input:hover:not(:disabled),
+.kit-input[data-force='hover'],
+.kit-select:hover:not(:disabled),
+.kit-select[data-force='hover'] {
+  border-color: var(--kit-color-text-muted);
+}
+
+.kit-input:disabled,
+.kit-select:disabled {
   background: var(--kit-color-disabled-surface);
   color: var(--kit-color-disabled-foreground);
+  border-color: var(--kit-color-disabled-surface);
   cursor: not-allowed;
 }
 
+/*
+ * Invalid. The message replaces the help text below the control, so the control
+ * itself does not change height and a form does not jump when a field fails.
+ */
+.kit-field[data-invalid='true'] .kit-input,
+.kit-field[data-invalid='true'] .kit-select {
+  border-color: var(--kit-color-destructive);
+}
+
+.kit-hint,
+.kit-error {
+  font-size: var(--kit-type-caption-size);
+  line-height: var(--kit-type-caption-leading);
+  letter-spacing: var(--kit-type-caption-tracking);
+  margin: 0;
+}
+
 .kit-hint {
-  font-size: var(--kit-text-sm-size, var(--kit-text-base-size));
-  line-height: var(--kit-text-sm-leading, var(--kit-text-base-leading));
   color: var(--kit-color-text-muted);
+}
+
+.kit-error {
+  color: var(--kit-color-destructive);
+  font-weight: var(--kit-type-label-weight);
 }
 
 /* ------------------------------------------------------------------ card -- */
@@ -189,33 +282,165 @@
 .kit-card {
   display: flex;
   flex-direction: column;
-  gap: var(--kit-space-2, var(--kit-space-unit));
+  gap: var(--kit-space-snug);
   background: var(--kit-color-surface);
   border: var(--kit-border-width) solid var(--kit-color-border);
-  border-radius: var(--kit-radius-lg, var(--kit-radius-md, var(--kit-radius-sm, 0px)));
-  box-shadow: var(--kit-shadow-sm, none);
-  padding: var(--kit-space-3, calc(var(--kit-space-unit) * 3));
+  border-radius: var(--kit-radius-card);
+  box-shadow: var(--kit-shadow-card);
+  padding: var(--kit-space-comfy);
+  min-width: 0;
+}
+
+.kit-card-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--kit-space-tight);
 }
 
 .kit-card-title {
-  font-size: var(--kit-text-lg-size, var(--kit-text-base-size));
-  line-height: var(--kit-text-lg-leading, var(--kit-text-base-leading));
-  font-weight: var(--kit-text-lg-weight, 600);
-  letter-spacing: var(--kit-text-lg-tracking, normal);
+  font-size: var(--kit-type-title-size);
+  line-height: var(--kit-type-title-leading);
+  font-weight: var(--kit-type-title-weight);
+  letter-spacing: var(--kit-type-title-tracking);
   color: var(--kit-color-text);
   margin: 0;
 }
 
+.kit-card-meta,
 .kit-card-body {
   color: var(--kit-color-text-muted);
   margin: 0;
 }
 
+.kit-card-meta {
+  font-size: var(--kit-type-caption-size);
+  line-height: var(--kit-type-caption-leading);
+}
+
 .kit-card-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: calc(var(--kit-space-unit) * 1.5);
-  margin-top: calc(var(--kit-space-unit) * 1);
+  gap: var(--kit-space-snug);
+  margin-top: var(--kit-space-tight);
+}
+
+/* ------------------------------------------------------------------ stat -- */
+
+.kit-stat {
+  gap: var(--kit-space-tight);
+}
+
+.kit-stat-label {
+  font-size: var(--kit-type-caption-size);
+  line-height: var(--kit-type-caption-leading);
+  font-weight: var(--kit-type-label-weight);
+  color: var(--kit-color-text-muted);
+  margin: 0;
+}
+
+.kit-stat-value {
+  font-size: var(--kit-type-display-size);
+  line-height: var(--kit-type-display-leading);
+  font-weight: var(--kit-type-display-weight);
+  letter-spacing: var(--kit-type-display-tracking);
+  color: var(--kit-color-text);
+  margin: 0;
+}
+
+.kit-stat-hint {
+  font-size: var(--kit-type-caption-size);
+  line-height: var(--kit-type-caption-leading);
+  color: var(--kit-color-text-muted);
+  margin: 0;
+}
+
+/* ----------------------------------------------------------------- badge -- */
+
+.kit-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--kit-badge-height);
+  padding: 0 var(--kit-badge-padding-x);
+  border-radius: var(--kit-badge-radius);
+  border: var(--kit-border-width) solid var(--kit-badge-border);
+  background: var(--kit-badge-surface);
+  color: var(--kit-badge-foreground);
+  font-size: var(--kit-badge-text-size);
+  line-height: var(--kit-badge-text-leading);
+  font-weight: var(--kit-badge-weight);
+  white-space: nowrap;
+}
+
+/*
+ * The only tone beyond the default one. This kit has no status palette, so
+ * "paid" and "pending" are told apart by their words -- see the badge doc.
+ */
+.kit-badge[data-tone='destructive'] {
+  background: var(--kit-color-destructive);
+  border-color: var(--kit-color-destructive);
+  color: var(--kit-color-destructive-foreground);
+}
+
+/* ----------------------------------------------------------------- table -- */
+
+.kit-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.kit-table-caption {
+  caption-side: top;
+  text-align: left;
+  color: var(--kit-color-text-muted);
+  font-size: var(--kit-type-caption-size);
+  line-height: var(--kit-type-caption-leading);
+  padding-bottom: var(--kit-space-snug);
+}
+
+.kit-table th {
+  height: var(--kit-table-header-height);
+  padding: 0 var(--kit-table-header-padding-x);
+  background: var(--kit-table-header-surface);
+  color: var(--kit-table-header-foreground);
+  font-size: var(--kit-table-header-text-size);
+  line-height: var(--kit-table-header-text-leading);
+  font-weight: var(--kit-table-header-weight);
+  /* One rule underneath, never a filled band. */
+  border-bottom: var(--kit-border-width) solid var(--kit-color-border);
+  white-space: nowrap;
+}
+
+.kit-table td {
+  height: var(--kit-table-row-height);
+  padding: 0 var(--kit-table-row-padding-x);
+  color: var(--kit-table-row-foreground);
+  font-size: var(--kit-table-row-text-size);
+  line-height: var(--kit-table-row-text-leading);
+  font-weight: var(--kit-table-row-weight);
+  border-bottom: var(--kit-border-width) solid var(--kit-color-border);
+}
+
+.kit-table th[data-numeric='true'],
+.kit-table td[data-numeric='true'] {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.kit-table tbody tr:hover td,
+.kit-table tbody tr[data-force='hover'] td {
+  background: var(--kit-table-row-hover-surface);
+}
+
+/* Selection reads by hue, hover by lightness; they must not be swapped. */
+.kit-table tbody tr[data-selected='true'] td {
+  background: var(--kit-color-selected-surface);
+  color: var(--kit-color-text);
+}
+
+.kit-table tbody tr:last-child td {
+  border-bottom: 0;
 }
 
 /* ------------------------------------------------------------ typography -- */
@@ -224,8 +449,8 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: calc(var(--kit-space-unit) * 2);
-  padding-block: calc(var(--kit-space-unit) * 1);
+  gap: var(--kit-space-snug);
+  padding-block: var(--kit-space-tight);
   border-bottom: var(--kit-border-width) solid var(--kit-color-border);
 }
 
@@ -244,44 +469,128 @@
 .kit-type-meta {
   flex: none;
   color: var(--kit-color-text-muted);
-  font-family: var(--kit-font-mono, var(--kit-font-sans));
-  font-size: var(--kit-text-sm-size, var(--kit-text-base-size));
-  line-height: var(--kit-text-sm-leading, var(--kit-text-base-leading));
+  font-family: var(--kit-font-mono);
+  font-size: var(--kit-type-caption-size);
+  line-height: var(--kit-type-caption-leading);
+}
+
+/* ------------------------------------------------------- specimen layout -- */
+
+.kit-specimen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--kit-space-snug);
+}
+
+.kit-specimen-label {
+  font-size: var(--kit-type-caption-size);
+  line-height: var(--kit-type-caption-leading);
+  font-weight: var(--kit-type-label-weight);
+  letter-spacing: var(--kit-type-caption-tracking);
+  text-transform: uppercase;
+  color: var(--kit-color-text-muted);
+  margin: 0;
+}
+
+.kit-specimen-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--kit-space-snug);
 }
 
 /* --------------------------------------------------------- sample layout -- */
 
+.kit-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--kit-space-section);
+  padding: var(--kit-space-page);
+}
+
 .kit-stack {
   display: flex;
   flex-direction: column;
-  gap: var(--kit-space-4, calc(var(--kit-space-unit) * 4));
+  gap: var(--kit-space-comfy);
+  min-width: 0;
+}
+
+.kit-stack-tight {
+  display: flex;
+  flex-direction: column;
+  gap: var(--kit-space-snug);
+  min-width: 0;
 }
 
 .kit-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: calc(var(--kit-space-unit) * 1.5);
+  gap: var(--kit-space-snug);
 }
 
 .kit-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: var(--kit-space-3, calc(var(--kit-space-unit) * 3));
+  gap: var(--kit-space-comfy);
 }
 
-@container (min-width: 44rem) {
+.kit-grid-stats {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--kit-space-snug);
+}
+
+@container (min-width: 34rem) {
+  .kit-grid-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (min-width: 52rem) {
   .kit-grid {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .kit-grid-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
 .kit-section-heading {
-  font-size: var(--kit-text-sm-size, var(--kit-text-base-size));
-  line-height: var(--kit-text-sm-leading, var(--kit-text-base-leading));
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  font-size: var(--kit-type-caption-size);
+  line-height: var(--kit-type-caption-leading);
+  font-weight: var(--kit-type-label-weight);
+  letter-spacing: var(--kit-type-caption-tracking);
   text-transform: uppercase;
   color: var(--kit-color-text-muted);
   margin: 0;
+}
+
+.kit-page-title {
+  font-size: var(--kit-type-display-size);
+  line-height: var(--kit-type-display-leading);
+  font-weight: var(--kit-type-display-weight);
+  letter-spacing: var(--kit-type-display-tracking);
+  color: var(--kit-color-text);
+  margin: 0;
+}
+
+.kit-page-lede {
+  font-size: var(--kit-type-body-size);
+  line-height: var(--kit-type-body-leading);
+  color: var(--kit-color-text-muted);
+  margin: 0;
+}
+
+.kit-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--kit-space-comfy);
+}
+
+.kit-scroll {
+  overflow-x: auto;
+  min-width: 0;
 }

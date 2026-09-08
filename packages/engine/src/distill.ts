@@ -32,6 +32,8 @@ import { distillShadows } from './shadow/shadow'
 import { distillTypography } from './typography/typography'
 import { distillComponents } from './components/components'
 import { ENGINE_NAME, ENGINE_VERSION } from './version'
+import { asPristine } from './tokens/documents'
+import type { PristineTokens } from './tokens/documents'
 import { TOKENS_SCHEMA_VERSION } from './tokens/types'
 import { round } from './util/num'
 import type {
@@ -456,10 +458,14 @@ function distillColor(
 /**
  * Distil a validated capture set into a tokens document.
  *
+ * The result is the *pristine* document -- what the captures said, with nothing
+ * a reviewer decided in it. `tokens/documents.ts` says which question each
+ * document class answers.
+ *
  * Throws {@link import('./capture/validate').CaptureValidationError} if the set
  * does not satisfy the capture schema.
  */
-export function distill(input: unknown): TokensDocument {
+export function distill(input: unknown): PristineTokens {
   const set: CaptureSet = validateCaptureSet(input)
   const captures = [...set.captures].sort((a, b) => byString(a.id, b.id))
   const diagnostics: Diagnostic[] = []
@@ -500,7 +506,7 @@ export function distill(input: unknown): TokensDocument {
     ),
   )
 
-  return {
+  return asPristine({
     schemaVersion: TOKENS_SCHEMA_VERSION,
     engine: { name: ENGINE_NAME, version: ENGINE_VERSION },
     source: {
@@ -522,7 +528,7 @@ export function distill(input: unknown): TokensDocument {
     typography,
     components,
     diagnostics,
-  }
+  })
 }
 
 /**

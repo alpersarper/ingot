@@ -18,6 +18,48 @@
  */
 export { distill, serializeTokens } from './distill'
 export { renderDesignMarkdown } from './export/design-md'
+export { renderComponentMarkdown } from './export/component-md'
+export {
+  COMPONENT_DOC_IDS,
+  componentDoc,
+  componentDocs,
+  docRoles,
+  hoverSurfaceOf,
+} from './export/component-doc'
+export type { ComponentDoc, ComponentDocId, DocColorRow, DocTokenRow, DocVariant } from './export/component-doc'
+
+// Overrides: the reviewer's answer replacing the engine's. Pure and
+// deterministic like the rest of the engine, so the panel can preview an
+// override and the server can replay it and both get the same document.
+export {
+  applyOverrides,
+  baselineFor,
+  canonicalOverrideValue,
+  hasOverrides,
+  originOf,
+  overriddenSlots,
+  overrideRejection,
+  readTokenValue,
+  recipeByName,
+  roleHex,
+  standingConflict,
+  supersededBy,
+  tokenSlots,
+} from './tokens/overrides'
+export { asEffective, asPristine } from './tokens/documents'
+export type { BaselineTokens, EffectiveTokens, PristineTokens } from './tokens/documents'
+export type {
+  AppliedOverride,
+  ConvergedOverride,
+  OverrideConflict,
+  OverrideGroup,
+  OverrideKind,
+  OverrideResult,
+  RejectedOverride,
+  TokenOrigin,
+  TokenOverride,
+  TokenSlot,
+} from './tokens/overrides'
 
 export { validateCaptureRecord, validateCaptureSet, CaptureValidationError } from './capture/validate'
 export { CAPTURE_SCHEMA_VERSION, COMPONENT_TYPES } from './capture/types'
@@ -56,7 +98,7 @@ export type {
   TypographyTokens,
 } from './tokens/types'
 
-export { derive, sanction } from './provenance'
+export { derive, sanction, userOverride } from './provenance'
 export type {
   Contribution,
   Derivation,
@@ -64,6 +106,7 @@ export type {
   DominantChoice,
   ObservedValue,
   Provenance,
+  ResolvedConflict,
 } from './provenance'
 
 export { ENGINE_NAME, ENGINE_VERSION } from './version'

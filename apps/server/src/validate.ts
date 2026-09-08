@@ -39,6 +39,24 @@ export function optionalString(body: Record<string, unknown>, key: string): stri
   return value
 }
 
+/**
+ * A key that may be a string, an explicit `null`, or absent.
+ *
+ * `JSON.stringify` keeps a null property rather than dropping it, so a scope
+ * the panel serialises as "no group selected" arrives as `"groupId": null`.
+ * Deliberately separate from `optionalString`: everywhere else an explicit
+ * null is a malformed body, and relaxing the general reader to admit one call
+ * site's shape would let it through all of them.
+ */
+export function optionalNullableString(body: Record<string, unknown>, key: string): string | null | undefined {
+  if (!(key in body) || body[key] === undefined) return undefined
+  const value = body[key]
+  if (value !== null && typeof value !== 'string') {
+    throw ApiError.badRequest(`${key} must be a string, null, or omitted`)
+  }
+  return value
+}
+
 export function optionalStringArray(body: Record<string, unknown>, key: string): string[] | undefined {
   if (!(key in body) || body[key] === undefined) return undefined
   const value = body[key]

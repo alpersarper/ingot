@@ -75,3 +75,8 @@ export async function createHarness(env: NodeJS.ProcessEnv = {}): Promise<Harnes
 export function body(value: unknown): RequestInit {
   return { method: 'POST', body: JSON.stringify(value) }
 }
+
+/** The same, for the routes that replace rather than create. */
+export function put(value: unknown): RequestInit {
+  return { method: 'PUT', body: JSON.stringify(value) }
+}

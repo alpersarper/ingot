@@ -10,6 +10,8 @@
  * prohibitions, no rationale it cannot act on and no marketing prose.
  */
 import { byString } from '../util/sort'
+import { finish, plural, table } from './markdown'
+import { overriddenSlots } from '../tokens/overrides'
 import { SHADE_RELATIONS } from '../color/roles'
 import { round } from '../util/num'
 import type {
@@ -54,29 +56,6 @@ const SHADCN_VARIABLES: ReadonlyArray<[ColorRoleName, string, string]> = [
 const RADIUS_ORDER: RadiusStepName[] = ['none', 'sm', 'md', 'lg', 'full']
 const SHADOW_ORDER: ShadowStepName[] = ['none', 'sm', 'md', 'lg']
 
-/** `1 origin` / `5 origins`, so the spec never reads like a template. */
-function plural(count: number, noun: string, plural?: string): string {
-  return `${count} ${count === 1 ? noun : (plural ?? `${noun}s`)}`
-}
-
-function pad(value: string, width: number): string {
-  return value.length >= width ? value : value + ' '.repeat(width - value.length)
-}
-
-/** Render a GitHub-flavoured markdown table with aligned columns. */
-function table(headers: readonly string[], rows: ReadonlyArray<readonly string[]>): string[] {
-  const widths = headers.map((header, index) =>
-    Math.max(header.length, ...rows.map((row) => (row[index] ?? '').length)),
-  )
-  const line = (cells: readonly string[]): string =>
-    `| ${cells.map((cell, index) => pad(cell, widths[index] as number)).join(' | ')} |`
-  return [
-    line(headers),
-    `| ${widths.map((width) => '-'.repeat(width)).join(' | ')} |`,
-    ...rows.map((row) => line(row)),
-  ]
-}
-
 /**
  * Render the whole-library design specification for a tokens document.
  *
@@ -92,6 +71,14 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
 
   const role = (name: ColorRoleName): ColorToken | undefined => color.roles[name]
   const hexOf = (name: ColorRoleName): string => role(name)?.value.hex ?? 'n/a'
+
+  // Values a human replaced in the panel. They are as binding as the distilled
+  // ones -- more so, since somebody looked at them -- but a reader is entitled
+  // to know which numbers came from the captures and which came from a person.
+  const overridden = overriddenSlots(tokens)
+  const overriddenPaths = new Set(overridden.map((slot) => slot.path))
+  /** Appended to a cell whose value a person set, so the table is self-labelling. */
+  const mark = (path: string): string => (overriddenPaths.has(path) ? ' *(user override)*' : '')
 
   // --- header ---------------------------------------------------------------
   push(
@@ -110,6 +97,13 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
     `- Type base size: **${typography.baseSize}px**, scale ratio ${typography.scaleRatio}`,
     '',
   )
+
+  if (overridden.length > 0) {
+    push(
+      `> **${plural(overridden.length, 'value')} in this document ${overridden.length === 1 ? 'was' : 'were'} set by hand, not distilled.** They are as binding as the rest — a person reviewed the evidence and disagreed with it — and every one is listed with the engine's own answer in §10. Where a value below is marked *(user override)*, that is what it means.`,
+      '',
+    )
+  }
 
   // --- theme block ----------------------------------------------------------
   push(
@@ -176,7 +170,12 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
           const token = color.roles[name] as ColorToken
           const purpose =
             SHADCN_VARIABLES.find(([roleName]) => roleName === name)?.[2] ?? 'supporting role'
-          return [`\`${name}\``, token.value.hex, token.value.oklch, purpose]
+          return [
+            `\`${name}\``,
+            token.value.hex,
+            token.value.oklch,
+            `${purpose}${mark(`color.roles.${name}`)}`,
+          ]
         }),
     ),
     '',
@@ -289,6 +288,9 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
   // --- spacing --------------------------------------------------------------
   const layoutSteps = spacing.steps.filter((step) => step.value.band === 'layout')
   const componentSteps = spacing.steps.filter((step) => step.value.band === 'component')
+  const offScaleSteps = spacing.steps.filter(
+    (step) => round(step.value.px % spacing.baseUnit, 4) !== 0,
+  )
   push(
     '## 4. Spacing',
     '',
@@ -300,7 +302,7 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
       ['Step', 'px', 'Band', 'Tailwind'],
       spacing.steps.map((step) => [
         `\`${step.value.name}\``,
-        `${step.value.px}px`,
+        `${step.value.px}px${mark(`spacing.steps.${step.value.name}`)}`,
         step.value.band,
         step.value.px === 0 ? '`p-0` / `gap-0`' : `\`p-[${step.value.px}px]\` / \`gap-[${step.value.px}px]\``,
       ]),
@@ -308,7 +310,12 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
     '',
     '### Spacing rules',
     '',
-    `- Every padding, margin and gap is a multiple of ${spacing.baseUnit}px drawn from the table above.`,
+    // Distillation snaps every step onto the base unit, so this rule is true of
+    // any kit nobody has reviewed. A reviewer may set a step off that scale, and
+    // then the blanket claim would be one the table beneath it contradicts.
+    offScaleSteps.length === 0
+      ? `- Every padding, margin and gap is a multiple of ${spacing.baseUnit}px drawn from the table above.`
+      : `- Use only the lengths in the table above. Most are multiples of the ${spacing.baseUnit}px base unit; ${offScaleSteps.map((step) => `\`${step.value.name}\` (${step.value.px}px)`).join(', ')} ${offScaleSteps.length === 1 ? 'is' : 'are'} not, because ${offScaleSteps.length === 1 ? 'it was' : 'they were'} set by hand. A step name is an identifier, not a multiplier.`,
     componentSteps.length > 0
       ? `- Inside a control or a card, use the component steps (up to ${componentSteps[componentSteps.length - 1]?.value.px ?? 0}px). They stay within the range the sources actually use.`
       : '- No component steps were observed; every step in this table is extrapolated.',
@@ -382,10 +389,16 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
    * so "half measured, half defaulted" never reads as "measured".
    */
   const recipeSource = (recipe: ComponentRecipe): string => {
-    const decisions = [recipe.paddingY, recipe.paddingX, recipe.radius, recipe.typeStep, recipe.fontWeight].map(
-      (token) => token.provenance.decision,
-    )
+    const decisions = [
+      recipe.height,
+      recipe.paddingY,
+      recipe.paddingX,
+      recipe.radius,
+      recipe.typeStep,
+      recipe.fontWeight,
+    ].map((token) => token.provenance.decision)
     const kinds: string[] = []
+    if (decisions.some((decision) => decision.strategy === 'user-override')) kinds.push('user override')
     if (decisions.some((decision) => decision.strategy !== 'derived' && decision.strategy !== 'sanctioned-default')) {
       kinds.push('captured')
     }
@@ -542,5 +555,74 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
     '',
   )
 
-  return `${out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()}\n`
+  // --- user overrides -------------------------------------------------------
+  // Emitted only when there are any, so a kit nobody has reviewed does not
+  // carry an empty section explaining a thing that did not happen.
+  if (overridden.length > 0) {
+    push(
+      '## 10. User overrides',
+      '',
+      `${plural(overridden.length, 'value')} below ${overridden.length === 1 ? 'was' : 'were'} set by hand in the Ingot panel. Treat them exactly as you treat the distilled values: they are the system. The engine's own answer is given beside each one so you can see what was disagreed with, and the evidence behind that answer is untouched in \`tokens.json\` — an override changes the answer, never the evidence.`,
+      '',
+      ...table(
+        ['Token', 'Value', 'The engine chose', 'Reason given'],
+        overridden.map((slot) => {
+          const decision = slot.provenance.decision
+          return [
+            `\`${slot.path}\``,
+            slot.value,
+            decision.supersedes?.chosen ?? '—',
+            decision.note ?? '—',
+          ]
+        }),
+      ),
+      '',
+      'When a later distillation disagrees with an override, the disagreement is raised as an `override.conflict` warning above rather than resolved silently: the override keeps the value, and a human decides whether the new evidence changes their mind.',
+      '',
+    )
+
+    // A conflict the reviewer answered is a decision of its own. Letting the
+    // warning simply stop appearing would be the silent clobbering the rest of
+    // this document exists to avoid, so what retired it is stated here.
+    //
+    // A path the warnings above report as *still* in conflict is left out: the
+    // record describes a disagreement that was answered, and printing it beside
+    // a live `override.conflict` for the same token would have one half of this
+    // document contradict the other.
+    const open = new Set(
+      tokens.diagnostics
+        .filter((diagnostic) => diagnostic.code === 'override.conflict' && diagnostic.path !== undefined)
+        .map((diagnostic) => diagnostic.path as string),
+    )
+    const answered = overridden.filter(
+      (slot) => slot.provenance.decision.resolvedConflict !== undefined && !open.has(slot.path),
+    )
+    if (answered.length > 0) {
+      push(
+        `${answered.length === 1 ? 'One of these' : `${answered.length} of these`} answered a conflict with new evidence rather than simply being edited:`,
+        '',
+        ...answered.map((slot) => {
+          const resolved = slot.provenance.decision.resolvedConflict as {
+            value: string
+            baseValue: string
+            engineValue?: string
+          }
+          // The engine's answer that was answered is on the record. It is not
+          // the engine's answer *now*, which is what a later regeneration would
+          // hand back and what nobody responded to.
+          const moved =
+            resolved.engineValue === undefined
+              ? 'the captures then moved'
+              : `the captures then moved to ${resolved.engineValue}`
+          return (
+            `- \`${slot.path}\` is now ${slot.value}. It was ${resolved.value}, set when the engine said ` +
+            `${resolved.baseValue}; ${moved}, and that disagreement was answered here.`
+          )
+        }),
+        '',
+      )
+    }
+  }
+
+  return finish(out)
 }

@@ -1,14 +1,21 @@
-# Tokens document schema (version 2)
+# Tokens document schema (version 3)
 
 `tokens.json` is the distilled design system for one capture set. It is
 **stack-agnostic**: nothing in it names Tailwind, shadcn or CSS variables. That
 specificity lives entirely in the export layer
-([`packages/engine/src/export/design-md.ts`](../packages/engine/src/export/design-md.ts)),
-so adding an export target never means changing this shape.
+([`packages/engine/src/export/`](../packages/engine/src/export)), so adding an
+export target never means changing this shape.
 
 - Normative machine-readable schema: [`schemas/tokens.schema.json`](../schemas/tokens.schema.json)
 - TypeScript types: [`packages/engine/src/tokens/types.ts`](../packages/engine/src/tokens/types.ts)
 - Worked examples: [`examples/*/tokens.json`](../examples)
+
+Version 3 (engine 0.3.0) added the `user-override` provenance strategy and the
+two fields that carry it -- `supersedes` and `note` -- so a value a human set in
+the panel is a first-class provenance state rather than an annotation, and
+survives regeneration with the engine's own answer beside it. Nothing else in
+the shape changed: a kit nobody has reviewed is byte-identical to the version 2
+document for the same captures apart from the two version stamps.
 
 Version 2 (engine 0.2.0) added the `components` section, the three state colour
 roles, and the `component`/`layout` banding on the spacing scale. Version 1
@@ -78,6 +85,106 @@ not the number of captures: one card contributes four corner radii.
 | `role-assignment` | A colour cluster was given a semantic role by the role heuristics. `summary` names the rule that fired. |
 | `derived` | Nothing suitable was observed; the value was computed from another token. Carries a `derivation`. |
 | `sanctioned-default` | Nothing was observed **and** nothing else in the document implied the value, so the engine supplied one of its own. Carries a `derivation` and never any `captureIds`. Kept separate from `derived` because the two carry different authority: a derived value is a consequence of this kit, a default is the engine's house choice and is the first thing a reviewer should feel free to override. |
+| `user-override` | A human replaced the engine's answer in the panel. Carries `supersedes` -- the whole decision it replaced -- and, when the reviewer gave one, a `note`. `observed` is left exactly as the engine wrote it: an override changes the answer, never the evidence. On a token holding several overridable fields it also carries `fields` and `supersededValue`: which field was set, and what stood in that field before. |
+
+### Overrides
+
+An override is applied by [`applyOverrides`](../packages/engine/src/tokens/overrides.ts),
+which is as pure and as deterministic as `distill` itself: same document, same
+overrides, byte-identical output. It is in the engine rather than in the panel
+because the panel previews an override and the server replays it on every read,
+and both have to get the same answer.
+
+Applying one does three things beyond writing the value:
+
+- **Re-checks what the override invalidated.** A hand-set colour is re-measured
+  against every guaranteed pair, and a control height the engine computed from
+  padding, line box and border is re-derived when one of the three moves. A
+  height the reviewer set by hand is left where they put it.
+- **Reports conflicts rather than resolving them.** A stored override carries
+  `baseValue`: the engine's answer at the moment it was made. When the engine's
+  answer later moves away from that, the override still wins the value and the
+  disagreement is raised as an `override.conflict` warning. Neither side is
+  silently clobbered. Both halves of that comparison are read from the
+  **baseline** — see the document classes below — so a slot another override
+  re-derived is judged against the number the reviewer was actually shown. A
+  conflict is retired only by the reviewer *responding* to it: the write path
+  refreshes `baseValue` when the value moves and preserves it when only the
+  reason does, so annotating an override does not quietly drop the report. A
+  response that does retire one is itself recorded, as `resolvedConflict` on the
+  override's own decision — the abandoned value, the engine's answer when it was
+  set, and the answer that was actually responded to — and `design.md` §10 names
+  what was answered from that record rather than from the engine's answer in the
+  current version, which after another regeneration is a number nobody answered.
+  A warning that simply stopped appearing would be the clobbering this mechanism
+  exists to prevent; so would a §10 paragraph calling a disagreement answered
+  while the warnings above still report it, so a path in conflict is left out of
+  that paragraph, and a value change that answered nothing clears the record
+  rather than inheriting it.
+- **Re-derives what depended on the value.** Overriding a base colour re-derives
+  the interaction shades computed from it -- `primaryHover`, `primaryActive`,
+  `selectedSurface` and the disabled pair -- through the engine's own derivation
+  path, holds them to the floors in `color.contrast`, and restates
+  `color.state-collapsed` for the palette that results. A shade the reviewer set
+  by hand is pinned: it is neither recomputed nor bypassed by the shades below
+  it. Without this a kit would ship a blue `primary` whose hover was still the
+  old green, under a derivation naming a colour the document no longer holds.
+  The diagnostics follow the values: `color.state-collapsed` is restated for the
+  palette now on screen, and a `color.contrast-adjusted` or
+  `color.contrast-unmet` note is dropped wherever the token's own
+  `contrastAdjustment` was dropped -- otherwise a sentence would keep describing
+  a walk between two hexes the document no longer holds, and `design.md` would
+  keep declaring a pair unmet that an override has since fixed.
+- **Distinguishes a candidate from a standing decision.** A *candidate* whose
+  value already equals the engine's answer is not an override and is refused --
+  that check is `overrideRejection`, which the server calls before it stores
+  anything. Like every other override question it is asked of the *baseline*,
+  because replaying an override re-derives what depends on it and the engine's
+  current answer for a dependent height or shade is the re-derived value; and it
+  applies to creating an override, not to editing one the reviewer already owns.
+  A *standing* override the evidence has since caught up with is a decision that
+  was real when it was made: it keeps its `user-override` provenance and the
+  convergence is reported once, as `override.now-agrees` -- except on a slot the
+  engine yielded on, where claiming agreement would credit the engine with a
+  move it stepped aside from.
+- **Says so out loud.** Every applied override is named in an `override.applied`
+  info diagnostic, and `design.md` grows a `## 10. User overrides` section
+  listing each value, the engine's own answer, and the reviewer's reason.
+
+### Which document answers which question
+
+A tokens document is one shape but three different claims, and asking a question
+of the wrong one reads as a plausible answer. The three are distinct *types* in
+[`packages/engine/src/tokens/documents.ts`](../packages/engine/src/tokens/documents.ts),
+so the compiler refuses the mix-up:
+
+| Document | What it is | What reads it |
+| --- | --- | --- |
+| Pristine | the stored distillation, no overrides | provenance and evidence claims |
+| Baseline | pristine plus every *other* override, this path's own left out | conflict determination, `override.now-agrees`, and the redundancy check |
+| Effective | pristine plus every override | rendering, the docs view, every export |
+
+`baselineFor(tokens, overrides, path)` is the only way to build a baseline, so
+the write boundary and `applyOverrides` cannot end up answering the same
+question from two different documents — which is how `design.md` came to report
+that a conflict had been answered against a value nobody was ever shown.
+`baseValue` is recorded from the baseline for the same reason: it is an input to
+that comparison, and a value recorded from one document and compared against
+another reports disagreements neither of them ever had.
+
+`tokenSlots(tokens)` enumerates every position an override may target. It is the
+contract between the engine and the panel: a path the panel offers but
+`applyOverrides` cannot write would be an edit that silently did nothing.
+
+A few slots share one token. A typography step carries a size, a line height and
+a weight behind a single provenance record, so an override there records which
+fields it set, in `fields` on the decision, and what stood in that field before,
+in `supersededValue`. Both are what every surface reads — the slot enumeration,
+the origin label, `design.md` §10 and the per-component markdown — so setting the
+size of a step leaves its line height reading as measured, with the engine's own
+decision still attached, rather than claiming two values a human never touched;
+and overriding the line height reports the line height the engine chose rather
+than the step's font size, which is what the shared record's own `chosen` names.
 
 ### Derivations
 
@@ -93,8 +200,8 @@ not the number of captures: one card contributes four corner radii.
 
 ```jsonc
 {
-  "schemaVersion": 2,
-  "engine": { "name": "ingot-engine", "version": "0.2.0" },
+  "schemaVersion": 3,
+  "engine": { "name": "ingot-engine", "version": "0.3.0" },
   "source": { /* set id, name, description, capture ids, origins, component-type counts */ },
   "color":      { "mode", "roles", "contrast", "palette" },
   "spacing":    { "baseUnit", "unit", "snappingRule", "layoutRule", "fit", "largestObservedMultiple", "steps" },
@@ -271,7 +378,15 @@ verbatim:
 > multiple of the base unit; exact `.5` ties round up. A non-zero length shorter
 > than half the base unit snaps up to one base unit rather than collapsing to 0,
 > because a visible gap must stay visible. Steps are named by their multiplier,
-> so step `"3"` is 3 x the base unit.
+> so a freshly distilled step `"3"` is 3 x the base unit.
+
+A step's `name` is an **opaque stable identifier**, minted from that multiplier
+and then left alone. It is the override path key (`spacing.steps.3`) and the
+`--kit-space-<name>` variable suffix, so a reviewer overriding a step to a length
+off the base scale keeps the name and every reference to it; `multiple` is the
+field that carries the arithmetic, and it stops being a whole number in exactly
+that case. `design.md` states the "every length is a multiple of the base unit"
+rule only when the shipped steps really are all exact multiples.
 
 Snapping *is* the clustering: lengths that land on the same multiple are the same
 step, and each step's `observed` lists the raw values it absorbed. Gaps in the
@@ -408,3 +523,8 @@ is worth knowing. Codes are stable identifiers:
 | `typography.sizes-dropped` | info | Sizes beyond the scale's capacity. |
 | `typography.single-size` | warning | One size observed; the scale was extended geometrically. |
 | `typography.no-family` / `typography.no-sizes` | warning | Nothing captured; fell back to defaults. |
+| `override.applied` | info | Values a human set in the panel, listed. They are not distilled evidence. |
+| `override.conflict` | warning | A standing override and a later distillation disagree. The override keeps the value. |
+| `override.now-agrees` | info | The evidence has caught up with one or more standing overrides: the engine now chooses the same value. One diagnostic naming every converged path. The value stays attributed to the reviewer. |
+| `override.contrast` | warning | A colour override dropped a guaranteed pair below its floor. The engine does not move a colour a human set. |
+| `override.rejected` | warning | An override naming a token this kit has no slot for, or a value the engine could not read. Agreeing with the engine is *not* a cause: that is refused at the write boundary and never stored. |

@@ -28,9 +28,14 @@ export default defineConfig({
         extends: './apps/panel/vite.config.ts',
         test: {
           name: 'panel',
-          include: ['apps/panel/test/**/*.test.tsx'],
+          include: ['apps/panel/test/**/*.test.ts', 'apps/panel/test/**/*.test.tsx'],
           environment: 'jsdom',
           setupFiles: ['./apps/panel/test/setup.ts'],
+          // The static docs export inlines `canonical.css` and `docs.css` with
+          // `?raw`. Vitest stubs CSS imports to an empty string by default, so
+          // without this the export test would pass against a page that has no
+          // stylesheet in it at all.
+          css: true,
         },
       },
     ],

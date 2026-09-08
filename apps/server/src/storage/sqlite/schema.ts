@@ -86,6 +86,77 @@ const MIGRATIONS: string[][] = [
     `CREATE UNIQUE INDEX kits_group_version ON kits (group_id, version) WHERE scope = 'group'`,
     `CREATE UNIQUE INDEX kits_library_version ON kits (version) WHERE scope = 'library'`,
   ],
+  [
+    // Review state: what a human decided about a scope, not about one kit
+    // version. Regenerating a kit has to carry overrides forward -- that is the
+    // whole point of an override -- so these rows key on the scope and outlive
+    // every kit generated for it.
+    //
+    // scope_key is the group id, or the literal 'library' for the whole-library
+    // scope. A plain TEXT key rather than a foreign key to groups: the library
+    // scope has no row to point at, and the rows outlive the kits they were made
+    // against, which is the guarantee an override exists for -- regenerating
+    // carries it forward.
+    //
+    // The durability stops there. Deleting a group and importing the same set
+    // again mints a fresh group id, so the old rows key on an id nothing refers
+    // to any more: they are orphaned rather than reattached, and nothing cleans
+    // them up. Matching on the slug instead would silently bind one review's
+    // decisions to a different import, which is not a trade this schema makes.
+    `CREATE TABLE token_overrides (
+       scope_key  TEXT NOT NULL,
+       -- Dotted token path, e.g. components.recipes.button.primary.paddingX.
+       path       TEXT NOT NULL,
+       -- The replacement, in the engine's own decision notation.
+       value      TEXT NOT NULL,
+       -- What the engine said when the override was made. Comparing this with
+       -- what the engine says now is how a conflict is detected.
+       base_value TEXT NOT NULL,
+       note       TEXT NOT NULL,
+       created_at TEXT NOT NULL,
+       updated_at TEXT NOT NULL,
+       PRIMARY KEY (scope_key, path)
+     )`,
+    // Decision cards a reviewer has accepted. Only acceptances are stored: an
+    // open card is the absence of a row, and an overridden one is derived from
+    // token_overrides, so there is one place a state can be wrong instead of
+    // three that can disagree.
+    `CREATE TABLE decision_reviews (
+       scope_key  TEXT NOT NULL,
+       -- Stable card id derived from the kit's own content, so an acceptance
+       -- survives regeneration. Three forms, one per source of card:
+       -- conflict:<path>, diag:<code>:<path>#<ordinal> -- the ordinal
+       -- separates several diagnostics sharing one code and path -- and
+       -- choice:<path>.
+       card_id    TEXT NOT NULL,
+       state      TEXT NOT NULL CHECK (state IN ('accepted')),
+       note       TEXT NOT NULL,
+       created_at TEXT NOT NULL,
+       updated_at TEXT NOT NULL,
+       PRIMARY KEY (scope_key, card_id)
+     )`,
+  ],
+  [
+    // What retired a standing conflict, when one did. Changing an override
+    // while fresh evidence disagrees with it answers the `override.conflict`
+    // report, and the answer is a decision of its own: without these the report
+    // would simply stop appearing, which is the silent clobbering the whole
+    // conflict mechanism exists to prevent. They are NULL together on an
+    // override that answered nothing; a note-only edit leaves them alone,
+    // because annotating is not answering; and any later value change with no
+    // conflict standing against it clears them, because that value retired
+    // nothing and must not inherit a retirement it had no part in.
+    `ALTER TABLE token_overrides ADD COLUMN resolved_value TEXT`,
+    `ALTER TABLE token_overrides ADD COLUMN resolved_base TEXT`,
+  ],
+  [
+    // The engine's answer the reviewer actually responded to. Without it the
+    // only engine value on hand is the one the *current* kit distils, which
+    // after another regeneration is a number nobody ever answered -- and
+    // `design.md` said it had been. NULL on a record written before this
+    // column, which reads as "the engine moved" rather than naming a value.
+    `ALTER TABLE token_overrides ADD COLUMN resolved_engine TEXT`,
+  ],
 ]
 
 /** The schema version this build of the server expects. */

@@ -17,9 +17,25 @@
  * `examples/`, so a regression here fails rather than quietly producing a
  * different kit than the CLI would.
  */
-import { CAPTURE_SCHEMA_VERSION, ENGINE_VERSION, distill, renderDesignMarkdown, serializeTokens } from '@ingot/engine'
-import type { CaptureSet, TokensDocument } from '@ingot/engine'
-import type { Kit, Store } from './storage/store'
+import {
+  CAPTURE_SCHEMA_VERSION,
+  ENGINE_VERSION,
+  applyOverrides,
+  asEffective,
+  asPristine,
+  distill,
+  renderDesignMarkdown,
+  serializeTokens,
+} from '@ingot/engine'
+import type {
+  CaptureSet,
+  EffectiveTokens,
+  OverrideConflict,
+  RejectedOverride,
+  TokenOverride,
+  TokensDocument,
+} from '@ingot/engine'
+import type { Kit, ReviewScope, StoredOverride, Store } from './storage/store'
 
 /** Set identity used when distilling the whole library rather than one group. */
 export const LIBRARY_SET = {
@@ -87,4 +103,86 @@ export async function generateKit(store: Store, groupId: string | null): Promise
     warningCount: tokens.diagnostics.filter((diagnostic) => diagnostic.level === 'warning').length,
   })
   return { kit, tokens }
+}
+
+/**
+ * The review scope a kit belongs to.
+ *
+ * `null` is the library. An orphaned group kit -- one whose group was deleted --
+ * has a null `groupId` but is still a group kit, and it has no scope left to
+ * carry overrides for; returning `undefined` says exactly that, rather than
+ * quietly handing it the library's review state.
+ */
+export function reviewScopeOf(kit: Pick<Kit, 'scope' | 'groupId'>): ReviewScope | undefined {
+  if (kit.scope === 'library') return null
+  return kit.groupId === null ? undefined : kit.groupId
+}
+
+/**
+ * A kit as the panel and every export see it: the engine's answer with the
+ * reviewer's on top.
+ *
+ * The stored kit is never rewritten. `tokensJson` and `designMd` on the row stay
+ * byte-identical to what `pnpm skeleton` would have written, which is what
+ * `test/kit-determinism.test.ts` holds the server to; overrides are replayed on
+ * read instead. That also means an override is not frozen into a version: edit
+ * one and every surface turns, without regenerating anything.
+ */
+export interface EffectiveKit {
+  kit: Kit
+  /** The kit as it is rendered and exported: every override replayed. */
+  tokens: EffectiveTokens
+  designMd: string
+  tokensJson: string
+  overrides: StoredOverride[]
+  conflicts: OverrideConflict[]
+  rejected: RejectedOverride[]
+  /** Card ids the reviewer has accepted, sorted. */
+  accepted: string[]
+}
+
+/** Apply a scope's standing review state to one stored kit. */
+export async function effectiveKit(store: Store, kit: Kit): Promise<EffectiveKit> {
+  const scope = reviewScopeOf(kit)
+  const overrides = scope === undefined ? [] : await store.reviews.overrides(scope)
+  const accepted = scope === undefined ? [] : (await store.reviews.decisions(scope)).map((entry) => entry.cardId)
+
+  if (overrides.length === 0) {
+    // Nothing to replay: hand back the stored strings rather than a re-rendered
+    // copy of them, so "no overrides" is byte-identical by construction and not
+    // merely by the serializer behaving.
+    return {
+      kit,
+      // With nothing overridden the stored distillation *is* the effective
+      // document, which is what makes handing back its own bytes sound.
+      tokens: asEffective(JSON.parse(kit.tokensJson) as TokensDocument),
+      designMd: kit.designMd,
+      tokensJson: kit.tokensJson,
+      overrides,
+      conflicts: [],
+      rejected: [],
+      accepted,
+    }
+  }
+
+  const base = asPristine(JSON.parse(kit.tokensJson) as TokensDocument)
+  const result = applyOverrides(base, overrides.map(toEngineOverride))
+  return {
+    kit,
+    tokens: result.tokens,
+    designMd: renderDesignMarkdown(result.tokens),
+    tokensJson: serializeTokens(result.tokens),
+    overrides,
+    conflicts: result.conflicts,
+    rejected: result.rejected,
+    accepted,
+  }
+}
+
+/** The engine takes a note only when there is one; an empty string is not one. */
+export function toEngineOverride(stored: StoredOverride): TokenOverride {
+  const override: TokenOverride = { path: stored.path, value: stored.value, baseValue: stored.baseValue }
+  if (stored.note !== '') override.note = stored.note
+  if (stored.resolvedConflict !== undefined) override.resolvedConflict = stored.resolvedConflict
+  return override
 }

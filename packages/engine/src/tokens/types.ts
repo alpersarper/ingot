@@ -1,5 +1,5 @@
 /**
- * The tokens document, version 2.
+ * The tokens document, version 3.
  *
  * Stack-agnostic on purpose: nothing in here mentions Tailwind, shadcn or CSS
  * variables. Target-specific naming lives entirely in the export layer
@@ -11,7 +11,7 @@
 import type { ContrastAdjustment, ContrastPair } from '../color/contrast'
 import type { Provenance } from '../provenance'
 
-export const TOKENS_SCHEMA_VERSION = 2
+export const TOKENS_SCHEMA_VERSION = 3
 
 /** Base shape shared by every token: a value plus why it has that value. */
 export interface Token<TValue> {
@@ -98,8 +98,18 @@ export interface ColorTokens {
 export type SpacingBand = 'component' | 'layout'
 
 export interface SpacingStep {
-  /** Step name: the multiplier as a string, so `"2"` is `2 x baseUnit`. */
+  /**
+   * Opaque stable identifier for the step.
+   *
+   * Distillation mints it from the multiplier, so a freshly distilled `"2"` is
+   * `2 x baseUnit` -- but it is an identity, not an assertion. It is the
+   * override path key (`spacing.steps.2`) and the `--kit-space-<name>` variable
+   * suffix, so it stays put when a reviewer overrides the step to a length off
+   * the base scale; renumbering it would break every reference to it instead.
+   * {@link SpacingStep.multiple} is the field that carries the arithmetic.
+   */
   name: string
+  /** `px / baseUnit`. Not necessarily a whole number once a human has been here. */
   multiple: number
   px: number
   band: SpacingBand

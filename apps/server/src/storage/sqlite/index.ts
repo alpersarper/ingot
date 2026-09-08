@@ -28,7 +28,12 @@ import type {
   KitInput,
   KitRepository,
   KitSummary,
+  OverrideInput,
+  ReviewRepository,
+  ReviewScope,
   SettingsRepository,
+  StoredDecision,
+  StoredOverride,
   Store,
 } from '../store'
 
@@ -71,6 +76,39 @@ interface KitRow {
   design_md: string
   warning_count: number
   created_at: string
+}
+
+interface OverrideRow {
+  path: string
+  value: string
+  base_value: string
+  note: string
+  resolved_value: string | null
+  resolved_base: string | null
+  resolved_engine: string | null
+  created_at: string
+  updated_at: string
+}
+
+interface DecisionRow {
+  card_id: string
+  state: string
+  note: string
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * The library scope has no group row to key on, so it gets a reserved key.
+ *
+ * Reserved rather than nullable: a NULL in a primary key is not a value SQLite
+ * will match on with `=`, and a scope column that is sometimes NULL is a query
+ * every future adapter has to remember to special-case.
+ */
+const LIBRARY_SCOPE_KEY = 'library'
+
+function scopeKey(scope: ReviewScope): string {
+  return scope === null ? LIBRARY_SCOPE_KEY : scope
 }
 
 /** Tags are compared and stored in one normal form so `?tag=` is predictable. */
@@ -460,6 +498,93 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
     },
   }
 
+  const reviews: ReviewRepository = {
+    async overrides(scope) {
+      return db
+        .prepare<[string], OverrideRow>(
+          'SELECT path, value, base_value, note, resolved_value, resolved_base, resolved_engine, created_at, updated_at FROM token_overrides WHERE scope_key = ? ORDER BY path',
+        )
+        .all(scopeKey(scope))
+        .map(hydrateOverride)
+    },
+
+    async setOverride(scope, input: OverrideInput) {
+      const now = clock()
+      // created_at survives a replacement: editing a value the reviewer already
+      // set is the same decision revised, not a new one.
+      db.prepare(
+        `INSERT INTO token_overrides
+           (scope_key, path, value, base_value, note, resolved_value, resolved_base, resolved_engine, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (scope_key, path) DO UPDATE SET
+           value = excluded.value,
+           base_value = excluded.base_value,
+           note = excluded.note,
+           resolved_value = excluded.resolved_value,
+           resolved_base = excluded.resolved_base,
+           resolved_engine = excluded.resolved_engine,
+           updated_at = excluded.updated_at`,
+      ).run(
+        scopeKey(scope),
+        input.path,
+        input.value,
+        input.baseValue,
+        input.note ?? '',
+        input.resolvedConflict?.value ?? null,
+        input.resolvedConflict?.baseValue ?? null,
+        input.resolvedConflict?.engineValue ?? null,
+        now,
+        now,
+      )
+      const row = db
+        .prepare<[string, string], OverrideRow>(
+          'SELECT path, value, base_value, note, resolved_value, resolved_base, resolved_engine, created_at, updated_at FROM token_overrides WHERE scope_key = ? AND path = ?',
+        )
+        .get(scopeKey(scope), input.path)
+      if (!row) throw new Error(`override ${input.path} vanished during write`)
+      return hydrateOverride(row)
+    },
+
+    async clearOverride(scope, path) {
+      return db.prepare('DELETE FROM token_overrides WHERE scope_key = ? AND path = ?').run(scopeKey(scope), path)
+        .changes > 0
+    },
+
+    async decisions(scope) {
+      return db
+        .prepare<[string], DecisionRow>(
+          'SELECT card_id, state, note, created_at, updated_at FROM decision_reviews WHERE scope_key = ? ORDER BY card_id',
+        )
+        .all(scopeKey(scope))
+        .map(hydrateDecision)
+    },
+
+    async acceptDecision(scope, cardId, note) {
+      const now = clock()
+      db.prepare(
+        `INSERT INTO decision_reviews (scope_key, card_id, state, note, created_at, updated_at)
+         VALUES (?, ?, 'accepted', ?, ?, ?)
+         ON CONFLICT (scope_key, card_id) DO UPDATE SET
+           note = excluded.note,
+           updated_at = excluded.updated_at`,
+      ).run(scopeKey(scope), cardId, note ?? '', now, now)
+      const row = db
+        .prepare<[string, string], DecisionRow>(
+          'SELECT card_id, state, note, created_at, updated_at FROM decision_reviews WHERE scope_key = ? AND card_id = ?',
+        )
+        .get(scopeKey(scope), cardId)
+      if (!row) throw new Error(`decision ${cardId} vanished during write`)
+      return hydrateDecision(row)
+    },
+
+    async reopenDecision(scope, cardId) {
+      return (
+        db.prepare('DELETE FROM decision_reviews WHERE scope_key = ? AND card_id = ?').run(scopeKey(scope), cardId)
+          .changes > 0
+      )
+    },
+  }
+
   const settings: SettingsRepository = {
     async get(key) {
       return db.prepare<[string], { value: string }>('SELECT value FROM settings WHERE key = ?').get(key)?.value ?? null
@@ -479,6 +604,7 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
     captures,
     groups,
     kits,
+    reviews,
     settings,
 
     async importCaptureSet(input: CaptureSetImport): Promise<ImportResult> {
@@ -525,5 +651,34 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
     async close() {
       db.close()
     },
+  }
+}
+
+function hydrateOverride(row: OverrideRow): StoredOverride {
+  const stored: StoredOverride = {
+    path: row.path,
+    value: row.value,
+    baseValue: row.base_value,
+    note: row.note,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+  if (row.resolved_value !== null && row.resolved_base !== null) {
+    stored.resolvedConflict = {
+      value: row.resolved_value,
+      baseValue: row.resolved_base,
+      ...(row.resolved_engine === null ? {} : { engineValue: row.resolved_engine }),
+    }
+  }
+  return stored
+}
+
+function hydrateDecision(row: DecisionRow): StoredDecision {
+  return {
+    cardId: row.card_id,
+    state: 'accepted',
+    note: row.note,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   }
 }

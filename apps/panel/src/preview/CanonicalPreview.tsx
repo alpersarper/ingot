@@ -1,79 +1,146 @@
 /**
- * The centre column: a small realistic screen, drawn with the user's kit.
+ * The centre column: the kit, applied.
  *
- * The approved panel skeleton makes this the main view for a reason -- the
- * user's real question is not "am I faithful to the capture" but "will my app
- * look good". So this is a sample UI rather than a swatch board, kept to the
- * four canonical component types this build ships.
+ * Two views of one thing. **Preview** is a realistic screen -- the approved
+ * skeleton makes it the main view because the user's real question is not "am I
+ * faithful to the capture" but "will my app look good". **Docs** is the same
+ * components, one at a time, with their values and rules; it is the same
+ * renderer, so the two can never disagree.
  *
- * The whole thing is scoped by one element carrying the kit's CSS variables.
- * Nothing inside reaches for a panel colour, and nothing outside is affected.
+ * The theme control swaps the token set the whole column is drawn from. The
+ * kit's own mode is the truth and the one that exports; the counterpart is
+ * derived here for looking at, and says so.
  */
+import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { TokensDocument } from '@ingot/engine'
-import { KitButton, KitCard, KitInput, KitTypeRow } from './components'
-import { hasDestructive, kitCssVariables } from './kit-css'
-import './canonical.css'
+import type { ComponentDocId, TokensDocument } from '@ingot/engine'
+import { KitDocs } from '@/docs/KitDocs'
+import { KitFrame } from './KitFrame'
+import { SampleScreen } from './gallery'
+import { counterpartTokens, modeOf } from './counterpart'
+import type { PreviewTheme } from './counterpart'
 
-export function CanonicalPreview({ tokens }: { tokens: TokensDocument }): ReactNode {
-  const variables = kitCssVariables(tokens) as Record<string, string>
+export type PreviewView = 'preview' | 'docs'
+
+export interface CanonicalPreviewProps {
+  tokens: TokensDocument
+  view: PreviewView
+  onChangeView: (view: PreviewView) => void
+  theme: PreviewTheme
+  onChangeTheme: (theme: PreviewTheme) => void
+}
+
+export function CanonicalPreview({
+  tokens,
+  view,
+  onChangeView,
+  theme,
+  onChangeTheme,
+}: CanonicalPreviewProps): ReactNode {
+  const [component, setComponent] = useState<ComponentDocId>('button')
+
+  // Deriving the counterpart walks the whole palette and re-enforces every
+  // contrast pair, so it is memoised on the document rather than recomputed on
+  // each keystroke in the token editor.
+  const counterpart = useMemo(() => counterpartTokens(tokens), [tokens])
+  const shown = theme === 'kit' ? tokens : counterpart
 
   return (
-    <div className="kit-surface h-full overflow-auto p-6 md:p-10" style={variables}>
-      <div className="kit-stack mx-auto w-full max-w-3xl">
-        <section className="kit-stack">
-          <p className="kit-section-heading">Buttons</p>
-          <div className="kit-row">
-            <KitButton variant="primary">Publish kit</KitButton>
-            <KitButton variant="secondary">Preview</KitButton>
-            <KitButton variant="ghost">Cancel</KitButton>
-            {/* No captured red means no destructive role, and so no destructive
-                button. The engine refuses to invent a brand colour; drawing one
-                here would put it back. */}
-            {hasDestructive(tokens) ? <KitButton variant="destructive">Delete</KitButton> : null}
-            <KitButton variant="primary" disabled>
-              Disabled
-            </KitButton>
+    <div className="flex h-full min-h-0 flex-col">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
+        <div className="flex items-center gap-1" role="tablist" aria-label="Preview view">
+          <ViewTab current={view} value="preview" onSelect={onChangeView}>
+            Preview
+          </ViewTab>
+          <ViewTab current={view} value="docs" onSelect={onChangeView}>
+            Docs
+          </ViewTab>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {theme === 'counterpart' ? (
+            <span className="text-[11px] text-muted-foreground" title="Derived in the panel; the kit exports in its own mode">
+              derived, not exported
+            </span>
+          ) : null}
+          <div className="flex items-center gap-1" role="group" aria-label="Kit theme">
+            <ThemeTab current={theme} value="kit" onSelect={onChangeTheme}>
+              {modeOf(tokens, 'kit')} · kit
+            </ThemeTab>
+            <ThemeTab current={theme} value="counterpart" onSelect={onChangeTheme}>
+              {modeOf(tokens, 'counterpart')}
+            </ThemeTab>
           </div>
-        </section>
+        </div>
+      </header>
 
-        <section className="kit-stack">
-          <p className="kit-section-heading">Cards and inputs</p>
-          <div className="kit-grid">
-            <KitCard
-              title="Deploy preview"
-              actions={
-                <>
-                  <KitButton variant="primary">Deploy</KitButton>
-                  <KitButton variant="ghost">View log</KitButton>
-                </>
-              }
-            >
-              A card is a surface, a border and a radius. The engine emits no card recipe, so this one is composed
-              from the scales rather than pretending to be measured.
-            </KitCard>
-
-            <KitCard title="Project settings">
-              <div className="kit-stack">
-                <KitInput label="Project name" defaultValue="Ingot" />
-                <KitInput label="Domain" placeholder="ingot.example.com" hint="Used for preview links." />
-                <KitInput label="Region" defaultValue="Locked" disabled />
-              </div>
-            </KitCard>
-          </div>
-        </section>
-
-        <section className="kit-stack">
-          <p className="kit-section-heading">Type scale</p>
-          <KitCard title="Typography">
-            <div>
-              {tokens.typography.steps.map((step) => (
-                <KitTypeRow key={step.value.name} step={step.value} />
-              ))}
-            </div>
-          </KitCard>
-        </section>
+      <div className="min-h-0 flex-1 overflow-auto">
+        <KitFrame tokens={shown} className="min-h-full">
+          {view === 'preview' ? (
+            <SampleScreen tokens={shown} />
+          ) : (
+            <KitDocs
+              tokens={shown}
+              active={component}
+              onSelect={setComponent}
+              derivedPalette={theme === 'counterpart'}
+            />
+          )}
+        </KitFrame>
       </div>
     </div>
+  )
+}
+
+function ViewTab({
+  current,
+  value,
+  onSelect,
+  children,
+}: {
+  current: PreviewView
+  value: PreviewView
+  onSelect: (view: PreviewView) => void
+  children: ReactNode
+}): ReactNode {
+  const active = current === value
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={() => onSelect(value)}
+      className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+        active ? 'bg-secondary text-secondary-foreground' : 'text-muted-foreground hover:text-foreground'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
+
+function ThemeTab({
+  current,
+  value,
+  onSelect,
+  children,
+}: {
+  current: PreviewTheme
+  value: PreviewTheme
+  onSelect: (theme: PreviewTheme) => void
+  children: ReactNode
+}): ReactNode {
+  const active = current === value
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={() => onSelect(value)}
+      className={`rounded-md border px-2 py-1 text-[11px] capitalize transition-colors ${
+        active ? 'border-border bg-secondary text-secondary-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'
+      }`}
+    >
+      {children}
+    </button>
   )
 }

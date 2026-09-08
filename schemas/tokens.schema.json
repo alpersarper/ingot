@@ -1,13 +1,13 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/alpersarper/ingot/schemas/tokens.schema.json",
-  "title": "Ingot tokens document, version 2",
+  "title": "Ingot tokens document, version 3",
   "description": "The distilled design system for one capture set. Stack-agnostic: nothing here names Tailwind, shadcn or CSS variables. Prose documentation: docs/tokens.md",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "engine", "source", "color", "spacing", "border", "radius", "shadow", "typography", "components", "diagnostics"],
   "properties": {
-    "schemaVersion": { "const": 2 },
+    "schemaVersion": { "const": 3 },
     "engine": {
       "type": "object",
       "additionalProperties": false,
@@ -163,8 +163,8 @@
                     "additionalProperties": false,
                     "required": ["name", "multiple", "px", "band"],
                     "properties": {
-                      "name": { "type": "string" },
-                      "multiple": { "type": "number", "minimum": 0 },
+                      "name": { "type": "string", "description": "Opaque stable identifier, minted from the multiplier at distillation. It is the override path key and the --kit-space-<name> variable suffix, so it stays put when a reviewer overrides the step off the base scale; multiple is the field that carries the arithmetic." },
+                      "multiple": { "type": "number", "minimum": 0, "description": "px / baseUnit. Not necessarily a whole number once a reviewer has overridden the step." },
                       "px": { "type": "number", "minimum": 0 },
                       "band": { "enum": ["component", "layout"], "description": "component: at or below the largest observed length; each step's provenance records whether it was observed or gap-filled. layout: extrapolated past it so page-level rhythm has somewhere on-scale to live." }
                     }
@@ -421,7 +421,7 @@
       "description": "The machine-readable dominant-choice record. The panel renders this as the decision and uses competitors to offer overrides.",
       "properties": {
         "strategy": {
-          "enum": ["dominant-value", "snapped-scale", "cluster-representative", "role-assignment", "derived", "sanctioned-default"]
+          "enum": ["dominant-value", "snapped-scale", "cluster-representative", "role-assignment", "derived", "sanctioned-default", "user-override"]
         },
         "chosen": { "type": "string" },
         "chosenCount": { "type": "integer", "minimum": 0 },
@@ -440,6 +440,31 @@
           }
         },
         "summary": { "type": "string", "description": "Human-readable restatement. Convenience only; the fields above are the contract." },
+        "supersedes": {
+          "$ref": "#/definitions/dominantChoice",
+          "description": "Present when strategy is user-override: the decision a human replaced. Keeping it is what lets a later distillation report a conflict instead of silently clobbering either side."
+        },
+        "note": { "type": "string", "description": "Present when strategy is user-override: the reviewer's own reason." },
+        "supersededValue": {
+          "type": "string",
+          "description": "Present when strategy is user-override on a token holding several overridable fields: what stood in the field this decision set, before it did. The replaced decision in supersedes answers for the whole token (a typography step's chosen is its font size whatever field was overridden), so this is what a surface reads when it names the engine's answer for this field."
+        },
+        "fields": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Present when strategy is user-override on a token holding several overridable fields (a typography step carries a size, a line height and a weight behind one record): the fields this decision set, sorted. A field not named here was left where the engine put it, and every surface reads this rather than treating the whole token as hand-set."
+        },
+        "resolvedConflict": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "baseValue"],
+          "description": "Present when strategy is user-override and this value was chosen in answer to a standing conflict. value is the override the reviewer abandoned; baseValue is the engine's answer at the time they set it; engineValue is the answer the engine had moved to, which is the one that was answered. Changing an override while fresh evidence disagrees retires the override.conflict report, and this records what retired it.",
+          "properties": {
+            "value": { "type": "string" },
+            "baseValue": { "type": "string" },
+            "engineValue": { "type": "string" }
+          }
+        },
         "derivation": {
           "type": "object",
           "additionalProperties": false,

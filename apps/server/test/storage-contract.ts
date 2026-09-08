@@ -291,6 +291,109 @@ export function describeStoreContract(name: string, createStore: () => Store | P
       })
     })
 
+    describe('reviews', () => {
+      it('stores an override per scope and lists it in path order', async () => {
+        await store.reviews.setOverride('group-1', {
+          path: 'radius.steps.md',
+          value: '10px',
+          baseValue: '6px',
+          note: 'rounder',
+        })
+        await store.reviews.setOverride('group-1', {
+          path: 'color.roles.primary',
+          value: '#1155cc',
+          baseValue: '#0f7a5a',
+        })
+
+        const overrides = await store.reviews.overrides('group-1')
+        expect(overrides.map((entry) => entry.path)).toEqual(['color.roles.primary', 'radius.steps.md'])
+        expect(overrides[1]).toMatchObject({ value: '10px', baseValue: '6px', note: 'rounder' })
+        // A missing note is an empty string, never undefined: the interface
+        // promises a string and an adapter that returns null breaks a caller.
+        expect(overrides[0]?.note).toBe('')
+      })
+
+      it('keeps the library scope and a group scope apart', async () => {
+        await store.reviews.setOverride(null, { path: 'border.width', value: '2px', baseValue: '1px' })
+        await store.reviews.setOverride('group-1', { path: 'border.width', value: '3px', baseValue: '1px' })
+
+        expect((await store.reviews.overrides(null)).map((entry) => entry.value)).toEqual(['2px'])
+        expect((await store.reviews.overrides('group-1')).map((entry) => entry.value)).toEqual(['3px'])
+      })
+
+      it('replaces an override in place, keeping when the decision was first made', async () => {
+        const first = await store.reviews.setOverride('group-1', {
+          path: 'border.width',
+          value: '2px',
+          baseValue: '1px',
+        })
+        const second = await store.reviews.setOverride('group-1', {
+          path: 'border.width',
+          value: '3px',
+          baseValue: '1px',
+          note: 'thicker still',
+        })
+
+        expect(await store.reviews.overrides('group-1')).toHaveLength(1)
+        expect(second.value).toBe('3px')
+        expect(second.note).toBe('thicker still')
+        expect(second.createdAt).toBe(first.createdAt)
+        expect(second.updatedAt >= first.updatedAt).toBe(true)
+      })
+
+      it('clears an override and reports whether there was one', async () => {
+        await store.reviews.setOverride('group-1', { path: 'border.width', value: '2px', baseValue: '1px' })
+        expect(await store.reviews.clearOverride('group-1', 'border.width')).toBe(true)
+        expect(await store.reviews.clearOverride('group-1', 'border.width')).toBe(false)
+        expect(await store.reviews.overrides('group-1')).toEqual([])
+      })
+
+      it('records and reopens an accepted decision, by card id', async () => {
+        await store.reviews.acceptDecision('group-1', 'diag:spacing.low-fit:', 'the base unit is right')
+        await store.reviews.acceptDecision('group-1', 'choice:radius.steps.md')
+
+        const decisions = await store.reviews.decisions('group-1')
+        expect(decisions.map((entry) => entry.cardId)).toEqual(['choice:radius.steps.md', 'diag:spacing.low-fit:'])
+        expect(decisions.every((entry) => entry.state === 'accepted')).toBe(true)
+
+        expect(await store.reviews.reopenDecision('group-1', 'choice:radius.steps.md')).toBe(true)
+        expect(await store.reviews.reopenDecision('group-1', 'choice:radius.steps.md')).toBe(false)
+        expect((await store.reviews.decisions('group-1')).map((entry) => entry.cardId)).toEqual([
+          'diag:spacing.low-fit:',
+        ])
+      })
+
+      it('keeps the conflict an override answered, and clears it when none was', async () => {
+        await store.reviews.setOverride(null, {
+          path: 'border.width',
+          value: '4px',
+          baseValue: '3px',
+          // Three values, because the sentence design.md prints needs all
+          // three: what was abandoned, what the engine said then, and the
+          // answer that was actually responded to.
+          resolvedConflict: { value: '2px', baseValue: '1px', engineValue: '3px' },
+        })
+        const [withRecord] = await store.reviews.overrides(null)
+        expect(withRecord?.resolvedConflict).toEqual({ value: '2px', baseValue: '1px', engineValue: '3px' })
+
+        // A later edit that answered nothing must not inherit the old record:
+        // it would claim the reviewer responded to a conflict they never saw.
+        await store.reviews.setOverride(null, { path: 'border.width', value: '5px', baseValue: '3px' })
+        const [without] = await store.reviews.overrides(null)
+        expect(without?.value).toBe('5px')
+        expect(without?.resolvedConflict).toBeUndefined()
+      })
+
+      it('outlives the group that owned it being deleted', async () => {
+        const group = await store.groups.create({ slug: 'ghost-warm', name: 'Ghost', description: 'Warm.' })
+        await store.reviews.setOverride(group.id, { path: 'border.width', value: '2px', baseValue: '1px' })
+        await store.groups.delete(group.id)
+        // Overrides are a standing decision about a scope, not a row hanging off
+        // a group, so deleting the group does not silently discard the review.
+        expect(await store.reviews.overrides(group.id)).toHaveLength(1)
+      })
+    })
+
     describe('settings', () => {
       it('reads back what it stored, and reports a miss as null', async () => {
         expect(await store.settings.get('llm.apiKey')).toBeNull()

@@ -31,7 +31,7 @@
  * {@link IdFactory} and a {@link Clock} rather than calling `randomUUID` or
  * `Date.now` themselves, which is what lets the tests pin both.
  */
-import type { CaptureRecord } from '@ingot/engine'
+import type { CaptureRecord, ResolvedConflict } from '@ingot/engine'
 
 /** Mints stable, unique ids. Injected so tests can make them predictable. */
 export type IdFactory = () => string
@@ -244,6 +244,87 @@ export interface KitRepository {
 }
 
 /**
+ * The scope a review belongs to: a group id, or the whole library.
+ *
+ * Reviews key on the scope rather than on a kit, because a kit is a snapshot
+ * and a review is a standing decision: regenerating has to carry it forward.
+ */
+export type ReviewScope = string | null
+
+/** One value a human replaced, as stored. */
+export interface StoredOverride {
+  path: string
+  value: string
+  /**
+   * What the engine said at this path when the override was made. The whole
+   * conflict mechanism: a later distillation is compared against this, so
+   * "the evidence moved" is distinguishable from "you disagreed with me".
+   */
+  baseValue: string
+  /** The reviewer's reason. Empty string when they gave none. */
+  note: string
+  /**
+   * The conflict this value was chosen in answer to, when it was.
+   *
+   * Absent on an override that answered nothing. Changing a value while fresh
+   * evidence disagrees with it retires the `override.conflict` report, so what
+   * retired it is kept rather than the report merely going quiet. A note-only
+   * edit leaves the record alone -- annotating is not answering -- and a value
+   * change with no conflict standing clears it, because that value retired
+   * nothing.
+   */
+  resolvedConflict?: ResolvedConflict
+  createdAt: string
+  updatedAt: string
+}
+
+export interface OverrideInput {
+  path: string
+  value: string
+  baseValue: string
+  note?: string
+  /** Cleared when absent, so a later edit does not inherit an old retirement. */
+  resolvedConflict?: ResolvedConflict
+}
+
+/**
+ * A decision card a reviewer has accepted.
+ *
+ * Only acceptances are stored. An untouched card is the absence of a row and an
+ * overridden one is derived from the overrides, so a card's state has exactly
+ * one source and cannot disagree with itself.
+ */
+export interface StoredDecision {
+  cardId: string
+  state: 'accepted'
+  note: string
+  createdAt: string
+  updatedAt: string
+}
+
+/**
+ * Standing review state for one scope: the overrides and the accepted cards.
+ *
+ * Deliberately one repository rather than two: the panel always loads both
+ * together, and a route that fetched them separately would have to reason about
+ * them being out of step with each other.
+ */
+export interface ReviewRepository {
+  /** Overrides for a scope, by path. Total order: path is unique per scope. */
+  overrides(scope: ReviewScope): Promise<StoredOverride[]>
+  /** Insert or replace one override. `createdAt` survives a replacement. */
+  setOverride(scope: ReviewScope, input: OverrideInput): Promise<StoredOverride>
+  /** Removes one override. False when there was none. */
+  clearOverride(scope: ReviewScope, path: string): Promise<boolean>
+  /** Accepted decision cards for a scope, by card id. */
+  decisions(scope: ReviewScope): Promise<StoredDecision[]>
+  /** Records an acceptance. Replacing one keeps its `createdAt`. */
+  acceptDecision(scope: ReviewScope, cardId: string, note?: string): Promise<StoredDecision>
+  /** Reopens a card by forgetting the acceptance. False when there was none. */
+  reopenDecision(scope: ReviewScope, cardId: string): Promise<boolean>
+}
+
+/**
  * Server-side key/value settings.
  *
  * This is where the pairing token and the LLM API key live. Both are secrets
@@ -278,6 +359,7 @@ export interface Store {
   readonly captures: CaptureRepository
   readonly groups: GroupRepository
   readonly kits: KitRepository
+  readonly reviews: ReviewRepository
   readonly settings: SettingsRepository
   /**
    * Import a whole capture set atomically: create or reuse the group, upsert

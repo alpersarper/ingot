@@ -8,7 +8,7 @@
  * address becomes configurable for the extension, it becomes configurable here
  * and nowhere else.
  */
-import type { TokensDocument } from '@ingot/engine'
+import type { OverrideConflict, RejectedOverride, TokensDocument } from '@ingot/engine'
 
 const TOKEN_STORAGE_KEY = 'ingot.pairingToken'
 
@@ -112,10 +112,36 @@ export interface KitSummary {
   createdAt: string
 }
 
+/** One value a human replaced, as the server stores it. */
+export interface StoredOverride {
+  path: string
+  value: string
+  /** What the engine said when the override was made. Drives conflict reports. */
+  baseValue: string
+  note: string
+  createdAt: string
+  updatedAt: string
+}
+
+/** The standing review state that produced the tokens in the same payload. */
+export interface ReviewState {
+  overrides: StoredOverride[]
+  conflicts: OverrideConflict[]
+  rejected: RejectedOverride[]
+  /** Card ids the reviewer has accepted. */
+  accepted: string[]
+}
+
+/**
+ * A kit as the panel sees it: the stored kit, its *effective* tokens, and the
+ * review state behind them. They are only ever true together, which is why
+ * every write returns the whole thing rather than a patch.
+ */
 export interface KitPayload {
   kit: KitSummary
   tokens: TokensDocument
-  designMd?: string
+  designMd: string
+  review: ReviewState
 }
 
 export interface PanelSettings {
@@ -179,6 +205,28 @@ export const api = {
   },
 
   /**
+   * Replace one token's value by hand.
+   *
+   * `baseValue` is deliberately not sent: the server reads the engine's own
+   * answer from the kit, so the record of what was disagreed with cannot be a
+   * stale number this browser happened to be holding.
+   */
+  async setOverride(groupId: string | null, path: string, value: string, note?: string): Promise<KitPayload> {
+    return write('/api/reviews/overrides', 'PUT', { groupId, path, value, note })
+  },
+
+  async clearOverride(groupId: string | null, path: string): Promise<KitPayload> {
+    const scope = groupId === null ? '' : `&groupId=${encodeURIComponent(groupId)}`
+    return (await send(`/api/reviews/overrides?path=${encodeURIComponent(path)}${scope}`, {
+      method: 'DELETE',
+    })).json() as Promise<KitPayload>
+  },
+
+  async setDecision(groupId: string | null, cardId: string, state: 'accepted' | 'open'): Promise<KitPayload> {
+    return write('/api/reviews/decisions', 'PUT', { groupId, cardId, state })
+  },
+
+  /**
    * Download a kit file.
    *
    * It goes through `fetch` rather than a plain link because the pairing token
@@ -188,16 +236,34 @@ export const api = {
    */
   async download(kitId: string, file: 'tokens.json' | 'design.md'): Promise<void> {
     const response = await send(`/api/kits/${encodeURIComponent(kitId)}/${file}`)
-    const blob = await response.blob()
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = suggestedFilename(response, file)
-    document.body.append(anchor)
-    anchor.click()
-    anchor.remove()
-    URL.revokeObjectURL(url)
+    saveBlob(await response.blob(), suggestedFilename(response, file))
   },
+
+  /** One component's markdown, self-sufficient, straight from the engine. */
+  async downloadComponent(kitId: string, component: string): Promise<void> {
+    const response = await send(`/api/kits/${encodeURIComponent(kitId)}/components/${component}.md`)
+    saveBlob(await response.blob(), suggestedFilename(response, `${component}.md`))
+  },
+}
+
+/**
+ * Hand a file to the browser.
+ *
+ * Downloads go through `fetch` and a blob rather than a plain link because the
+ * pairing token lives in a header and a link cannot send one. The blob
+ * round-trip is the price of not putting the token in a URL, where it would end
+ * up in history and in logs. The static docs export uses the same path with a
+ * blob the panel built itself.
+ */
+export function saveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  document.body.append(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
 }
 
 /** Prefer the server's filename, which carries the set id and kit version. */
