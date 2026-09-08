@@ -45,7 +45,7 @@ import { effectiveKit, toEngineOverride } from '../kit'
 import type { EffectiveKit } from '../kit'
 import type { AppContext, AppEnv } from '../context'
 import type { Kit, ReviewScope } from '../storage/store'
-import { optionalString, readJsonBody, requireString } from '../validate'
+import { optionalNullableString, optionalString, readJsonBody, requireString } from '../validate'
 
 /**
  * The longest reason the panel will carry into `design.md`.
@@ -131,7 +131,7 @@ export function reviewRoutes(context: AppContext): Hono<AppEnv> {
 
   app.put('/overrides', async (c) => {
     const body = await readJsonBody(c.req.raw)
-    const scope = scopeFrom(optionalString(body, 'groupId') ?? null)
+    const scope = scopeFrom(optionalNullableString(body, 'groupId'))
     const path = requireString(body, 'path')
     const value = requireString(body, 'value')
     const submittedNote = reviewerNote(body)
@@ -232,7 +232,7 @@ export function reviewRoutes(context: AppContext): Hono<AppEnv> {
 
   app.put('/decisions', async (c) => {
     const body = await readJsonBody(c.req.raw)
-    const scope = scopeFrom(optionalString(body, 'groupId') ?? null)
+    const scope = scopeFrom(optionalNullableString(body, 'groupId'))
     const cardId = requireString(body, 'cardId')
     const state = requireString(body, 'state')
     const note = reviewerNote(body) ?? ''

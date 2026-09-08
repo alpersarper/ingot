@@ -19,7 +19,7 @@ import type { EffectiveKit } from '../kit'
 import { kitPayload, scopeFrom } from './reviews'
 import type { AppContext, AppEnv } from '../context'
 import type { Kit } from '../storage/store'
-import { isRecord, readJsonBody } from '../validate'
+import { optionalNullableString, readJsonBody } from '../validate'
 
 /** `?groupId=` absent or `library` means the whole-library scope. */
 function scopeFromQuery(value: string | undefined): string | null {
@@ -64,11 +64,7 @@ export function kitRoutes(context: AppContext): Hono<AppEnv> {
 
   app.post('/', async (c) => {
     const body = c.req.header('content-type')?.includes('application/json') ? await readJsonBody(c.req.raw) : {}
-    const raw = isRecord(body) ? body['groupId'] : undefined
-    if (raw !== undefined && raw !== null && typeof raw !== 'string') {
-      throw ApiError.badRequest('groupId must be a string, null, or omitted')
-    }
-    const kit = await runGeneration(context, scopeFromQuery(raw ?? undefined))
+    const kit = await runGeneration(context, scopeFrom(optionalNullableString(body, 'groupId')))
     // The new version inherits the scope's standing overrides, so the panel
     // gets back what it will actually render -- conflicts included.
     return c.json(kitPayload(await effectiveKit(store, kit)), 201)

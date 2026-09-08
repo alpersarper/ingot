@@ -928,6 +928,33 @@ describe('review: overrides and decisions', () => {
     expect(reopened.review.accepted).toEqual([])
   })
 
+  it('accepts the explicit null the panel sends for the whole-library scope', async () => {
+    await seed()
+
+    // The exact wire body the panel produces: `JSON.stringify` keeps a null
+    // `groupId` rather than dropping the key, so an omitted key would not
+    // exercise this read.
+    const overrode = await harness.call(
+      '/api/reviews/overrides',
+      put({ groupId: null, path: 'radius.steps.md', value: '10px' }),
+    )
+    expect(overrode.status).toBe(200)
+    expect(((await overrode.json()) as KitResponse).tokens.radius.steps['md']?.value).toBe(10)
+    const { overrides } = await harness.json<{ overrides: Array<{ path: string; value: string }> }>('/api/reviews')
+    expect(overrides).toEqual([expect.objectContaining({ path: 'radius.steps.md', value: '10px' })])
+
+    const decided = await harness.call(
+      '/api/reviews/decisions',
+      put({ groupId: null, cardId: 'choice:radius.steps.md', state: 'accepted' }),
+    )
+    expect(decided.status).toBe(200)
+    expect(((await decided.json()) as KitResponse).review.accepted).toEqual(['choice:radius.steps.md'])
+
+    // A groupId that is neither a string nor null is still a malformed body.
+    const bad = await harness.call('/api/reviews/overrides', put({ groupId: 7, path: 'radius.steps.md', value: '12px' }))
+    expect(bad.status).toBe(400)
+  })
+
   it("keeps a group's review state and the library's apart", async () => {
     const imported = (await (
       await harness.call('/api/captures/import', body(await ghostWarmSet()))

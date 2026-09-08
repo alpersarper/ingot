@@ -341,6 +341,43 @@ describe('the review loop', () => {
     expect(within(system).getByText('radius.steps.full')).toBeTruthy()
   })
 
+  it('reviews the whole library, the scope the panel opens on', async () => {
+    const user = userEvent.setup()
+    await reachTheWorkbench(user)
+
+    // Importing lands the user in the imported group; going back to the whole
+    // library is one click away, and it is also where a fresh panel starts. The
+    // wire body for this scope carries `"groupId": null` -- an explicit null,
+    // not an omitted key -- so this walks the request shape the server has to
+    // accept, against the real routes.
+    await user.click(screen.getByRole('button', { name: /Whole library/ }))
+    await user.click(await screen.findByRole('button', { name: 'Generate kit' }))
+    await waitFor(() => expect(screen.getByLabelText('Live preview').querySelector('.kit-surface')).toBeTruthy())
+    const system = screen.getByRole('complementary', { name: 'System' })
+
+    // Overriding a token lands on the library's review state, not a group's...
+    await user.click(within(system).getByRole('tab', { name: 'Tokens' }))
+    await user.click(within(system).getByTitle('Override radius.steps.md'))
+    fireEvent.change(within(system).getByLabelText('New value for radius.steps.md'), {
+      target: { value: '10px' },
+    })
+    await user.click(within(system).getByRole('button', { name: 'Override' }))
+    await waitFor(() => {
+      const surface = screen.getByLabelText('Live preview').querySelector<HTMLElement>('.kit-surface')
+      expect(surface?.style.getPropertyValue('--kit-radius-md')).toBe('10px')
+    })
+    expect(await harness.store.reviews.overrides(null)).toEqual([
+      expect.objectContaining({ path: 'radius.steps.md', value: '10px' }),
+    ])
+
+    // ...and so does accepting a decision card.
+    await user.click(within(system).getByRole('tab', { name: /^Review/ }))
+    const closeCalls = await within(system).findAllByText(/close call/)
+    await user.click(closeCalls[0] as HTMLElement)
+    await user.click(within(system).getAllByRole('button', { name: 'Accept' })[0] as HTMLElement)
+    await waitFor(async () => expect(await harness.store.reviews.decisions(null)).toHaveLength(1))
+  })
+
   it('accepts a decision card and remembers it', async () => {
     const user = userEvent.setup()
     await reachTheWorkbench(user)
