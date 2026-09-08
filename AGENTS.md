@@ -8,6 +8,8 @@ A design-kit distillation workbench: capture UI components while browsing, disti
 them into one coherent token-driven design kit, export it LLM-ready. The product
 bet is **cross-site distillation quality**, not one-click extraction. Read
 [README.md](README.md) for scope and what is deliberately not built yet.
+[DECISIONS.md](DECISIONS.md) is the decision register: the settled product,
+scope, quality-bar and architecture rulings, and why they hold.
 
 Two halves: `packages/engine` decides, and the panel (`apps/server` +
 `apps/panel`) is where a human reviews those decisions -- and overrides them,
