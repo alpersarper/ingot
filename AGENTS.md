@@ -48,8 +48,13 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
   Which of the three documents answers which question -- pristine for evidence,
   **baseline** (every *other* override replayed) for conflict, convergence and
   redundancy, effective for rendering and export -- is a type rather than a
-  convention, in `packages/engine/src/tokens/documents.ts`; `baselineFor` is the
-  only way to build a baseline, so no caller can drift onto its own answer.
+  convention, in `packages/engine/src/tokens/documents.ts`. The baseline never
+  leaves the engine, and neither does the choice: `applyOverrides` returns the
+  effective document **with a report** (conflicts and the engine value each was
+  judged against, retirements, convergences, refusals) and `planOverrideWrite`
+  returns the row one write should store. Callers persist and state that report;
+  a route or an export that works out a conflict, a retirement or an answered
+  value of its own is the defect this seam exists to make impossible.
   Rules: [docs/tokens.md](docs/tokens.md#overrides).
 - **One renderer, three surfaces.** The canonical components in
   `apps/panel/src/preview/components/` draw the live preview, the in-panel docs

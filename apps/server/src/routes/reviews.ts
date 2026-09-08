@@ -9,19 +9,17 @@
  *     an override is applicable, on a throwaway document. Storing first and
  *     compensating on refusal would let a mistyped edit destroy the override
  *     already standing at that path.
- *   - **Every question here is a baseline question.** Whether a candidate is
- *     redundant, whether a conflict is standing, and what the engine's answer
- *     was when an override was made are all asked of the *baseline*: the stored
- *     distillation with every other override replayed and this path's own left
- *     out. `packages/engine/src/tokens/documents.ts` is the mapping of question
- *     to document, and `baselineFor` is the only way to build one, so the route
- *     and `applyOverrides` cannot drift onto two different answers. `baseValue`
- *     is still refreshed only by a write that moves the value: a conflict is
- *     retired by the reviewer responding to it, and adding a reason is not a
- *     response.
- *   - **The server computes both, not the client.** They are read from the kit
- *     on the server rather than accepted from a browser that could get them
- *     wrong or stale.
+ *   - **This route determines nothing.** Whether a candidate is redundant,
+ *     whether a conflict was standing, what the engine's answer was when the
+ *     override was made, whether a write retired anything: every one of those is
+ *     a question about which of the three kit documents was consulted, and
+ *     `planOverrideWrite` answers all of them at once. What comes back is the
+ *     row to persist. The route stores it and does not second-guess a field of
+ *     it -- an approximation here is how `design.md` came to announce
+ *     disagreements that were never reported.
+ *   - **The engine's answer is read on the server, never taken from the
+ *     client.** A browser could get it wrong or stale, and it is the whole
+ *     conflict mechanism.
  *   - **Every write answers with the whole effective kit.** An override changes
  *     the preview, the docs and every export at once; returning the new kit
  *     means the panel re-renders from one authoritative answer instead of
@@ -31,15 +29,8 @@
  *     than an annotation on a snapshot.
  */
 import { Hono } from 'hono'
-import {
-  asPristine,
-  baselineFor,
-  canonicalOverrideValue,
-  overrideRejection,
-  readTokenValue,
-  standingConflict,
-} from '@ingot/engine'
-import type { ResolvedConflict, TokensDocument } from '@ingot/engine'
+import { asPristine, planOverrideWrite } from '@ingot/engine'
+import type { TokensDocument } from '@ingot/engine'
 import { ApiError } from '../errors'
 import { effectiveKit, toEngineOverride } from '../kit'
 import type { EffectiveKit } from '../kit'
@@ -91,8 +82,8 @@ export function kitPayload(effective: EffectiveKit): Record<string, unknown> {
     designMd: effective.designMd,
     review: {
       overrides: effective.overrides,
-      conflicts: effective.conflicts,
-      rejected: effective.rejected,
+      conflicts: effective.report.conflicts,
+      rejected: effective.report.rejected,
       accepted: effective.accepted,
     },
   }
@@ -138,86 +129,31 @@ export function reviewRoutes(context: AppContext): Hono<AppEnv> {
 
     const kit = await latestKit(scope)
     const base = asPristine(JSON.parse(kit.tokensJson) as TokensDocument)
-
-    // The document every question on this route is asked of: the standing
-    // decisions for every *other* path replayed, so a dependent height or
-    // interaction shade carries its re-derived value rather than the stored
-    // one, and this path's own override left out, because the question is what
-    // the engine says without it. The engine builds it, so the write boundary
-    // and `applyOverrides` cannot end up asking about two different documents.
     const standing = await store.reviews.overrides(scope)
-    const baseline = baselineFor(base, standing.map(toEngineOverride), path)
 
-    // The engine's own answer for this slot, read from that same baseline --
-    // `baseValue` is an input to the conflict comparison, so recording it from
-    // one document and comparing it against another would report disagreements
-    // neither of them ever had.
-    const baseValue = readTokenValue(baseline, path)
-    if (baseValue === null) {
-      throw ApiError.unprocessable(`this kit has no token at ${path}, so there is nothing to override`)
-    }
+    // One call, and the row it hands back is stored verbatim. The engine picks
+    // the document each question is asked of -- the stored distillation with
+    // every *other* standing override replayed -- decides whether this write is
+    // an override at all, whether it moved the value or only its reason, and
+    // whether it answered a conflict, then reports `baseValue` and the record of
+    // what was answered. None of that is recomputed here, because two ideas of
+    // "the engine's current answer" is exactly the drift this seam removes.
+    const plan = planOverrideWrite(base, standing.map(toEngineOverride), {
+      path,
+      value,
+      // An absent note leaves the standing reason alone; an empty one clears it.
+      ...(submittedNote === undefined ? {} : { note: submittedNote }),
+    })
 
     // An override the engine refuses is a bad request, not a stored value -- and
-    // the judgement has to come *before* the write. `setOverride` upserts on
+    // the judgement has come *before* the write. `setOverride` upserts on
     // (scope, path), so persisting first would already have destroyed whatever
     // override was standing there, and the compensating delete would then take
     // the rest: a typo in an edit would silently discard a decision that was
-    // working. Nothing is written unless the engine would accept it.
-    //
-    // Editing an override the reviewer already owns is judged as an edit: a new
-    // reason on an unchanged value, or the same value on one the evidence has
-    // since caught up with, is a decision they already made and must not be
-    // refused -- still less deleted.
-    const existing = standing.find((entry) => entry.path === path)
-    const rejection = overrideRejection(baseline, { path, value }, existing === undefined ? 'create' : 'edit')
-    if (rejection !== undefined) throw ApiError.unprocessable(rejection)
+    // working. Nothing is written unless the engine accepted it.
+    if (plan.outcome === 'refused') throw ApiError.unprocessable(plan.reason)
 
-    // Did the reviewer move the value, or only annotate it? Asked of the
-    // canonical forms, because "10 px" and "10px" are one value and only the
-    // engine knows that.
-    const changed =
-      existing === undefined ||
-      canonicalOverrideValue(baseline, path, existing.value) !== canonicalOverrideValue(baseline, path, value)
-
-    // `baseValue` is refreshed only by a write that moves the value. A conflict
-    // is retired by the reviewer *responding* to it, and annotating is not a
-    // response: refreshing on a note-only edit would silently drop a standing
-    // `override.conflict` the reviewer never meant to answer.
-    const record = existing === undefined || changed ? baseValue : existing.baseValue
-
-    // ...and when a value change does answer a standing conflict, what it
-    // answered is kept, so the report does not merely go quiet. Whether one was
-    // standing is the engine's determination, asked of the document the
-    // reviewer is looking at: an approximation of it here is how `design.md`
-    // came to announce disagreements that were never reported. The engine's own
-    // report is what the record is built from, `engineValue` included, so no
-    // surface has to re-derive which answer was the one responded to.
-    //
-    // The rest of the lifecycle follows from what the record claims. A note-only
-    // edit changes nothing about the answer, so an earlier one stands. A value
-    // change with no conflict standing retires nothing, and keeping the old
-    // record would bind the new value to a retirement it had no part in, so it
-    // is cleared.
-    const retired = changed && existing !== undefined
-      ? standingConflict(baseline, toEngineOverride(existing))
-      : undefined
-    const answered: ResolvedConflict | undefined =
-      existing === undefined
-        ? undefined
-        : retired !== undefined
-          ? { value: existing.value, baseValue: existing.baseValue, engineValue: retired.engineValue }
-          : changed
-            ? undefined
-            : existing.resolvedConflict
-
-    await store.reviews.setOverride(scope, {
-      path,
-      value,
-      baseValue: record,
-      // An absent note leaves the standing reason alone; an empty one clears it.
-      note: submittedNote ?? existing?.note ?? '',
-      ...(answered === undefined ? {} : { resolvedConflict: answered }),
-    })
+    await store.reviews.setOverride(scope, plan.record)
     return c.json(kitPayload(await effectiveKit(store, kit)))
   })
 

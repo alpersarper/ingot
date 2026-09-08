@@ -30,8 +30,7 @@ import {
 import type {
   CaptureSet,
   EffectiveTokens,
-  OverrideConflict,
-  RejectedOverride,
+  OverrideReport,
   TokenOverride,
   TokensDocument,
 } from '@ingot/engine'
@@ -135,10 +134,23 @@ export interface EffectiveKit {
   designMd: string
   tokensJson: string
   overrides: StoredOverride[]
-  conflicts: OverrideConflict[]
-  rejected: RejectedOverride[]
+  /**
+   * What the engine determined while replaying them: the conflicts standing,
+   * the retirements, the convergences, and what it was refused. The server
+   * carries this report; it never works one out.
+   */
+  report: OverrideReport
   /** Card ids the reviewer has accepted, sorted. */
   accepted: string[]
+}
+
+/** The report for a kit nobody has overridden: everything empty, nothing said. */
+const NO_REVIEW: OverrideReport = {
+  applied: [],
+  conflicts: [],
+  converged: [],
+  retired: [],
+  rejected: [],
 }
 
 /** Apply a scope's standing review state to one stored kit. */
@@ -159,8 +171,7 @@ export async function effectiveKit(store: Store, kit: Kit): Promise<EffectiveKit
       designMd: kit.designMd,
       tokensJson: kit.tokensJson,
       overrides,
-      conflicts: [],
-      rejected: [],
+      report: NO_REVIEW,
       accepted,
     }
   }
@@ -170,11 +181,14 @@ export async function effectiveKit(store: Store, kit: Kit): Promise<EffectiveKit
   return {
     kit,
     tokens: result.tokens,
-    designMd: renderDesignMarkdown(result.tokens),
+    // The whole result, not just its document: `design.md` states what a
+    // reviewer answered and what the engine said when they answered it, and
+    // those come from the engine's report rather than from a second reading of
+    // the document it produced.
+    designMd: renderDesignMarkdown(result),
     tokensJson: serializeTokens(result.tokens),
     overrides,
-    conflicts: result.conflicts,
-    rejected: result.rejected,
+    report: result.report,
     accepted,
   }
 }

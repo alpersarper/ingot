@@ -19,6 +19,17 @@
  * {@link applyOverrides} is a function of `(tokens, overrides)` and nothing
  * else. The panel stores overrides, the server replays them; the answer is the
  * same wherever it is computed.
+ *
+ * It is also the *only* place those answers are worked out. Every one of them
+ * -- whether a value conflicts, what the engine said when it was set, what it
+ * says now, whether a write retired a conflict, whether the evidence has caught
+ * up -- depends on which of the three documents in `./documents` was consulted,
+ * and picking one is a decision a caller cannot make well from outside. So the
+ * two entry points hand back a report rather than the material to build one:
+ * {@link applyOverrides} returns the effective document with its
+ * {@link OverrideReport}, and {@link planOverrideWrite} returns the row to
+ * store. Nothing outside this module needs the baseline, and nothing outside it
+ * should have an opinion about a conflict.
  */
 import { contrastRatio, formatOklch, oklchToHex, parseColor, roundOklch } from '../color/space'
 import type { Oklch } from '../color/space'
@@ -168,13 +179,55 @@ export interface ConvergedOverride {
   value: string
 }
 
-export interface OverrideResult {
-  /** A new document, with every override in it. The input is never mutated. */
-  tokens: EffectiveTokens
+/**
+ * A conflict a reviewer answered, and the answer still standing.
+ *
+ * The retirement is reported rather than left to be inferred from a warning
+ * that stopped appearing. A path the engine reports as *still* in conflict is
+ * not in this list: one document must not call the same disagreement both
+ * answered and open.
+ */
+export interface RetiredConflict {
+  path: string
+  /** The value the effective document now holds: how the reviewer answered. */
+  value: string
+  /**
+   * The disagreement that answer retired, as the reviewer's own write recorded
+   * it -- the abandoned value, the engine's answer when it was set, and the
+   * engine's answer that was actually responded to. Every number a surface
+   * needs to describe the retirement is here, so none of them is re-derived
+   * from the engine's answer in *this* version, which nobody answered.
+   */
+  answered: ResolvedConflict
+}
+
+/**
+ * Everything replaying a set of overrides decided, beside the document itself.
+ *
+ * This is the engine's report, and it is the only account of these questions
+ * there is: no caller determines a conflict, a retirement, a convergence or an
+ * engine value of its own, because each of those answers depends on which of
+ * the three documents it was asked of and that choice is made in here.
+ */
+export interface OverrideReport {
   applied: AppliedOverride[]
   conflicts: OverrideConflict[]
   converged: ConvergedOverride[]
+  retired: RetiredConflict[]
   rejected: RejectedOverride[]
+}
+
+/**
+ * The effective document and the report that goes with it.
+ *
+ * They travel together on purpose: every surface that states what an override
+ * answered takes this pair, so there is no way to render the document while
+ * re-deriving the report's numbers from it.
+ */
+export interface OverrideResult {
+  /** A new document, with every override in it. The input is never mutated. */
+  tokens: EffectiveTokens
+  report: OverrideReport
 }
 
 /* -------------------------------------------------------------- the slots -- */
@@ -573,7 +626,9 @@ function ordering(overrides: readonly TokenOverride[]): TokenOverride[] {
  * It is the engine's job rather than a caller's precisely so that the write
  * boundary and {@link applyOverrides} cannot end up asking about two different
  * documents -- which is how `design.md` came to report a conflict that had been
- * answered against a value nobody ever saw.
+ * answered against a value nobody ever saw. Engine-internal for the same
+ * reason: it is not exported from the package, so no caller can hold a baseline
+ * at all, let alone ask it the wrong question.
  */
 export function baselineFor(
   tokens: PristineTokens,
@@ -595,7 +650,10 @@ export function baselineFor(
  * Whether each one agrees with the engine or disagrees with it is decided
  * against that override's own baseline, one replay per override, because an
  * answer measured against the pristine value would be about a document nobody
- * is looking at.
+ * is looking at. That choice of document is made here and nowhere else: what
+ * comes back is the effective document *and* the report, so a surface states
+ * what the engine determined rather than determining it again from the
+ * document in front of it.
  */
 export function applyOverrides(
   tokens: PristineTokens,
@@ -608,6 +666,7 @@ export function applyOverrides(
   const applied: AppliedOverride[] = []
   const conflicts: OverrideConflict[] = []
   const converged: ConvergedOverride[] = []
+  const retired: RetiredConflict[] = []
 
   ordered.forEach((override, index) => {
     const value = result.written.get(index)
@@ -642,6 +701,24 @@ export function applyOverrides(
     }
   })
 
+  // A retirement the reviewer's own write recorded, reported now that it is
+  // known whether the same path is *also* in conflict. Reporting both of one
+  // path would have the kit call a single disagreement answered and open at
+  // once, so the open one wins and the record stays on the token, waiting for
+  // the answer it describes to become true again.
+  const open = new Set(conflicts.map((conflict) => conflict.path))
+  ordered.forEach((override, index) => {
+    if (result.written.get(index) === undefined) return
+    const answered = override.resolvedConflict
+    if (answered === undefined || open.has(override.path)) return
+    // The value as the finished document holds it, not the canonical form that
+    // was written into it: what a reader is told is now in force has to be what
+    // the kit ships, after everything the write re-derived.
+    const inForce = readTokenValue(next, override.path)
+    if (inForce === null) return
+    retired.push({ path: override.path, value: inForce, answered })
+  })
+
   next.diagnostics = [
     ...next.diagnostics,
     ...overrideDiagnostics(next, applied, conflicts, converged, result.rejected, result.colorTouched),
@@ -649,10 +726,7 @@ export function applyOverrides(
 
   return {
     tokens: next as EffectiveTokens,
-    applied,
-    conflicts,
-    converged,
-    rejected: result.rejected,
+    report: { applied, conflicts, converged, retired, rejected: result.rejected },
   }
 }
 
@@ -687,11 +761,11 @@ function conflictBetween(
  * The conflict a stored override stands in against `tokens`, or `undefined`.
  *
  * The same determination {@link applyOverrides} makes when it decides whether to
- * report `override.conflict`, asked of one override on its own. The write
- * boundary needs it to know whether an edit *answered* a conflict, and asking
- * the engine is the point: a route that reimplemented the predicate would drift
- * from it, and `design.md` would go on to state that a disagreement was
- * answered when none was ever reported.
+ * report `override.conflict`, asked of one override on its own.
+ * {@link planOverrideWrite} needs it to know whether an edit *answered* a
+ * conflict; it stays inside the engine because a caller that reimplemented the
+ * predicate would drift from it, and `design.md` would go on to state that a
+ * disagreement was answered when none was ever reported.
  */
 export function standingConflict(
   tokens: BaselineTokens,
@@ -707,7 +781,8 @@ export function standingConflict(
 /**
  * Why a candidate override would be refused, or `undefined` when it would land.
  *
- * The write path needs this answer *before* anything is stored. Storing first
+ * {@link planOverrideWrite} needs this answer *before* anything is stored.
+ * Storing first
  * and compensating afterwards is not the same thing: the store keys overrides
  * on `(scope, path)`, so writing a candidate that turns out to be unreadable
  * would already have destroyed whatever override was standing at that path, and
@@ -752,7 +827,7 @@ export function overrideRejection(
 /**
  * What `value` would become at `path`, or `undefined` when it is not writable.
  *
- * The write boundary needs this to answer one question the raw strings cannot:
+ * {@link planOverrideWrite} needs this to answer one question the raw strings cannot:
  * did the reviewer actually change the value, or only its reason? `"10 px"` and
  * `"10px"` are one value, and only the engine knows that -- so "unchanged" is
  * decided on the canonical form rather than on the spelling that happened to be
@@ -767,6 +842,141 @@ export function canonicalOverrideValue(
   if (slot === undefined) return undefined
   const parsed = parseFor(slot, tokens, value)
   return typeof parsed === 'string' ? undefined : parsed.canonical
+}
+
+/* -------------------------------------------------- the write boundary -- */
+
+/**
+ * A write a reviewer is asking for, exactly as the panel submits it.
+ *
+ * `note` absent and `note: ''` are different requests. A write that says
+ * nothing about the reason -- answering a conflict from its card, taking a
+ * runner-up in one click -- leaves whatever the reviewer already wrote in
+ * place; an explicitly empty one is a statement, and clears it.
+ */
+export interface OverrideWrite {
+  path: string
+  value: string
+  note?: string
+}
+
+/**
+ * The row to persist for an accepted write: every field, already decided.
+ *
+ * A caller stores this verbatim. It works out none of it -- not `baseValue`,
+ * not whether a conflict was answered -- because each of those answers is a
+ * question about which document was consulted, and that is the engine's to
+ * answer.
+ */
+export interface OverrideRecord {
+  path: string
+  value: string
+  /** The engine's answer for this slot, read from the baseline. */
+  baseValue: string
+  /** The reason to store. Empty string when there is none. */
+  note: string
+  /** The conflict this write answered, when it answered one. */
+  resolvedConflict?: ResolvedConflict
+}
+
+/**
+ * What the engine decided about one write.
+ *
+ * `refused` carries the reason and nothing else: there is deliberately no
+ * record to store on that branch, because the judgement has to happen *before*
+ * anything is written. An override store keyed on `(scope, path)` would already
+ * have destroyed the standing override by the time a refusal came back.
+ */
+export type OverrideWriteReport =
+  | { outcome: 'refused'; reason: string }
+  | {
+      outcome: 'stored'
+      record: OverrideRecord
+      /** The conflict this write retired, when it retired one. */
+      retired?: OverrideConflict
+    }
+
+/**
+ * Decide one write against the standing review state, and say what to store.
+ *
+ * This is the whole write boundary, and it is in the engine for the same reason
+ * {@link applyOverrides} is: every question it answers -- is this value
+ * redundant, did the reviewer move the value or only its reason, was a conflict
+ * standing, and what number was it standing against -- is a question about the
+ * *baseline*, the stored distillation with every other override replayed and
+ * this path's own left out. A caller answering any of them from the document it
+ * happens to be holding is how `design.md` came to announce a disagreement
+ * answered against a value nobody was ever shown.
+ *
+ * `standing` is the review state as it is now, this path's own override
+ * included; the exclusion is done here, so no caller has to know that it is the
+ * rule.
+ */
+export function planOverrideWrite(
+  tokens: PristineTokens,
+  standing: readonly TokenOverride[],
+  write: OverrideWrite,
+): OverrideWriteReport {
+  const { path, value } = write
+  const existing = standing.find((entry) => entry.path === path)
+  const baseline = baselineFor(tokens, standing, path)
+
+  // The engine's own answer for this slot, read from the same document every
+  // judgement below is made against -- `baseValue` is an input to the conflict
+  // comparison later made from it, and a value recorded from one document and
+  // compared against another reports disagreements neither of them ever had.
+  const baseValue = readTokenValue(baseline, path)
+  if (baseValue === null) {
+    return { outcome: 'refused', reason: `this kit has no token at ${path}, so there is nothing to override` }
+  }
+
+  // Editing an override the reviewer already owns is judged as an edit: a new
+  // reason on an unchanged value, or the same value on one the evidence has
+  // since caught up with, is a decision they already made and must not be
+  // refused -- still less deleted.
+  const rejection = overrideRejection(baseline, { path, value }, existing === undefined ? 'create' : 'edit')
+  if (rejection !== undefined) return { outcome: 'refused', reason: rejection }
+
+  // Did the reviewer move the value, or only annotate it? Asked of the
+  // canonical forms, because `"10 px"` and `"10px"` are one value and only the
+  // engine knows that.
+  const changed =
+    existing === undefined ||
+    canonicalOverrideValue(baseline, path, existing.value) !== canonicalOverrideValue(baseline, path, value)
+
+  // `baseValue` is refreshed only by a write that moves the value. A conflict is
+  // retired by the reviewer *responding* to it, and annotating is not a
+  // response: refreshing on a note-only edit would silently drop a standing
+  // `override.conflict` the reviewer never meant to answer.
+  const recorded = existing === undefined || changed ? baseValue : (existing.baseValue ?? baseValue)
+
+  // ...and when a value change does answer a standing conflict, what it
+  // answered is kept, so the report does not merely go quiet. The rest of the
+  // lifecycle follows from what that record claims: a note-only edit changes
+  // nothing about the answer, so an earlier one stands, and a value change with
+  // no conflict standing retires nothing -- keeping the old record there would
+  // bind the new value to a retirement it had no part in, so it is cleared.
+  const retired = changed && existing !== undefined ? standingConflict(baseline, existing) : undefined
+  const answered: ResolvedConflict | undefined =
+    existing === undefined
+      ? undefined
+      : retired !== undefined
+        ? { value: existing.value, baseValue: retired.baseValue, engineValue: retired.engineValue }
+        : changed
+          ? undefined
+          : existing.resolvedConflict
+
+  return {
+    outcome: 'stored',
+    record: {
+      path,
+      value,
+      baseValue: recorded,
+      note: write.note ?? existing?.note ?? '',
+      ...(answered === undefined ? {} : { resolvedConflict: answered }),
+    },
+    ...(retired === undefined ? {} : { retired }),
+  }
 }
 
 /** A structural copy. The document is plain JSON, so this is exact. */
