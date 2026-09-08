@@ -138,7 +138,7 @@ describe('a statement is not a decision', () => {
   function converged(): TokensDocument {
     const value = readTokenValue(tokens, 'radius.steps.md') as string
     const result = applyOverrides(tokens, [{ path: 'radius.steps.md', value, baseValue: '4px' }])
-    expect(result.converged).toHaveLength(1)
+    expect(result.report.converged).toHaveLength(1)
     return result.tokens
   }
 
@@ -181,10 +181,10 @@ describe('an override the engine refused', () => {
    * leaves a standing override with nowhere to land.
    */
   const stranded = { path: 'color.roles.tertiary', value: '#ff0000' }
-  const { tokens: next, rejected } = applyOverrides(tokens, [stranded])
+  const { tokens: next, report } = applyOverrides(tokens, [stranded])
 
   it('is really refused, so the rest of this describes something that happens', () => {
-    expect(rejected.map((entry) => entry.path)).toEqual([stranded.path])
+    expect(report.rejected.map((entry) => entry.path)).toEqual([stranded.path])
     expect(next.diagnostics.some((entry) => entry.code === 'override.rejected')).toBe(true)
   })
 

@@ -16,13 +16,13 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { distill, renderDesignMarkdown } from '@ingot/engine'
-import type { ComponentRecipe, TokensDocument } from '@ingot/engine'
+import type { ComponentRecipe, PristineTokens } from '@ingot/engine'
 import { fixtureSetIds } from '../scripts/skeleton'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const setIds = await fixtureSetIds()
 
-async function tokensFor(setId: string): Promise<TokensDocument> {
+async function tokensFor(setId: string): Promise<PristineTokens> {
   return distill(JSON.parse(await readFile(join(ROOT, 'fixtures', setId, 'set.json'), 'utf8')))
 }
 

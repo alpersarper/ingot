@@ -31,31 +31,41 @@ export type { ComponentDoc, ComponentDocId, DocColorRow, DocTokenRow, DocVariant
 // Overrides: the reviewer's answer replacing the engine's. Pure and
 // deterministic like the rest of the engine, so the panel can preview an
 // override and the server can replay it and both get the same document.
+//
+// Two entry points, and they hand back answers rather than the material to
+// work one out: `applyOverrides` returns the effective document with the
+// engine's report on it, and `planOverrideWrite` returns the row a write should
+// store. The baseline -- the document a conflict question is actually asked of
+// -- is deliberately not exported at all, along with the predicates that read
+// it, because a caller holding one is a caller that can ask it the wrong
+// question. See `tokens/documents.ts` for which document answers what.
 export {
   applyOverrides,
-  baselineFor,
-  canonicalOverrideValue,
   hasOverrides,
   originOf,
   overriddenSlots,
-  overrideRejection,
+  planOverrideWrite,
   readTokenValue,
   recipeByName,
   roleHex,
-  standingConflict,
   supersededBy,
   tokenSlots,
 } from './tokens/overrides'
 export { asEffective, asPristine } from './tokens/documents'
-export type { BaselineTokens, EffectiveTokens, PristineTokens } from './tokens/documents'
+export type { EffectiveTokens, PristineTokens } from './tokens/documents'
 export type {
   AppliedOverride,
   ConvergedOverride,
   OverrideConflict,
   OverrideGroup,
   OverrideKind,
+  OverrideRecord,
+  OverrideReport,
   OverrideResult,
+  OverrideWrite,
+  OverrideWriteReport,
   RejectedOverride,
+  RetiredConflict,
   TokenOrigin,
   TokenOverride,
   TokenSlot,

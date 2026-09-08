@@ -123,8 +123,8 @@ describe('the static docs export', () => {
     const hostile = '"Bad Font"} .kit-button { display: none } x{'
 
     // The engine refuses it outright at the canonicalisation point...
-    const { rejected } = applyOverrides(tokens, [{ path: 'typography.families.sans', value: hostile }])
-    expect(rejected[0]?.path).toBe('typography.families.sans')
+    const { report } = applyOverrides(tokens, [{ path: 'typography.families.sans', value: hostile }])
+    expect(report.rejected[0]?.path).toBe('typography.families.sans')
 
     // ...and the export sanitises on emit too, so no future value can reopen it.
     const smuggled = JSON.parse(JSON.stringify(tokens)) as TokensDocument

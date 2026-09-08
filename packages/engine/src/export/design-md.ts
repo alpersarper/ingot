@@ -12,6 +12,8 @@
 import { byString } from '../util/sort'
 import { finish, plural, table } from './markdown'
 import { overriddenSlots } from '../tokens/overrides'
+import type { OverrideResult, RetiredConflict } from '../tokens/overrides'
+import type { PristineTokens } from '../tokens/documents'
 import { SHADE_RELATIONS } from '../color/roles'
 import { round } from '../util/num'
 import type {
@@ -57,12 +59,24 @@ const RADIUS_ORDER: RadiusStepName[] = ['none', 'sm', 'md', 'lg', 'full']
 const SHADOW_ORDER: ShadowStepName[] = ['none', 'sm', 'md', 'lg']
 
 /**
- * Render the whole-library design specification for a tokens document.
+ * Render the whole-library design specification for a kit.
  *
- * Deterministic: the output depends only on `tokens`, with no clock, no
+ * Deterministic: the output depends only on the argument, with no clock, no
  * environment and no randomness.
+ *
+ * The argument is either the stored distillation or the *whole* result of
+ * applying overrides -- the effective document together with the engine's
+ * report -- and never an effective document on its own, which the document
+ * classes make unrepresentable. That is deliberate. §10 states what a reviewer
+ * answered and what the engine said when they answered it, and those are
+ * baseline questions: re-deriving them from the effective document in hand
+ * yields plausible lookalike numbers for values nobody was ever shown. Taking
+ * the report means this file states the engine's determination and makes none
+ * of its own.
  */
-export function renderDesignMarkdown(tokens: TokensDocument): string {
+export function renderDesignMarkdown(kit: PristineTokens | OverrideResult): string {
+  const reviewed = 'tokens' in kit ? kit : undefined
+  const tokens: TokensDocument = 'tokens' in kit ? kit.tokens : kit
   const { color, spacing, border, radius, shadow, typography, components, source } = tokens
   const out: string[] = []
   const push = (...lines: string[]): void => {
@@ -585,28 +599,26 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
     // warning simply stop appearing would be the silent clobbering the rest of
     // this document exists to avoid, so what retired it is stated here.
     //
-    // A path the warnings above report as *still* in conflict is left out: the
-    // record describes a disagreement that was answered, and printing it beside
-    // a live `override.conflict` for the same token would have one half of this
-    // document contradict the other.
-    const open = new Set(
-      tokens.diagnostics
-        .filter((diagnostic) => diagnostic.code === 'override.conflict' && diagnostic.path !== undefined)
-        .map((diagnostic) => diagnostic.path as string),
+    // Which retirements those are is the engine's report, not a reading of the
+    // document: it is the report that leaves out a path the warnings above
+    // still call open, so one half of this document cannot contradict the
+    // other, and it is the report that carries the engine's answer that was
+    // actually responded to rather than the one this version distils. Ordered
+    // by the table above rather than by the report, so the section reads in one
+    // order throughout.
+    const retirements = new Map<string, RetiredConflict>(
+      (reviewed?.report.retired ?? []).map((entry) => [entry.path, entry]),
     )
-    const answered = overridden.filter(
-      (slot) => slot.provenance.decision.resolvedConflict !== undefined && !open.has(slot.path),
-    )
+    const answered = overridden.flatMap((slot) => {
+      const entry = retirements.get(slot.path)
+      return entry === undefined ? [] : [entry]
+    })
     if (answered.length > 0) {
       push(
         `${answered.length === 1 ? 'One of these' : `${answered.length} of these`} answered a conflict with new evidence rather than simply being edited:`,
         '',
-        ...answered.map((slot) => {
-          const resolved = slot.provenance.decision.resolvedConflict as {
-            value: string
-            baseValue: string
-            engineValue?: string
-          }
+        ...answered.map((entry) => {
+          const resolved = entry.answered
           // The engine's answer that was answered is on the record. It is not
           // the engine's answer *now*, which is what a later regeneration would
           // hand back and what nobody responded to.
@@ -615,7 +627,7 @@ export function renderDesignMarkdown(tokens: TokensDocument): string {
               ? 'the captures then moved'
               : `the captures then moved to ${resolved.engineValue}`
           return (
-            `- \`${slot.path}\` is now ${slot.value}. It was ${resolved.value}, set when the engine said ` +
+            `- \`${entry.path}\` is now ${entry.value}. It was ${resolved.value}, set when the engine said ` +
             `${resolved.baseValue}; ${moved}, and that disagreement was answered here.`
           )
         }),

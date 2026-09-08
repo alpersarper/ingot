@@ -29,6 +29,15 @@
  * which produces the effective document. {@link asEffective} exists for the one
  * honest shortcut: a kit with no overrides at all, whose stored bytes already
  * are the effective document.
+ *
+ * The baseline is the one of the three that never leaves the engine: it is not
+ * exported from the package, and neither are the predicates that read it.
+ * Distinct types stop a caller passing the *wrong* document; not handing one
+ * out at all is what stops a caller having to choose. `applyOverrides` and
+ * `planOverrideWrite` answer the questions the baseline exists for and return
+ * the answers -- a conflict, a retirement, a convergence, the engine value
+ * consulted, the row to store -- so the mapping below is a rule the engine
+ * keeps rather than one every consumer has to.
  */
 import type { TokensDocument } from './types'
 

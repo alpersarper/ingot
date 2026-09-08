@@ -95,6 +95,19 @@ overrides, byte-identical output. It is in the engine rather than in the panel
 because the panel previews an override and the server replays it on every read,
 and both have to get the same answer.
 
+It returns two things: the effective document, and an `OverrideReport` beside it
+— the conflicts standing, the retirements, the convergences, what was refused,
+and for each applied override the engine value that was consulted. The report is
+deliberately *not* written into `tokens.json`. It is a statement about one
+replay against one review state, and a document carrying it would be presenting
+as evidence something that changes whenever a reviewer edits an override, with
+no captures behind it. Every surface that says what a reviewer answered takes
+the report instead, and `renderDesignMarkdown` takes either the stored
+distillation or the *whole* result — never an effective document on its own,
+which the document classes make unrepresentable. Writing an override is
+`planOverrideWrite`, which decides the same questions for a single write and
+hands back the row to store.
+
 Applying one does three things beyond writing the value:
 
 - **Re-checks what the override invalidated.** A hand-set colour is re-measured
@@ -108,19 +121,19 @@ Applying one does three things beyond writing the value:
   silently clobbered. Both halves of that comparison are read from the
   **baseline** — see the document classes below — so a slot another override
   re-derived is judged against the number the reviewer was actually shown. A
-  conflict is retired only by the reviewer *responding* to it: the write path
+  conflict is retired only by the reviewer *responding* to it: `planOverrideWrite`
   refreshes `baseValue` when the value moves and preserves it when only the
   reason does, so annotating an override does not quietly drop the report. A
   response that does retire one is itself recorded, as `resolvedConflict` on the
   override's own decision — the abandoned value, the engine's answer when it was
   set, and the answer that was actually responded to — and `design.md` §10 names
-  what was answered from that record rather than from the engine's answer in the
-  current version, which after another regeneration is a number nobody answered.
-  A warning that simply stopped appearing would be the clobbering this mechanism
-  exists to prevent; so would a §10 paragraph calling a disagreement answered
-  while the warnings above still report it, so a path in conflict is left out of
-  that paragraph, and a value change that answered nothing clears the record
-  rather than inheriting it.
+  what was answered from the report's `retired` list rather than from the
+  engine's answer in the current version, which after another regeneration is a
+  number nobody answered. A warning that simply stopped appearing would be the
+  clobbering this mechanism exists to prevent; so would a §10 paragraph calling
+  a disagreement answered while the warnings above still report it, so a path in
+  conflict is left out of `retired`, and a value change that answered nothing
+  clears the record rather than inheriting it.
 - **Re-derives what depended on the value.** Overriding a base colour re-derives
   the interaction shades computed from it -- `primaryHover`, `primaryActive`,
   `selectedSurface` and the disabled pair -- through the engine's own derivation
@@ -137,8 +150,8 @@ Applying one does three things beyond writing the value:
   keep declaring a pair unmet that an override has since fixed.
 - **Distinguishes a candidate from a standing decision.** A *candidate* whose
   value already equals the engine's answer is not an override and is refused --
-  that check is `overrideRejection`, which the server calls before it stores
-  anything. Like every other override question it is asked of the *baseline*,
+  `planOverrideWrite` returns that refusal, with no row to store, before the
+  server writes anything. Like every other override question it is asked of the *baseline*,
   because replaying an override re-derives what depends on it and the engine's
   current answer for a dependent height or shade is the re-derived value; and it
   applies to creating an override, not to editing one the reviewer already owns.
@@ -171,6 +184,17 @@ that a conflict had been answered against a value nobody was ever shown.
 `baseValue` is recorded from the baseline for the same reason: it is an input to
 that comparison, and a value recorded from one document and compared against
 another reports disagreements neither of them ever had.
+
+The baseline is also the one of the three that never leaves the engine. It is
+not exported from `@ingot/engine`, and neither are `baselineFor`,
+`standingConflict`, `overrideRejection` or `canonicalOverrideValue`: distinct
+types stop a caller passing the *wrong* document, but only the engine owning the
+determination stops a caller having to choose one at all. `applyOverrides` and
+`planOverrideWrite` are the two entry points, they answer every baseline
+question between them, and what they return — a conflict with the engine value
+consulted, a retirement, a convergence, the row a write should store — is what
+the server persists and what every export states. Nothing outside the engine
+computes any of it.
 
 `tokenSlots(tokens)` enumerates every position an override may target. It is the
 contract between the engine and the panel: a path the panel offers but

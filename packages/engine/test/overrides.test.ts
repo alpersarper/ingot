@@ -21,11 +21,12 @@ import {
   originOf,
   overriddenSlots,
   overrideRejection,
+  planOverrideWrite,
   readTokenValue,
   standingConflict,
   tokenSlots,
 } from '../src/tokens/overrides'
-import type { TokenOverride } from '../src/tokens/overrides'
+import type { OverrideWrite, OverrideWriteReport, TokenOverride } from '../src/tokens/overrides'
 import type { PristineTokens } from '../src/tokens/documents'
 import type { CaptureSet } from '../src/capture/types'
 
@@ -93,12 +94,12 @@ describe('applying an override', () => {
   it('replaces the value and stamps the provenance without touching the input', () => {
     const tokens = kit()
     const before = serializeTokens(tokens)
-    const { tokens: next, applied, rejected } = applyOverrides(tokens, [
+    const { tokens: next, report } = applyOverrides(tokens, [
       { path: 'radius.steps.md', value: '10px', note: 'the captured 6px reads timid at this scale' },
     ])
 
-    expect(rejected).toEqual([])
-    expect(applied).toEqual([
+    expect(report.rejected).toEqual([])
+    expect(report.applied).toEqual([
       {
         path: 'radius.steps.md',
         value: '10px',
@@ -137,22 +138,22 @@ describe('applying an override', () => {
   })
 
   it('refuses a path this kit does not have, rather than inventing a token', () => {
-    const { tokens, rejected } = applyOverrides(kit(), [{ path: 'color.roles.tertiary', value: '#ff0000' }])
-    expect(rejected[0]?.path).toBe('color.roles.tertiary')
+    const { tokens, report } = applyOverrides(kit(), [{ path: 'color.roles.tertiary', value: '#ff0000' }])
+    expect(report.rejected[0]?.path).toBe('color.roles.tertiary')
     expect(tokens.diagnostics.some((diagnostic) => diagnostic.code === 'override.rejected')).toBe(true)
   })
 
   it('refuses a value it cannot parse, rather than writing NaN into the document', () => {
-    const { tokens, rejected } = applyOverrides(kit(), [{ path: 'radius.steps.md', value: 'quite round' }])
-    expect(rejected[0]?.reason).toContain('pixel length')
+    const { tokens, report } = applyOverrides(kit(), [{ path: 'radius.steps.md', value: 'quite round' }])
+    expect(report.rejected[0]?.reason).toContain('pixel length')
     expect(tokens.radius.steps.md?.provenance.decision.strategy).not.toBe('user-override')
   })
 
   it('refuses a step name the kit does not carry', () => {
-    const { rejected } = applyOverrides(kit(), [
+    const { report } = applyOverrides(kit(), [
       { path: 'components.recipes.button.primary.typeStep', value: '4xl' },
     ])
-    expect(rejected[0]?.reason).toContain('no `4xl` type step')
+    expect(report.rejected[0]?.reason).toContain('no `4xl` type step')
   })
 })
 
@@ -248,11 +249,11 @@ describe('judging a candidate before it is stored', () => {
 
   it('never writes a hostile font stack into the document', () => {
     const tokens = kit()
-    const { tokens: next, applied, rejected } = applyOverrides(tokens, [
+    const { tokens: next, report } = applyOverrides(tokens, [
       { path: 'typography.families.sans', value: 'Bad} .x{color:red' },
     ])
-    expect(applied).toEqual([])
-    expect(rejected[0]?.reason).toContain('family names separated by commas')
+    expect(report.applied).toEqual([])
+    expect(report.rejected[0]?.reason).toContain('family names separated by commas')
     expect(next.typography.families.sans.value).toBe(tokens.typography.families.sans.value)
   })
 })
@@ -268,8 +269,8 @@ describe('a standing override the evidence catches up with', () => {
     const decision = result.tokens.radius.steps.md?.provenance.decision
     expect(decision?.strategy).toBe('user-override')
     expect(decision?.note).toBe('rounder reads friendlier')
-    expect(result.rejected).toEqual([])
-    expect(result.applied.map((entry) => entry.path)).toEqual(['radius.steps.md'])
+    expect(result.report.rejected).toEqual([])
+    expect(result.report.applied.map((entry) => entry.path)).toEqual(['radius.steps.md'])
     expect(result.tokens.diagnostics.some((entry) => entry.code === 'override.rejected')).toBe(false)
   })
 
@@ -278,21 +279,21 @@ describe('a standing override the evidence catches up with', () => {
     expect(notes).toHaveLength(1)
     expect(notes[0]?.level).toBe('info')
     expect(notes[0]?.message).toContain(`radius.steps.md = ${engineValue}`)
-    expect(result.converged).toEqual([{ path: 'radius.steps.md', value: engineValue }])
+    expect(result.report.converged).toEqual([{ path: 'radius.steps.md', value: engineValue }])
   })
 
   it('is a convergence rather than a conflict, even though the base value moved', () => {
-    expect(result.conflicts).toEqual([])
+    expect(result.report.conflicts).toEqual([])
     expect(result.tokens.diagnostics.some((entry) => entry.code === 'override.conflict')).toBe(false)
   })
 
   it('covers every converged path in the one diagnostic', () => {
     const borderWidth = `${tokens.border.width.value}px`
-    const { converged, tokens: next } = applyOverrides(tokens, [
+    const { tokens: next, report } = applyOverrides(tokens, [
       { path: 'radius.steps.md', value: engineValue, baseValue: '4px' },
       { path: 'border.width', value: borderWidth, baseValue: '3px' },
     ])
-    expect(converged.map((entry) => entry.path)).toEqual(['border.width', 'radius.steps.md'])
+    expect(report.converged.map((entry) => entry.path)).toEqual(['border.width', 'radius.steps.md'])
     const notes = next.diagnostics.filter((entry) => entry.code === 'override.now-agrees')
     expect(notes).toHaveLength(1)
     expect(notes[0]?.message).toContain('border.width')
@@ -471,7 +472,7 @@ describe('what an override invalidates', () => {
     const path = 'components.recipes.button.secondary.height'
     const pristine = readTokenValue(tokens, path) as string
 
-    const { converged, tokens: next } = applyOverrides(tokens, [
+    const { tokens: next, report } = applyOverrides(tokens, [
       { path: 'border.width', value: '3px' },
       { path, value: pristine },
     ])
@@ -480,7 +481,7 @@ describe('what an override invalidates', () => {
     expect(readTokenValue(next, path)).toBe(pristine)
     // ...but the engine wanted 42px here and stepped aside, so saying it now
     // independently chooses the reviewer's number would be false.
-    expect(converged.map((entry) => entry.path)).not.toContain(path)
+    expect(report.converged.map((entry) => entry.path)).not.toContain(path)
     const notes = next.diagnostics.filter((entry) => entry.code === 'override.now-agrees')
     for (const note of notes) expect(note.message).not.toContain(path)
   })
@@ -490,25 +491,25 @@ describe('what an override invalidates', () => {
     const shade = 'color.roles.primaryHover'
     const pristine = readTokenValue(tokens, shade) as string
 
-    const { converged, tokens: next } = applyOverrides(tokens, [
+    const { tokens: next, report } = applyOverrides(tokens, [
       { path: 'color.roles.primary', value: '#1155cc' },
       { path: shade, value: pristine },
     ])
 
     expect(readTokenValue(next, shade)).toBe(pristine)
     expect(next.color.roles.primaryHover?.provenance.decision.strategy).toBe('user-override')
-    expect(converged.map((entry) => entry.path)).not.toContain(shade)
+    expect(report.converged.map((entry) => entry.path)).not.toContain(shade)
     expect(next.diagnostics.some((entry) => entry.code === 'override.now-agrees')).toBe(false)
   })
 
   it('still reports agreement on a slot nothing was re-derived under', () => {
     const tokens = kit()
     const radius = `${tokens.radius.steps.md?.value}px`
-    const { converged } = applyOverrides(tokens, [
+    const { report } = applyOverrides(tokens, [
       { path: 'border.width', value: '3px' },
       { path: 'radius.steps.md', value: radius, baseValue: '4px' },
     ])
-    expect(converged.map((entry) => entry.path)).toEqual(['radius.steps.md'])
+    expect(report.converged.map((entry) => entry.path)).toEqual(['radius.steps.md'])
   })
 
   it('leaves a height the reviewer set by hand exactly where they put it', () => {
@@ -528,12 +529,12 @@ describe('conflicts between an override and new evidence', () => {
   it('reports the disagreement and keeps the override', () => {
     const tokens = kit()
     const engineValue = `${tokens.radius.steps.md?.value}px`
-    const { tokens: next, conflicts } = applyOverrides(tokens, [
+    const { tokens: next, report } = applyOverrides(tokens, [
       { path: 'radius.steps.md', value: '10px', baseValue: '4px' },
     ])
 
-    expect(conflicts).toHaveLength(1)
-    expect(conflicts[0]).toMatchObject({ path: 'radius.steps.md', value: '10px', baseValue: '4px', engineValue })
+    expect(report.conflicts).toHaveLength(1)
+    expect(report.conflicts[0]).toMatchObject({ path: 'radius.steps.md', value: '10px', baseValue: '4px', engineValue })
     // The override still wins. Anything else would make an override provisional.
     expect(next.radius.steps.md?.value).toBe(10)
     const warning = next.diagnostics.find((diagnostic) => diagnostic.code === 'override.conflict')
@@ -543,10 +544,10 @@ describe('conflicts between an override and new evidence', () => {
 
   it('stays quiet when the evidence has not moved', () => {
     const tokens = kit()
-    const { conflicts } = applyOverrides(tokens, [
+    const { report } = applyOverrides(tokens, [
       { path: 'radius.steps.md', value: '10px', baseValue: `${tokens.radius.steps.md?.value}px` },
     ])
-    expect(conflicts).toEqual([])
+    expect(report.conflicts).toEqual([])
   })
 })
 
@@ -566,12 +567,12 @@ describe('a conflict is judged against the slot\'s own baseline', () => {
     // against the pristine value would invent a disagreement with a number the
     // reviewer was never shown -- and design.md would go on to say the captures
     // "moved to" the value the override was made against.
-    const { conflicts, converged } = applyOverrides(tokens, [
+    const { report } = applyOverrides(tokens, [
       borderOverride,
       { path, value: '48px', baseValue: rederived },
     ])
-    expect(conflicts).toEqual([])
-    expect(converged).toEqual([])
+    expect(report.conflicts).toEqual([])
+    expect(report.converged).toEqual([])
   })
 
   it('keeps reporting a conflict the other overrides did not answer', () => {
@@ -579,21 +580,21 @@ describe('a conflict is judged against the slot\'s own baseline', () => {
     // the override was made, and no other override brought it back. A report
     // that went quiet here would be the silent clobbering the whole mechanism
     // exists to prevent.
-    const { conflicts } = applyOverrides(tokens, [
+    const { report } = applyOverrides(tokens, [
       borderOverride,
       { path, value: '48px', baseValue: '38.5px' },
     ])
-    expect(conflicts.map((entry) => entry.path)).toEqual([path])
-    expect(conflicts[0]).toMatchObject({ baseValue: '38.5px', engineValue: rederived })
+    expect(report.conflicts.map((entry) => entry.path)).toEqual([path])
+    expect(report.conflicts[0]).toMatchObject({ baseValue: '38.5px', engineValue: rederived })
   })
 
   it('reports convergence when the other overrides re-derived the engine onto the reviewer\'s value', () => {
-    const { converged, conflicts } = applyOverrides(tokens, [
+    const { report } = applyOverrides(tokens, [
       borderOverride,
       { path, value: rederived, baseValue: '38.5px' },
     ])
-    expect(conflicts).toEqual([])
-    expect(converged).toEqual([{ path, value: rederived }])
+    expect(report.conflicts).toEqual([])
+    expect(report.converged).toEqual([{ path, value: rederived }])
   })
 
   it('is the same answer the write boundary gets from `standingConflict`', () => {
@@ -603,12 +604,12 @@ describe('a conflict is judged against the slot\'s own baseline', () => {
     // standing override, asking about it on its own has to match, or the write
     // boundary and the exports tell the reviewer two different stories.
     expect(standingConflict(baselineFor(tokens, overrides, path), standing)).toBeUndefined()
-    expect(applyOverrides(tokens, overrides).conflicts).toEqual([])
+    expect(applyOverrides(tokens, overrides).report.conflicts).toEqual([])
 
     const stale: TokenOverride = { path, value: '48px', baseValue: '38.5px' }
     const staleSet = [borderOverride, stale]
     expect(standingConflict(baselineFor(tokens, staleSet, path), stale)).toMatchObject({ engineValue: rederived })
-    expect(applyOverrides(tokens, staleSet).conflicts).toHaveLength(1)
+    expect(applyOverrides(tokens, staleSet).report.conflicts).toHaveLength(1)
   })
 
   it('stays deterministic across the extra replays', () => {
@@ -632,8 +633,8 @@ describe('a conflict the reviewer answered', () => {
   }
 
   it('raises no conflict, because the reviewer has responded to it', () => {
-    const { conflicts, tokens: next } = applyOverrides(tokens, [answered])
-    expect(conflicts).toEqual([])
+    const { tokens: next, report } = applyOverrides(tokens, [answered])
+    expect(report.conflicts).toEqual([])
     expect(next.diagnostics.some((entry) => entry.code === 'override.conflict')).toBe(false)
   })
 
@@ -649,7 +650,7 @@ describe('a conflict the reviewer answered', () => {
   })
 
   it('says so in design.md, which is what a consumer actually reads', () => {
-    const markdown = renderDesignMarkdown(applyOverrides(tokens, [answered]).tokens)
+    const markdown = renderDesignMarkdown(applyOverrides(tokens, [answered]))
     expect(markdown).toContain('answered a conflict with new evidence rather than simply being edited')
     expect(markdown).toContain('`border.width` is now 4px')
     expect(markdown).toContain('It was 2px, set when the engine said 0.5px')
@@ -666,10 +667,12 @@ describe('a conflict the reviewer answered', () => {
     // §10 saying it was answered would have one half of the document contradict
     // the other.
     const reopened: TokenOverride = { ...answered, baseValue: '2.5px' }
-    const { tokens: next, conflicts } = applyOverrides(tokens, [reopened])
-    expect(conflicts.map((entry) => entry.path)).toEqual(['border.width'])
+    const reviewed = applyOverrides(tokens, [reopened])
+    expect(reviewed.report.conflicts.map((entry) => entry.path)).toEqual(['border.width'])
+    // The report leaves it out, which is what §10 reads.
+    expect(reviewed.report.retired).toEqual([])
 
-    const markdown = renderDesignMarkdown(next)
+    const markdown = renderDesignMarkdown(reviewed)
     expect(markdown).toContain('**override.conflict**')
     expect(markdown).toContain('## 10. User overrides')
     expect(markdown).not.toContain('answered a conflict with new evidence')
@@ -677,7 +680,7 @@ describe('a conflict the reviewer answered', () => {
 
   it('says nothing about answered conflicts on an override that answered none', () => {
     const markdown = renderDesignMarkdown(
-      applyOverrides(tokens, [{ path: 'border.width', value: '4px', baseValue: engineValue }]).tokens,
+      applyOverrides(tokens, [{ path: 'border.width', value: '4px', baseValue: engineValue }]),
     )
     expect(markdown).toContain('## 10. User overrides')
     expect(markdown).not.toContain('answered a conflict with new evidence')
@@ -700,10 +703,11 @@ describe('design.md with overrides', () => {
   it('states the overridden value, the engine\'s answer and the reason', () => {
     const tokens = kit()
     const engineHex = tokens.color.roles.primary?.value.hex
-    const { tokens: next } = applyOverrides(tokens, [
-      { path: 'color.roles.primary', value: '#1155cc', note: 'the brand is moving to blue' },
-    ])
-    const markdown = renderDesignMarkdown(next)
+    const markdown = renderDesignMarkdown(
+      applyOverrides(tokens, [
+        { path: 'color.roles.primary', value: '#1155cc', note: 'the brand is moving to blue' },
+      ]),
+    )
 
     expect(markdown).toContain('## 10. User overrides')
     expect(markdown).toContain('the brand is moving to blue')
@@ -717,8 +721,7 @@ describe('design.md with overrides', () => {
 
   it('survives a reason containing a pipe, which markdown reads as a column break', () => {
     const note = '8px is too tight | 12px reads better\nand it matches the header'
-    const { tokens: next } = applyOverrides(kit(), [{ path: 'radius.steps.md', value: '10px', note }])
-    const markdown = renderDesignMarkdown(next)
+    const markdown = renderDesignMarkdown(applyOverrides(kit(), [{ path: 'radius.steps.md', value: '10px', note }]))
 
     // §10 is a four-column table. The reviewer's prose must not add a fifth.
     const rows = markdown
@@ -748,10 +751,11 @@ describe('design.md with overrides', () => {
     // A reviewer may set a step off that scale. The document must then stop
     // asserting the rule its own table breaks.
     const offScale = base * 3 + 1
-    const { tokens: next } = applyOverrides(tokens, [
+    const reviewed = applyOverrides(tokens, [
       { path: `spacing.steps.${step?.value.name as string}`, value: `${offScale}px` },
     ])
-    const markdown = renderDesignMarkdown(next)
+    const next = reviewed.tokens
+    const markdown = renderDesignMarkdown(reviewed)
     expect(markdown).not.toContain(`is a multiple of ${base}px`)
     expect(markdown).toContain(`\`${step?.value.name as string}\` (${offScale}px)`)
     expect(markdown).toContain('A step name is an identifier, not a multiplier')
@@ -772,8 +776,8 @@ describe('design.md with overrides', () => {
 
   it('is deterministic with overrides applied', () => {
     const overrides: TokenOverride[] = [{ path: 'color.roles.primary', value: '#1155cc' }]
-    expect(renderDesignMarkdown(applyOverrides(kit(), overrides).tokens)).toBe(
-      renderDesignMarkdown(applyOverrides(kit(), overrides).tokens),
+    expect(renderDesignMarkdown(applyOverrides(kit(), overrides))).toBe(
+      renderDesignMarkdown(applyOverrides(kit(), overrides)),
     )
   })
 })
@@ -783,9 +787,10 @@ describe('a typography step, which is three slots behind one record', () => {
   const step = tokens.typography.steps.find((entry) => entry.value.name === 'base')
   const engineSize = `${step?.value.fontSize as number}px`
   const engineLineHeight = String(step?.value.lineHeight as number)
-  const sized = applyOverrides(tokens, [
+  const reviewed = applyOverrides(tokens, [
     { path: 'typography.steps.base.fontSize', value: '18px', baseValue: engineSize, note: 'body reads small' },
-  ]).tokens
+  ])
+  const sized = reviewed.tokens
 
   it('marks only the field the reviewer set', () => {
     expect(overriddenSlots(sized).map((slot) => slot.path)).toEqual(['typography.steps.base.fontSize'])
@@ -818,7 +823,7 @@ describe('a typography step, which is three slots behind one record', () => {
   })
 
   it('names one value in design.md, and states the engine answer for that field', () => {
-    const markdown = renderDesignMarkdown(sized)
+    const markdown = renderDesignMarkdown(reviewed)
     expect(markdown).toContain('1 value below was set by hand in the Ingot panel')
     const rows = markdown
       .split('\n')
@@ -863,14 +868,15 @@ describe('a typography step, which is three slots behind one record', () => {
       ['fontWeight', '500', engineWeight],
     ] as const) {
       const path = `typography.steps.base.${field}`
-      const next = applyOverrides(tokens, [{ path, value, baseValue: engineAnswer, note: 'airier' }]).tokens
+      const edited = applyOverrides(tokens, [{ path, value, baseValue: engineAnswer, note: 'airier' }])
+      const next = edited.tokens
       const slot = tokenSlots(next).find((entry) => entry.path === path)
       expect(slot?.provenance.decision.supersedes?.chosen).toBe(engineAnswer)
       expect(slot?.provenance.decision.summary).toContain(`the engine chose ${engineAnswer}`)
 
       // design.md §10 and the per-component "What was overridden" table read
       // that one record, so both name the field's own prior value.
-      const row = renderDesignMarkdown(next)
+      const row = renderDesignMarkdown(edited)
         .split('\n')
         .filter((line) => line.startsWith(`| \`${path}\``))
       expect(row).toHaveLength(1)
@@ -912,5 +918,206 @@ describe('a typography step, which is three slots behind one record', () => {
     expect(serializeTokens(applyOverrides(kit(), overrides).tokens)).toBe(
       serializeTokens(applyOverrides(kit(), overrides).tokens),
     )
+  })
+})
+
+/**
+ * The write boundary.
+ *
+ * Every question a write raises -- is this an override at all, did the value
+ * move or only the reason, was a conflict standing, and against what number --
+ * is a question about the *baseline*, and each one of them produced a defect
+ * when a caller answered it from whichever document it happened to be holding.
+ * So the engine answers all of them at once and hands back the row to store,
+ * and these are the five shapes that went wrong.
+ */
+describe('planning one write', () => {
+  const tokens = kit()
+
+  /** The plan, or a failure loud enough to read, so the tests below stay flat. */
+  function stored(report: OverrideWriteReport): Extract<OverrideWriteReport, { outcome: 'stored' }> {
+    if (report.outcome !== 'stored') throw new Error(`expected a stored plan, got: ${report.reason}`)
+    return report
+  }
+
+  function plan(standing: TokenOverride[], write: OverrideWrite): OverrideWriteReport {
+    return planOverrideWrite(tokens, standing, write)
+  }
+
+  describe('judging a candidate before anything is persisted', () => {
+    const engineRadius = readTokenValue(tokens, 'radius.steps.md') as string
+
+    it('refuses a candidate that restates the engine, with no row to store', () => {
+      // A refusal carries a reason and nothing else. There is deliberately no
+      // record on that branch: an override store keyed on (scope, path) would
+      // have destroyed the standing override by the time the answer came back.
+      const refused = plan([], { path: 'radius.steps.md', value: engineRadius })
+      expect(refused.outcome).toBe('refused')
+      expect(refused).not.toHaveProperty('record')
+      expect(refused).toMatchObject({ reason: expect.stringContaining('an override that agrees is not an override') })
+    })
+
+    it('refuses an unreadable value and a path this kit has no token at', () => {
+      expect(plan([], { path: 'radius.steps.md', value: 'quite round' })).toMatchObject({
+        outcome: 'refused',
+        reason: expect.stringContaining('pixel length'),
+      })
+      expect(plan([], { path: 'color.roles.tertiary', value: '#ff0000' })).toMatchObject({
+        outcome: 'refused',
+        reason: 'this kit has no token at color.roles.tertiary, so there is nothing to override',
+      })
+    })
+
+    it('does not refuse an edit restating a decision the reviewer already owns', () => {
+      // The evidence has caught up with this override, so its value *is* the
+      // engine's answer. Refusing the edit would delete a standing decision for
+      // the crime of being agreed with -- and the reviewer only typed a reason.
+      const standing: TokenOverride[] = [{ path: 'radius.steps.md', value: engineRadius, baseValue: '4px' }]
+      const plan = stored(planOverrideWrite(tokens, standing, {
+        path: 'radius.steps.md',
+        value: engineRadius,
+        note: 'still the right call',
+      }))
+      expect(plan.record).toMatchObject({ path: 'radius.steps.md', value: engineRadius, note: 'still the right call' })
+    })
+  })
+
+  describe('judging against the baseline rather than the stored distillation', () => {
+    const path = 'components.recipes.input.height'
+    const borderOverride: TokenOverride = { path: 'border.width', value: '3px' }
+    const distilled = readTokenValue(tokens, path) as string
+    const rederived = readTokenValue(baselineFor(tokens, [borderOverride], path), path) as string
+
+    it('has a number to tell the two documents apart', () => {
+      expect(rederived).not.toBe(distilled)
+    })
+
+    it('refuses the value the panel is showing, because that one is the engine\'s', () => {
+      expect(planOverrideWrite(tokens, [borderOverride], { path, value: rederived })).toMatchObject({
+        outcome: 'refused',
+        reason: expect.stringContaining('an override that agrees is not an override'),
+      })
+    })
+
+    it('accepts a value that only the stored distillation agrees with', () => {
+      // Pinning the height back to what it was before the wider border moved it
+      // is a real disagreement with what the kit now says. Judged against the
+      // pristine bytes it would read as redundant and be refused.
+      const plan = stored(planOverrideWrite(tokens, [borderOverride], { path, value: distilled }))
+      expect(plan.record.value).toBe(distilled)
+      // ...and what the engine said is recorded from the same document the
+      // comparison will later be made against, so the two cannot disagree.
+      expect(plan.record.baseValue).toBe(rederived)
+    })
+  })
+
+  describe('an edit that changes only the reason', () => {
+    const answered = { value: '1px', baseValue: '0.25px', engineValue: '0.75px' }
+    const standing: TokenOverride[] = [
+      { path: 'border.width', value: '2px', baseValue: '0.5px', note: 'the hairline reads thin', resolvedConflict: answered },
+    ]
+
+    it('leaves the base value and the answered record exactly where they were', () => {
+      // Annotating is not answering. Refreshing `baseValue` here would retire a
+      // standing conflict the reviewer never responded to, and dropping the
+      // record would stop the kit saying a disagreement was ever resolved.
+      const plan = stored(planOverrideWrite(tokens, standing, {
+        path: 'border.width',
+        value: '2 px',
+        note: 'still reads thin at this scale',
+      }))
+      expect(plan.retired).toBeUndefined()
+      expect(plan.record).toEqual({
+        path: 'border.width',
+        value: '2 px',
+        baseValue: '0.5px',
+        note: 'still reads thin at this scale',
+        resolvedConflict: answered,
+      })
+    })
+
+    it('recognises the edit however the same value was spelled', () => {
+      // "10 px" and "10px" are one value, and only the engine knows that.
+      expect(stored(planOverrideWrite(tokens, standing, { path: 'border.width', value: '2px' })).record.baseValue).toBe(
+        '0.5px',
+      )
+    })
+
+    it('says nothing about the reason when the write says nothing about it', () => {
+      const plan = stored(planOverrideWrite(tokens, standing, { path: 'border.width', value: '2px' }))
+      expect(plan.record.note).toBe('the hairline reads thin')
+      // ...and an explicitly empty one is a statement, so it clears it.
+      expect(
+        stored(planOverrideWrite(tokens, standing, { path: 'border.width', value: '2px', note: '' })).record.note,
+      ).toBe('')
+    })
+  })
+
+  describe('an override the evidence has caught up with', () => {
+    const engineWidth = `${tokens.border.width.value}px`
+    const converged: TokenOverride[] = [{ path: 'border.width', value: engineWidth, baseValue: '0.5px' }]
+
+    it('is a convergence, so it is not standing in conflict with anything', () => {
+      const report = applyOverrides(tokens, converged).report
+      expect(report.conflicts).toEqual([])
+      expect(report.converged).toEqual([{ path: 'border.width', value: engineWidth }])
+    })
+
+    it('claims no answer when the reviewer later moves the value', () => {
+      // Nothing was disagreeing, so this change answered nothing. Recording a
+      // retirement here would have design.md announce a conflict that was never
+      // reported.
+      const plan = stored(planOverrideWrite(tokens, converged, { path: 'border.width', value: '3px' }))
+      expect(plan.retired).toBeUndefined()
+      expect(plan.record.resolvedConflict).toBeUndefined()
+      expect(plan.record.baseValue).toBe(engineWidth)
+    })
+  })
+
+  describe('answering a conflict, and carrying the answer', () => {
+    const path = 'components.recipes.input.height'
+    const borderOverride: TokenOverride = { path: 'border.width', value: '3px' }
+    const distilled = readTokenValue(tokens, path) as string
+    const rederived = readTokenValue(baselineFor(tokens, [borderOverride], path), path) as string
+    /** A decision carried forward from before the wider border moved the height. */
+    const stale: TokenOverride = { path, value: '48px', baseValue: distilled }
+
+    it('names the engine answer that was actually consulted', () => {
+      const plan = stored(planOverrideWrite(tokens, [borderOverride, stale], { path, value: '50px' }))
+      expect(plan.retired).toMatchObject({ path, engineValue: rederived })
+      expect(plan.record.resolvedConflict).toEqual({
+        value: '48px',
+        baseValue: distilled,
+        engineValue: rederived,
+      })
+      expect(plan.record.baseValue).toBe(rederived)
+    })
+
+    it('reports the retirement, and design.md states the number off that report', () => {
+      const record = stored(planOverrideWrite(tokens, [borderOverride, stale], { path, value: '50px' })).record
+      // Exactly the row the server would have stored, replayed back.
+      const replayed: TokenOverride = { path, value: record.value, baseValue: record.baseValue }
+      if (record.resolvedConflict !== undefined) replayed.resolvedConflict = record.resolvedConflict
+      const reviewed = applyOverrides(tokens, [borderOverride, replayed])
+
+      expect(reviewed.report.conflicts).toEqual([])
+      expect(reviewed.report.retired).toEqual([
+        { path, value: '50px', answered: { value: '48px', baseValue: distilled, engineValue: rederived } },
+      ])
+
+      // The lookalike this whole seam exists to stop: `distilled` is what a
+      // surface re-deriving "the engine's answer" from the document in front of
+      // it would print, and nobody ever answered that number.
+      const markdown = renderDesignMarkdown(reviewed)
+      expect(markdown).toContain(`the captures then moved to ${rederived}`)
+      expect(markdown).not.toContain(`the captures then moved to ${distilled}`)
+      expect(markdown).toContain(`\`${path}\` is now 50px`)
+    })
+
+    it('is deterministic, like everything else the engine answers', () => {
+      const once = planOverrideWrite(tokens, [borderOverride, stale], { path, value: '50px' })
+      const twice = planOverrideWrite(kit(), [borderOverride, stale], { path, value: '50px' })
+      expect(twice).toEqual(once)
+    })
   })
 })
