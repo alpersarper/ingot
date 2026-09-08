@@ -22,7 +22,15 @@ import { CanonicalPreview } from './preview/CanonicalPreview'
 import type { PreviewView } from './preview/CanonicalPreview'
 import type { PreviewTheme } from './preview/counterpart'
 import { ApiError, api, saveBlob, storeToken, storedToken } from './lib/api'
-import type { CaptureSummary, GroupSummary, KitPayload, PanelSettings } from './lib/api'
+import type {
+  AssistantAnswer,
+  AssistantNaming,
+  AssistantState,
+  CaptureSummary,
+  GroupSummary,
+  KitPayload,
+  PanelSettings,
+} from './lib/api'
 
 type Phase = 'checking' | 'unpaired' | 'ready'
 
@@ -34,6 +42,14 @@ export function App(): ReactNode {
   const [captures, setCaptures] = useState<CaptureSummary[]>([])
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
   const [kit, setKit] = useState<KitPayload | null>(null)
+  /**
+   * The assistant's state and this scope's proposals.
+   *
+   * Null means the panel has not been able to ask -- an older server, or an
+   * unreachable one -- and the tab renders its setup state, which is the right
+   * thing to show somebody who has not got an assistant either way.
+   */
+  const [assistant, setAssistant] = useState<AssistantState | null>(null)
 
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
@@ -52,6 +68,17 @@ export function App(): ReactNode {
       return 'This panel is no longer paired.'
     }
     return error instanceof Error ? error.message : 'Something went wrong.'
+  }, [])
+
+  /**
+   * Reload the assistant's state for a scope.
+   *
+   * Failures are swallowed on purpose: the assistant is advisory, and a panel
+   * that could not render its captures because an assistant status call failed
+   * would have the dependency exactly backwards.
+   */
+  const refreshAssistant = useCallback(async (groupId: string | null): Promise<void> => {
+    setAssistant(await api.assistant(groupId).catch(() => null))
   }, [])
 
   /** The library list is the count behind "Whole library" and the fallback view. */
@@ -99,6 +126,7 @@ export function App(): ReactNode {
         setCaptures(nextCaptures)
         setKit(nextKit)
         setKitError(null)
+        if (!cancelled) await refreshAssistant(selectedGroupId)
       } catch (error) {
         if (!cancelled) setKitError(handle(error))
       }
@@ -106,7 +134,7 @@ export function App(): ReactNode {
     return () => {
       cancelled = true
     }
-  }, [phase, selectedGroupId, handle])
+  }, [phase, selectedGroupId, handle, refreshAssistant])
 
   async function onPaired(): Promise<void> {
     setSettings(await api.settings().catch(() => null))
@@ -201,11 +229,52 @@ export function App(): ReactNode {
     }
   }
 
+  /**
+   * Run one assistant capability and pick up the cards it produced.
+   *
+   * The proposals land in the Review queue, so the state that has to move is
+   * the assistant's rather than the kit's: nothing about the kit has changed,
+   * because a suggestion is not a value.
+   */
+  async function onSuggest(capability: 'derive' | 'merge'): Promise<void> {
+    await api.suggest(selectedGroupId, capability)
+    await refreshAssistant(selectedGroupId)
+  }
+
+  /**
+   * Accept one proposal.
+   *
+   * It answers with the whole effective kit, exactly as an override write does
+   * -- because it is one -- so the preview, the docs and every export turn from
+   * one authoritative answer. The assistant's own state is reloaded after, so
+   * the card settles.
+   */
+  async function onAcceptProposal(id: string): Promise<void> {
+    await runReview(async () => {
+      const result = await api.acceptProposal(selectedGroupId, id)
+      await refreshAssistant(selectedGroupId)
+      return result
+    })
+  }
+
+  async function onDismissProposal(id: string): Promise<void> {
+    setReviewing(true)
+    try {
+      await api.dismissProposal(selectedGroupId, id)
+      await refreshAssistant(selectedGroupId)
+    } catch (error) {
+      setKitError(handle(error))
+    } finally {
+      setReviewing(false)
+    }
+  }
+
   function onUnpair(): void {
     storeToken(null)
     setKit(null)
     setCaptures([])
     setGroups([])
+    setAssistant(null)
     setPhase('unpaired')
   }
 
@@ -229,6 +298,7 @@ export function App(): ReactNode {
           try {
             await api.saveLlmKey(key)
             setSettings(await api.settings())
+            await refreshAssistant(selectedGroupId)
           } catch (error) {
             // handle() routes a 401 back to pairing; the message goes to the
             // topbar so the failure is visible where the user typed the key.
@@ -286,6 +356,23 @@ export function App(): ReactNode {
             }
             onClearOverride={(path) => void runReview(() => api.clearOverride(selectedGroupId, path))}
             onDecide={(cardId, state) => void runReview(() => api.setDecision(selectedGroupId, cardId, state))}
+            assistant={assistant}
+            onSuggest={onSuggest}
+            onAcceptProposal={(id) => void onAcceptProposal(id)}
+            onDismissProposal={(id) => void onDismissProposal(id)}
+            onAsk={(question: string): Promise<AssistantAnswer> => api.ask(selectedGroupId, question)}
+            onName={(): Promise<AssistantNaming> => api.nameKit(selectedGroupId)}
+            onDraftReason={(path: string): Promise<string> => api.draftRationale(selectedGroupId, path)}
+            onSaveLlmKey={async (key) => {
+              await api.saveLlmKey(key)
+              setSettings(await api.settings().catch(() => null))
+              await refreshAssistant(selectedGroupId)
+            }}
+            onSaveLlmModel={async (model) => {
+              await api.saveLlmModel(model)
+              setSettings(await api.settings().catch(() => null))
+              await refreshAssistant(selectedGroupId)
+            }}
           />
         </aside>
       </main>

@@ -128,6 +128,15 @@ export interface TokenOverride {
    * does not describe as answered.
    */
   resolvedConflict?: ResolvedConflict
+  /**
+   * Where the value the reviewer accepted came from, when it was not their own.
+   *
+   * `'assistant'` means a proposal the assistant made and a person accepted.
+   * The decision is still theirs -- the assistant has no write path -- so this
+   * changes nothing about how the value is applied, only what the kit is able
+   * to say about it. Absent is the ordinary case: the reviewer typed it.
+   */
+  suggestedBy?: 'assistant'
 }
 
 /** An override that landed. */
@@ -591,7 +600,16 @@ function replay(tokens: TokensDocument, ordered: readonly TokenOverride[]): Repl
       return
     }
 
-    write(next, slot, parsed.canonical, override.note, colorTouched, recipesTouched, override.resolvedConflict)
+    write(
+      next,
+      slot,
+      parsed.canonical,
+      override.note,
+      colorTouched,
+      recipesTouched,
+      override.resolvedConflict,
+      override.suggestedBy,
+    )
     written.set(index, parsed.canonical)
   })
 
@@ -858,6 +876,14 @@ export interface OverrideWrite {
   path: string
   value: string
   note?: string
+  /**
+   * Where the value came from, when the reviewer did not think of it.
+   *
+   * Set by the one caller that has an answer -- accepting an assistant
+   * proposal. Every other write leaves it absent, and an absent value is not
+   * "unknown": it is the reviewer's own.
+   */
+  suggestedBy?: 'assistant'
 }
 
 /**
@@ -877,6 +903,12 @@ export interface OverrideRecord {
   note: string
   /** The conflict this write answered, when it answered one. */
   resolvedConflict?: ResolvedConflict
+  /**
+   * Where the accepted value came from. Carried on the row rather than
+   * re-derived, because after the write there is nothing left to derive it
+   * from: an accepted proposal and a typed value are the same string.
+   */
+  suggestedBy?: 'assistant'
 }
 
 /**
@@ -966,6 +998,15 @@ export function planOverrideWrite(
           ? undefined
           : existing.resolvedConflict
 
+  // Where the value came from follows the value, not the row. This write says
+  // so when it is an accepted proposal; a note-only edit leaves whatever the
+  // value already carried, because annotating a suggestion does not make the
+  // reviewer its author; and a value change that says nothing is the reviewer's
+  // own, so an earlier attribution is cleared rather than inherited by a string
+  // the assistant never proposed.
+  const suggestedBy =
+    write.suggestedBy ?? (existing !== undefined && !changed ? existing.suggestedBy : undefined)
+
   return {
     outcome: 'stored',
     record: {
@@ -974,6 +1015,7 @@ export function planOverrideWrite(
       baseValue: recorded,
       note: write.note ?? existing?.note ?? '',
       ...(answered === undefined ? {} : { resolvedConflict: answered }),
+      ...(suggestedBy === undefined ? {} : { suggestedBy }),
     },
     ...(retired === undefined ? {} : { retired }),
   }
@@ -1034,6 +1076,7 @@ function write(
   colorTouched: Set<ColorRoleName>,
   recipesTouched: Set<string>,
   resolvedConflict?: ResolvedConflict,
+  suggestedBy?: 'assistant',
 ): void {
   // `field` is given only for a token that holds several overridable fields.
   // Two things are recorded for it: which field a human set, and what stood in
@@ -1049,6 +1092,7 @@ function write(
       decision: userOverride(value, token.provenance.decision, {
         ...(note === undefined ? {} : { note }),
         ...(resolvedConflict === undefined ? {} : { resolvedConflict }),
+        ...(suggestedBy === undefined ? {} : { suggestedBy }),
         ...(field === undefined ? {} : { fields: [field], supersededValue: slot.value }),
       }),
     }

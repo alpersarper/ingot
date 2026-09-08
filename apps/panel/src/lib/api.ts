@@ -119,6 +119,14 @@ export interface StoredOverride {
   /** What the engine said when the override was made. Drives conflict reports. */
   baseValue: string
   note: string
+  /**
+   * Present when the reviewer accepted a value the assistant proposed.
+   *
+   * The decision is still theirs. This is where the candidate came from, which
+   * is what lets the Tokens tab distinguish a value somebody typed from one
+   * they were offered without implying the assistant decided anything.
+   */
+  suggestedBy?: 'assistant'
   createdAt: string
   updatedAt: string
 }
@@ -145,10 +153,81 @@ export interface KitPayload {
 }
 
 export interface PanelSettings {
-  llm: { configured: boolean; source: 'environment' | 'settings' | 'none'; managedByEnvironment: boolean }
+  llm: {
+    configured: boolean
+    source: 'environment' | 'settings' | 'none'
+    managedByEnvironment: boolean
+    /** The model the assistant will ask. Not a secret; the panel shows it. */
+    model: string
+    modelManagedByEnvironment: boolean
+  }
   engine: { name: string; version: string }
   storage: { adapter: string; schemaVersion: number }
   allowedOrigins: string[]
+}
+
+/* ------------------------------------------------------------- assistant -- */
+
+/**
+ * One thing the assistant proposed, as the server stores it.
+ *
+ * It is a suggestion and nothing more until somebody accepts it: the value is
+ * not in the kit, it is in no export, and the only way it gets there is the
+ * accept call below, which goes through the ordinary override write path.
+ */
+export interface AssistantProposal {
+  id: string
+  /** Which capability produced it: `derive`, `merge`. */
+  capability: string
+  promptVersion: string
+  model: string
+  path: string
+  value: string
+  /** The engine's own answer at that path when the proposal was checked. */
+  baseValue: string
+  title: string
+  rationale: string
+  /** What the engine said applying it would also do. Empty when it lands clean. */
+  engineNotes: string[]
+  status: 'open' | 'accepted' | 'dismissed'
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AssistantStatus {
+  configured: boolean
+  source: 'environment' | 'settings' | 'none'
+  managedByEnvironment: boolean
+  model: string
+  modelManagedByEnvironment: boolean
+  /** The prompt template version behind every proposal in this build. */
+  promptVersion: string
+  rateLimit: { max: number; windowMs: number; remaining: number }
+}
+
+export interface AssistantState {
+  assistant: AssistantStatus
+  proposals: AssistantProposal[]
+}
+
+/** A citation the server resolved against the kit, so the panel shows evidence. */
+export interface AssistantCitation {
+  path: string
+  value: string
+  decision: string
+}
+
+export interface AssistantAnswer {
+  answer: string
+  citations: AssistantCitation[]
+  /** Paths the answer cited that this kit does not have. Shown, not hidden. */
+  unresolved: string[]
+}
+
+export interface AssistantNaming {
+  kitName: string
+  kitDescription: string
+  roles: Array<{ path: string; name: string; rationale: string }>
 }
 
 export const api = {
@@ -175,6 +254,11 @@ export const api = {
 
   async saveLlmKey(key: string | null): Promise<void> {
     await write('/api/settings', 'PUT', { llmApiKey: key })
+  },
+
+  /** The model the assistant asks. `null` takes the server's default back. */
+  async saveLlmModel(model: string | null): Promise<void> {
+    await write('/api/settings', 'PUT', { llmModel: model })
   },
 
   async captures(groupId?: string): Promise<CaptureSummary[]> {
@@ -224,6 +308,54 @@ export const api = {
 
   async setDecision(groupId: string | null, cardId: string, state: 'accepted' | 'open'): Promise<KitPayload> {
     return write('/api/reviews/decisions', 'PUT', { groupId, cardId, state })
+  },
+
+  /**
+   * The assistant's own state, plus this scope's proposals.
+   *
+   * Free and never rate-limited: it reaches no provider. The panel asks it on
+   * load so it knows whether to render the assistant or its setup path, and a
+   * setup screen that could itself be rate-limited would be the worst possible
+   * first impression.
+   */
+  async assistant(groupId: string | null): Promise<AssistantState> {
+    const query = groupId === null ? '' : `?groupId=${encodeURIComponent(groupId)}`
+    return get(`/api/assistant${query}`)
+  },
+
+  /** Run a proposing capability. Returns the cards; changes no token. */
+  async suggest(
+    groupId: string | null,
+    capability: 'derive' | 'merge',
+  ): Promise<{ proposals: AssistantProposal[]; refusedCount: number; model: string }> {
+    return write('/api/assistant/suggest', 'POST', { groupId, capability })
+  },
+
+  async ask(groupId: string | null, question: string): Promise<AssistantAnswer> {
+    return write('/api/assistant/ask', 'POST', { groupId, question })
+  },
+
+  async nameKit(groupId: string | null): Promise<AssistantNaming> {
+    return (await write<{ naming: AssistantNaming }>('/api/assistant/name', 'POST', { groupId })).naming
+  },
+
+  async draftRationale(groupId: string | null, path: string): Promise<string> {
+    return (await write<{ reason: string }>('/api/assistant/rationale', 'POST', { groupId, path })).reason
+  },
+
+  /**
+   * Accept one proposal.
+   *
+   * Answers with the whole effective kit, exactly as an override write does,
+   * because it *is* an override write: the panel re-renders from one
+   * authoritative answer rather than patching a local copy.
+   */
+  async acceptProposal(groupId: string | null, id: string): Promise<KitPayload & { proposal: AssistantProposal }> {
+    return write(`/api/assistant/proposals/${encodeURIComponent(id)}/accept`, 'POST', { groupId })
+  },
+
+  async dismissProposal(groupId: string | null, id: string): Promise<{ proposal: AssistantProposal }> {
+    return write(`/api/assistant/proposals/${encodeURIComponent(id)}/dismiss`, 'POST', { groupId })
   },
 
   /**

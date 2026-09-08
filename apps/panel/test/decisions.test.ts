@@ -16,6 +16,7 @@ import { applyOverrides, readTokenValue, tokenSlots } from '@ingot/engine'
 import { asPristine } from '@ingot/engine'
 import type { PristineTokens, TokensDocument } from '@ingot/engine'
 import { decisionCards, openCount } from '@/workbench/decisions'
+import type { AssistantProposal } from '@/lib/api'
 
 function repositoryRoot(): string {
   let candidate = process.cwd()
@@ -223,5 +224,86 @@ describe('an override the engine refused', () => {
     expect(state([])).toBe('overridden')
     // Told what the engine actually did with it, the card stays open.
     expect(state([stranded.path])).toBe('open')
+  })
+})
+
+describe('assistant proposals in the queue', () => {
+  const tokens = kit('messy-mixed')
+  const proposal: AssistantProposal = {
+    id: 'p-1',
+    capability: 'derive',
+    promptVersion: 'assistant-prompts@1',
+    model: 'claude-sonnet-5',
+    path: 'border.width',
+    value: '2px',
+    baseValue: '1px',
+    title: 'Thicken the hairline',
+    rationale: 'The kit is warm and editorial.',
+    engineNotes: [],
+    status: 'open',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+
+  function withProposals(proposals: AssistantProposal[]): ReturnType<typeof decisionCards> {
+    return decisionCards({
+      tokens,
+      conflicts: [],
+      overriddenPaths: new Set(),
+      rejectedPaths: new Set(),
+      accepted: new Set(),
+      proposals,
+    })
+  }
+
+  it('joins the queue as its own kind, so nothing has to guess where it came from', () => {
+    const card = withProposals([proposal]).find((entry) => entry.id === 'proposal:p-1')
+    expect(card?.kind).toBe('proposal')
+    expect(card?.severity).toBe('suggestion')
+    expect(card?.title).toBe('Thicken the hairline')
+    // The model and the prompt version travel with the card, so a suggestion
+    // that turns out to be bad can be traced to the words that produced it.
+    expect(card?.attribution).toContain('claude-sonnet-5')
+    expect(card?.attribution).toContain('assistant-prompts@1')
+  })
+
+  it('sorts after every open finding the engine made', () => {
+    // The engine looked at the evidence; the assistant looked at the engine.
+    const cards = withProposals([proposal])
+    const open = cards.filter((entry) => entry.state === 'open')
+    const suggestion = open.findIndex((entry) => entry.kind === 'proposal')
+    expect(suggestion).toBe(open.length - 1)
+    expect(open.length).toBeGreaterThan(1)
+  })
+
+  it('offers acceptance and dismissal, and nothing that would set a value directly', () => {
+    const card = withProposals([proposal]).find((entry) => entry.id === 'proposal:p-1')
+    expect(card?.options).toEqual([
+      { kind: 'accept-proposal', id: 'p-1', label: 'Accept (2px)' },
+      { kind: 'dismiss-proposal', id: 'p-1', label: 'Dismiss' },
+    ])
+    // Not editable: typing a different value here would be an override rather
+    // than an acceptance, and the Tokens tab is where an override is typed.
+    expect(card?.editable).toBe(false)
+  })
+
+  it("shows the engine's answer beside the proposed one, plus anything applying it would move", () => {
+    const card = withProposals([
+      { ...proposal, engineNotes: ['the engine writes this as 3px rather than 2px'] },
+    ]).find((entry) => entry.id === 'proposal:p-1')
+    expect(card?.evidence).toEqual([
+      'set border.width to 2px',
+      'the engine says 1px',
+      'the engine writes this as 3px rather than 2px',
+    ])
+  })
+
+  it('stays in the queue once decided, settled rather than vanished', () => {
+    // A card that disappears is one the reviewer cannot check they dealt with.
+    const dismissed = withProposals([{ ...proposal, status: 'dismissed' }])
+    const card = dismissed.find((entry) => entry.id === 'proposal:p-1')
+    expect(card?.state).toBe('dismissed')
+    expect(card?.options).toEqual([])
+    expect(openCount(dismissed)).toBe(openCount(withProposals([])))
   })
 })

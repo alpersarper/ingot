@@ -13,6 +13,8 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { serve } from '@hono/node-server'
 import { createApp } from './app'
+import { createAssistant } from './assistant/service'
+import { createRateLimiter } from './assistant/rate-limit'
 import { loadConfig } from './config'
 import { createScreenshotStore } from './screenshots'
 import { resolvePairingToken } from './pairing'
@@ -37,7 +39,20 @@ export async function createContext(config: ServerConfig): Promise<AppContext> {
 
   const pairingToken = await resolvePairingToken(store, config.pairingToken)
 
-  return { config, store, screenshots: createScreenshotStore(config.screenshotDir), pairingToken }
+  return {
+    config,
+    store,
+    screenshots: createScreenshotStore(config.screenshotDir),
+    pairingToken,
+    // Built whether or not a key is configured: "no key" is an answer the
+    // assistant gives, and the panel needs to be told it in order to show the
+    // setup path. Nothing here reaches a provider until a route asks it to.
+    assistant: createAssistant({ store, config }),
+    assistantLimiter: createRateLimiter({
+      max: config.assistantRateLimit,
+      windowMs: config.assistantRateWindowMs,
+    }),
+  }
 }
 
 /**

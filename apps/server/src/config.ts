@@ -7,6 +7,7 @@
  * run instead, which is what the panel's first-run screen is for.
  */
 import { resolve } from 'node:path'
+import { DEFAULT_ASSISTANT_RATE_LIMIT, DEFAULT_ASSISTANT_RATE_WINDOW_MS } from './assistant/rate-limit'
 
 export interface ServerConfig {
   port: number
@@ -32,6 +33,31 @@ export interface ServerConfig {
   pairingToken: string | undefined
   /** LLM API key from the environment; otherwise it arrives via settings. */
   llmApiKey: string | undefined
+  /**
+   * Model the assistant asks, pinned in the environment.
+   *
+   * Undefined means the reviewer chooses in the panel, falling back to the
+   * assistant's own default. Pinned, it is not editable from the panel -- the
+   * same rule the key follows, so a deployment that fixes one can fix both.
+   */
+  llmModel: string | undefined
+  /**
+   * Provider endpoint, when it is not the SDK's own.
+   *
+   * The seam this exists for is a hosted proxy: an organisation that wants
+   * assistant traffic to leave through something it operates points this at it
+   * and nothing else in the server changes.
+   */
+  llmBaseUrl: string | undefined
+  /**
+   * How many assistant requests this server will serve per window.
+   *
+   * The limit is on the server rather than in the panel because the thing it
+   * guards against is a *copied* pairing token: the panel is the part that
+   * would have been copied. See `src/assistant/rate-limit.ts`.
+   */
+  assistantRateLimit: number
+  assistantRateWindowMs: number
 }
 
 function intFromEnv(env: NodeJS.ProcessEnv, key: string, fallback: number): number {
@@ -40,6 +66,22 @@ function intFromEnv(env: NodeJS.ProcessEnv, key: string, fallback: number): numb
   const parsed = Number.parseInt(raw, 10)
   if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 65535) {
     throw new Error(`${key} must be a port number, received ${JSON.stringify(raw)}`)
+  }
+  return parsed
+}
+
+/**
+ * A positive integer from the environment.
+ *
+ * Separate from {@link intFromEnv} because that one is about ports and rejects
+ * anything above 65535, which is a perfectly reasonable number of milliseconds.
+ */
+function countFromEnv(env: NodeJS.ProcessEnv, key: string, fallback: number): number {
+  const raw = env[key]
+  if (raw === undefined || raw.trim() === '') return fallback
+  const parsed = Number.parseInt(raw, 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${key} must be a positive integer, received ${JSON.stringify(raw)}`)
   }
   return parsed
 }
@@ -78,5 +120,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     allowedOrigins: configured.length > 0 ? configured : [DEV_PANEL_ORIGIN],
     pairingToken: optional(env, 'INGOT_PAIRING_TOKEN'),
     llmApiKey: optional(env, 'INGOT_LLM_API_KEY'),
+    llmModel: optional(env, 'INGOT_LLM_MODEL'),
+    llmBaseUrl: optional(env, 'INGOT_LLM_BASE_URL'),
+    assistantRateLimit: countFromEnv(env, 'INGOT_ASSISTANT_RATE_LIMIT', DEFAULT_ASSISTANT_RATE_LIMIT),
+    assistantRateWindowMs: countFromEnv(
+      env,
+      'INGOT_ASSISTANT_RATE_WINDOW_MS',
+      DEFAULT_ASSISTANT_RATE_WINDOW_MS,
+    ),
   }
 }

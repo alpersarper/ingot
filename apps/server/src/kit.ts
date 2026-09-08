@@ -198,5 +198,6 @@ export function toEngineOverride(stored: StoredOverride): TokenOverride {
   const override: TokenOverride = { path: stored.path, value: stored.value, baseValue: stored.baseValue }
   if (stored.note !== '') override.note = stored.note
   if (stored.resolvedConflict !== undefined) override.resolvedConflict = stored.resolvedConflict
+  if (stored.suggestedBy !== undefined) override.suggestedBy = stored.suggestedBy
   return override
 }

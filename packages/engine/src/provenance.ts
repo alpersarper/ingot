@@ -125,6 +125,23 @@ export interface DominantChoice {
    * value that merely changed -- the same discipline that keeps `supersedes`.
    */
   resolvedConflict?: ResolvedConflict
+  /**
+   * Present when `strategy` is `user-override` and the value the reviewer
+   * accepted was one the assistant proposed.
+   *
+   * The decision is still the reviewer's -- nothing reaches a token without a
+   * person accepting it -- so the strategy stays `user-override` rather than
+   * gaining a variant of its own. What this records is where the *candidate*
+   * came from, which is a different question and one a reader of the kit is
+   * entitled to ask: a value a human thought of and a value a language model
+   * thought of carry different kinds of evidence behind them, and only one of
+   * them can be asked to explain itself again.
+   *
+   * Absent means the reviewer wrote the value themselves. There is no third
+   * state: the assistant cannot write a token, so no value in a kit is the
+   * assistant's alone.
+   */
+  suggestedBy?: 'assistant'
 }
 
 /**
@@ -318,9 +335,10 @@ export function userOverride(
     resolvedConflict?: ResolvedConflict
     fields?: readonly string[]
     supersededValue?: string
+    suggestedBy?: 'assistant'
   } = {},
 ): DominantChoice {
-  const { note, resolvedConflict, fields, supersededValue } = options
+  const { note, resolvedConflict, fields, supersededValue, suggestedBy } = options
   // What the engine said for the field this decision is about, which on a
   // multi-field token is not what the replaced decision's own `chosen` says.
   const replaced = supersededValue ?? supersedes.chosen
@@ -341,6 +359,14 @@ export function userOverride(
   if (resolvedConflict !== undefined) decision.resolvedConflict = resolvedConflict
   if (fields !== undefined) decision.fields = [...fields].sort(byString)
   if (supersededValue !== undefined) decision.supersededValue = supersededValue
+  // Appended to the summary rather than replacing it: the sentence a reader
+  // already knows -- what was chosen and what it replaced -- stays where it
+  // was, and where the candidate came from is added to it. A decision nobody
+  // was offered reads exactly as it did before.
+  if (suggestedBy !== undefined) {
+    decision.suggestedBy = suggestedBy
+    decision.summary = `${decision.summary}; proposed by the assistant and accepted by the reviewer`
+  }
   return decision
 }
 

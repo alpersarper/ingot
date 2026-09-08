@@ -1121,3 +1121,74 @@ describe('planning one write', () => {
     })
   })
 })
+
+describe('where an accepted value came from', () => {
+  const path = 'border.width'
+
+  it('is recorded on the decision without changing what the decision is', () => {
+    const tokens = kit()
+    const engineValue = readTokenValue(tokens, path)
+    const { tokens: next } = applyOverrides(tokens, [
+      { path, value: '3px', baseValue: engineValue as string, suggestedBy: 'assistant' },
+    ])
+
+    const decision = next.border.width.provenance.decision
+    // The strategy is unchanged: a person chose this value, and the assistant
+    // having offered it does not make the decision anybody else's.
+    expect(decision.strategy).toBe('user-override')
+    expect(decision.suggestedBy).toBe('assistant')
+    expect(decision.summary).toContain('proposed by the assistant and accepted by the reviewer')
+    // And the evidence is untouched, as it is for any override.
+    expect(next.border.width.provenance.observed).toEqual(tokens.border.width.provenance.observed)
+  })
+
+  it('says nothing at all about an override the reviewer wrote themselves', () => {
+    const tokens = kit()
+    const engineValue = readTokenValue(tokens, path)
+    const { tokens: next } = applyOverrides(tokens, [
+      { path, value: '3px', baseValue: engineValue as string },
+    ])
+    const decision = next.border.width.provenance.decision
+    // Absent, not `'reviewer'`: there is no third state to distinguish, and a
+    // field that appeared on every override would change the bytes of every
+    // kit anybody has ever reviewed.
+    expect(decision.suggestedBy).toBeUndefined()
+    expect(decision.summary).not.toContain('assistant')
+  })
+
+  it('follows the value: kept by a note-only edit, cleared by a new value', () => {
+    const tokens = kit()
+    const engineValue = readTokenValue(tokens, path) as string
+    const standing: TokenOverride[] = [
+      { path, value: '3px', baseValue: engineValue, suggestedBy: 'assistant' },
+    ]
+
+    // Annotating a suggestion does not make the reviewer its author.
+    const annotated = planOverrideWrite(tokens, standing, { path, value: '3px', note: 'thicker reads better' })
+    expect(annotated.outcome).toBe('stored')
+    if (annotated.outcome === 'stored') expect(annotated.record.suggestedBy).toBe('assistant')
+
+    // Typing a different value does: that string was never proposed, so an
+    // attribution carried onto it would credit the assistant with somebody
+    // else's decision.
+    const retyped = planOverrideWrite(tokens, standing, { path, value: '4px' })
+    expect(retyped.outcome).toBe('stored')
+    if (retyped.outcome === 'stored') expect(retyped.record.suggestedBy).toBeUndefined()
+  })
+
+  it('names the accepted suggestions in design.md, and stays silent otherwise', () => {
+    const tokens = kit()
+    const engineValue = readTokenValue(tokens, path) as string
+
+    const suggested = renderDesignMarkdown(
+      applyOverrides(tokens, [{ path, value: '3px', baseValue: engineValue, suggestedBy: 'assistant' }]),
+    )
+    expect(suggested).toContain('proposed by the Ingot assistant')
+    expect(suggested).toContain(`\`${path}\``)
+
+    const byHand = renderDesignMarkdown(applyOverrides(tokens, [{ path, value: '3px', baseValue: engineValue }]))
+    // A kit reviewed entirely by hand says nothing about an assistant it never
+    // ran -- which is also what keeps every committed example byte-identical.
+    expect(byHand).not.toContain('assistant')
+  })
+})

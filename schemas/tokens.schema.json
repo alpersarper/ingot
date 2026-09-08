@@ -454,6 +454,10 @@
           "items": { "type": "string" },
           "description": "Present when strategy is user-override on a token holding several overridable fields (a typography step carries a size, a line height and a weight behind one record): the fields this decision set, sorted. A field not named here was left where the engine put it, and every surface reads this rather than treating the whole token as hand-set."
         },
+        "suggestedBy": {
+          "enum": ["assistant"],
+          "description": "Present when strategy is user-override and the accepted value was one the Ingot assistant proposed. The decision is still the reviewer's -- the assistant has no write path and every value it proposes is checked against the engine's guardrails before a person is offered it -- so this records where the candidate came from, not who chose it. Absent means the reviewer wrote the value themselves."
+        },
         "resolvedConflict": {
           "type": "object",
           "additionalProperties": false,

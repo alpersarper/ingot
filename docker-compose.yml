@@ -18,9 +18,22 @@ services:
       # Pin the pairing token here to skip the first-run screen on a fresh
       # volume. Leave it unset and the server mints one.
       INGOT_PAIRING_TOKEN: ${INGOT_PAIRING_TOKEN:-}
-      # The LLM key can be pinned here instead of typed into the panel. Nothing
-      # in this build calls an LLM; the key is stored for the assistant to come.
+      # The assistant. All optional: with no key it shows its setup path and
+      # every other panel feature works. Pinning the key here makes it
+      # uneditable from the panel, which is the point of pinning it.
+      #
+      # A Claude subscription does not include API usage -- the API is billed
+      # separately from prepaid credit at console.anthropic.com. See the
+      # README's setup section.
       INGOT_LLM_API_KEY: ${INGOT_LLM_API_KEY:-}
+      INGOT_LLM_MODEL: ${INGOT_LLM_MODEL:-}
+      # A hosted proxy, when assistant traffic should leave through something
+      # this organisation operates rather than through the SDK's default.
+      INGOT_LLM_BASE_URL: ${INGOT_LLM_BASE_URL:-}
+      # How many assistant calls this server will serve per window. The guard is
+      # against a copied pairing token becoming a spend loop.
+      INGOT_ASSISTANT_RATE_LIMIT: ${INGOT_ASSISTANT_RATE_LIMIT:-}
+      INGOT_ASSISTANT_RATE_WINDOW_MS: ${INGOT_ASSISTANT_RATE_WINDOW_MS:-}
     restart: unless-stopped
 
 volumes:
