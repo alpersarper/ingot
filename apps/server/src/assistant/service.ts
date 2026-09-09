@@ -62,7 +62,10 @@ export interface AssistantService {
    *
    * The open queue for the scope is replaced rather than appended to: a fresh
    * run is a fresh reading of the kit, and a queue that only grows is one
-   * nobody works through. Accepted and dismissed proposals are kept.
+   * nobody works through. Accepted and dismissed proposals are kept, and the
+   * kept dismissals gate this run: a suggestion of the same capability at the
+   * same path is withheld while the engine's answer the dismissal was made
+   * against still stands, and comes back marked as a re-offer when it moved.
    */
   suggest(input: SuggestInput): Promise<SuggestResult>
   /** Name the kit's vocabulary. Content: nothing here can change a token. */
@@ -130,6 +133,15 @@ export interface SuggestResult {
 export interface AssistantDeps {
   store: Store
   config: ServerConfig
+  /**
+   * The pairing token as resolved at startup, for the redacting logger.
+   *
+   * `config.pairingToken` only exists when the environment pins one; in the
+   * default deployment the token is minted at first run and lives on the app
+   * context, and "every secret this process holds" has to include it either
+   * way. Never read to make a request.
+   */
+  pairingToken?: string
   /** Injected so a test can exercise all of this without a network or a key. */
   llmFactory?: LlmClientFactory
   /**
@@ -150,7 +162,7 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
   // because the stored key changes while the process runs and a logger holding
   // the old one would let the new one through.
   const logger = createRedactingLogger(
-    () => [config.llmApiKey, cachedKey, config.pairingToken],
+    () => [config.llmApiKey, cachedKey, config.pairingToken, deps.pairingToken],
     deps.logSink,
   )
 
@@ -261,13 +273,23 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
       })
 
       const candidates: Candidate[] = reply.value.proposals
-      const checked = checkProposals(asPristine(clone(input.pristine)), input.standing, candidates)
+      // The kept dismissals for this capability gate the run: a person already
+      // answered these, and the check honours that answer for exactly as long
+      // as the engine's answer they responded to stands.
+      const dismissed = (await store.proposals.list(input.scope)).filter(
+        (row) => row.status === 'dismissed' && row.capability === input.capability,
+      )
+      const checked = checkProposals(asPristine(clone(input.pristine)), input.standing, candidates, dismissed)
 
       // Every refusal is logged: it is the signal that a template has started
       // producing values the engine will not take, and nothing else would show
       // it, since a refused candidate is invisible in the panel by design.
       for (const entry of checked.refused) {
         logger.warn(`assistant proposal refused at ${entry.path}: ${entry.reason}`)
+      }
+      // Suppressions too, for the same reason: withheld is invisible by design.
+      for (const entry of checked.suppressed) {
+        logger.warn(`assistant proposal withheld at ${entry.path}: ${entry.reason}`)
       }
 
       await store.proposals.clearOpen(input.scope)
@@ -284,6 +306,7 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
             title: proposal.title,
             rationale: proposal.rationale,
             engineNotes: proposal.engineNotes,
+            ...(proposal.reoffered ? { reoffered: true } : {}),
           }),
         )
       }

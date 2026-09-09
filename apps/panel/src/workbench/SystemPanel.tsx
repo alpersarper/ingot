@@ -336,8 +336,13 @@ function ReviewCard({
             onClick={() => setOpen(!open)}
           >
             {proposal ? (
-              <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wider text-violet-600 dark:text-violet-400">
+              <span className="mb-0.5 flex flex-wrap items-baseline gap-x-1.5 text-[10px] font-semibold uppercase tracking-wider text-violet-600 dark:text-violet-400">
                 Assistant suggestion
+                {card.reoffered === true ? (
+                  <span className="font-normal normal-case tracking-normal text-muted-foreground">
+                    previously dismissed — evidence has since changed
+                  </span>
+                ) : null}
               </span>
             ) : null}
             <span className="block text-xs font-medium">{card.title}</span>

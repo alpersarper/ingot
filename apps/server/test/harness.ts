@@ -124,7 +124,13 @@ export async function createHarness(env: NodeJS.ProcessEnv = {}): Promise<Harnes
     store,
     screenshots: createScreenshotStore(config.screenshotDir),
     pairingToken: TEST_TOKEN,
-    assistant: createAssistant({ store, config, llmFactory, logSink: (line) => void logs.push(line) }),
+    assistant: createAssistant({
+      store,
+      config,
+      pairingToken: TEST_TOKEN,
+      llmFactory,
+      logSink: (line) => void logs.push(line),
+    }),
     assistantLimiter,
   }
   const app = createApp(context)

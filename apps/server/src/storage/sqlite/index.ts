@@ -106,6 +106,7 @@ interface ProposalRow {
   rationale: string
   engine_notes: string
   status: string
+  reoffered: number
   created_at: string
   updated_at: string
 }
@@ -522,7 +523,7 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
     'path, value, base_value, note, resolved_value, resolved_base, resolved_engine, suggested_by, created_at, updated_at'
 
   const PROPOSAL_COLUMNS =
-    'id, capability, prompt_version, model, path, value, base_value, title, rationale, engine_notes, status, created_at, updated_at'
+    'id, capability, prompt_version, model, path, value, base_value, title, rationale, engine_notes, status, reoffered, created_at, updated_at'
 
   const reviews: ReviewRepository = {
     async overrides(scope) {
@@ -637,8 +638,8 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
       const now = clock()
       db.prepare(
         `INSERT INTO assistant_proposals
-           (id, scope_key, capability, prompt_version, model, path, value, base_value, title, rationale, engine_notes, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)`,
+           (id, scope_key, capability, prompt_version, model, path, value, base_value, title, rationale, engine_notes, status, reoffered, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)`,
       ).run(
         id,
         scopeKey(scope),
@@ -651,6 +652,7 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
         input.title,
         input.rationale,
         JSON.stringify(input.engineNotes ?? []),
+        input.reoffered === true ? 1 : 0,
         now,
         now,
       )
@@ -785,6 +787,7 @@ function hydrateProposal(row: ProposalRow): StoredProposal {
     rationale: row.rationale,
     engineNotes: JSON.parse(row.engine_notes) as string[],
     status: row.status as StoredProposal['status'],
+    ...(row.reoffered === 0 ? {} : { reoffered: true }),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }

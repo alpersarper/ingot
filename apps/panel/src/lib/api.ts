@@ -190,6 +190,12 @@ export interface AssistantProposal {
   /** What the engine said applying it would also do. Empty when it lands clean. */
   engineNotes: string[]
   status: 'open' | 'accepted' | 'dismissed'
+  /**
+   * True when this suggestion had been dismissed and the engine's answer at
+   * its path has since moved. The card is marked as a re-offer, never shown
+   * as new.
+   */
+  reoffered?: boolean
   createdAt: string
   updatedAt: string
 }

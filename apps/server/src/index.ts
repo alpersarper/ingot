@@ -47,7 +47,10 @@ export async function createContext(config: ServerConfig): Promise<AppContext> {
     // Built whether or not a key is configured: "no key" is an answer the
     // assistant gives, and the panel needs to be told it in order to show the
     // setup path. Nothing here reaches a provider until a route asks it to.
-    assistant: createAssistant({ store, config }),
+    // The resolved pairing token rides along so the assistant's redaction
+    // covers it even when it was minted here rather than pinned in the
+    // environment.
+    assistant: createAssistant({ store, config, pairingToken }),
     assistantLimiter: createRateLimiter({
       max: config.assistantRateLimit,
       windowMs: config.assistantRateWindowMs,

@@ -217,9 +217,90 @@ describe('the proposal pipeline', () => {
 
     const kit = await harness.json<{ review: { overrides: unknown[] } }>('/api/kits/latest')
     expect(kit.review.overrides).toEqual([])
-    // The dismissal itself is kept, so the same suggestion is not re-offered as
-    // though it were new -- but it is review state, not kit state.
+    // The dismissal itself is kept -- review state, not kit state. A kept
+    // dismissal suppresses the same suggestion while the engine's answer is
+    // unchanged; when the evidence moves it may return, marked as a re-offer.
     expect((await harness.store.proposals.list(null)).map((entry) => entry.status)).toEqual(['dismissed'])
+  })
+
+  it('withholds a dismissed suggestion on a re-run while the engine\'s answer is unchanged', async () => {
+    await importAndGenerate()
+    await storeKey()
+
+    harness.llm.reply({
+      proposals: [{ path: 'border.width', value: '2px', title: 'Thicker', rationale: 'Reads better.' }],
+    })
+    const first = await harness.json<{ proposals: Array<{ id: string }> }>(
+      '/api/assistant/suggest',
+      body({ capability: 'derive' }),
+    )
+    await harness.call(`/api/assistant/proposals/${first.proposals[0]?.id ?? ''}/dismiss`, body({}))
+
+    // The model proposes the very same thing again about the very same kit. A
+    // person already answered it, and nothing they were answering has moved.
+    harness.llm.reply({
+      proposals: [{ path: 'border.width', value: '2px', title: 'Thicker', rationale: 'Reads better.' }],
+    })
+    const second = await harness.json<{ proposals: unknown[]; refusedCount: number }>(
+      '/api/assistant/suggest',
+      body({ capability: 'derive' }),
+    )
+    expect(second.proposals).toEqual([])
+    // Withheld, not refused: the engine never judged it, a human did.
+    expect(second.refusedCount).toBe(0)
+    expect(harness.logs.some((line) => line.includes('withheld'))).toBe(true)
+
+    const state = await harness.json<{ proposals: Array<{ path: string; status: string }> }>('/api/assistant')
+    expect(state.proposals.map((entry) => `${entry.path}:${entry.status}`)).toEqual(['border.width:dismissed'])
+
+    // A different capability at the same path is a different kind of
+    // suggestion, and the dismissal does not silence it.
+    harness.llm.reply({
+      proposals: [{ path: 'border.width', value: '2px', title: 'One border', rationale: 'Two widths, one look.' }],
+    })
+    const merged = await harness.json<{ proposals: Array<{ path: string; status: string; reoffered?: boolean }> }>(
+      '/api/assistant/suggest',
+      body({ capability: 'merge' }),
+    )
+    expect(merged.proposals).toHaveLength(1)
+    expect(merged.proposals[0]?.reoffered).toBeUndefined()
+  })
+
+  it('re-offers a dismissed suggestion when the engine\'s answer moves, marked as such', async () => {
+    await importAndGenerate()
+    await storeKey()
+
+    const path = 'components.recipes.button.secondary.height'
+    const candidate = { path, value: '44px', title: 'A taller secondary', rationale: 'A 44px target reads calmer.' }
+
+    harness.llm.reply({ proposals: [candidate] })
+    const first = await harness.json<{ proposals: Array<{ id: string; reoffered?: boolean }> }>(
+      '/api/assistant/suggest',
+      body({ capability: 'derive' }),
+    )
+    expect(first.proposals[0]?.reoffered).toBeUndefined()
+    await harness.call(`/api/assistant/proposals/${first.proposals[0]?.id ?? ''}/dismiss`, body({}))
+
+    // The kit has not moved, so the dismissal holds.
+    harness.llm.reply({ proposals: [candidate] })
+    const held = await harness.json<{ proposals: unknown[] }>('/api/assistant/suggest', body({ capability: 'derive' }))
+    expect(held.proposals).toEqual([])
+
+    // A wider border re-derives every bordered control's height, so the
+    // engine's answer at the path is no longer the one the dismissal was made
+    // against -- the world the reviewer said no in has changed.
+    await harness.call('/api/reviews/overrides', {
+      method: 'PUT',
+      body: JSON.stringify({ groupId: null, path: 'border.width', value: '3px' }),
+    })
+
+    harness.llm.reply({ proposals: [candidate] })
+    const reoffered = await harness.json<{
+      proposals: Array<{ path: string; status: string; reoffered?: boolean }>
+    }>('/api/assistant/suggest', body({ capability: 'derive' }))
+    expect(reoffered.proposals).toHaveLength(1)
+    // Back, but never as though it were new: the card says what changed.
+    expect(reoffered.proposals[0]).toMatchObject({ path, status: 'open', reoffered: true })
   })
 
   it('refuses to accept the same proposal twice', async () => {
@@ -467,8 +548,16 @@ describe('rate limiting', () => {
       await limited.call('/api/kits', body({ groupId: null }))
       await limited.call('/api/settings', { method: 'PUT', body: JSON.stringify({ llmApiKey: KEY }) })
 
-      limited.llm.reply({ proposals: [] })
-      await limited.call('/api/assistant/suggest', body({ capability: 'derive' }))
+      limited.llm.reply({
+        proposals: [
+          { path: 'border.width', value: '2px', title: 'Thicker', rationale: 'Reads better.' },
+          { path: 'radius.steps.md', value: '10px', title: 'Rounder', rationale: 'Softer.' },
+        ],
+      })
+      const suggested = await limited.json<{ proposals: Array<{ id: string }> }>(
+        '/api/assistant/suggest',
+        body({ capability: 'derive' }),
+      )
       limited.llm.reply({ kitName: 'Warm', kitDescription: 'A warm kit.', roles: [] })
       await limited.call('/api/assistant/name', body({}))
 
@@ -477,9 +566,16 @@ describe('rate limiting', () => {
       expect(refused.status).toBe(429)
       expect(refused.headers.get('Retry-After')).not.toBeNull()
 
-      // Accepting a proposal is not counted: it reaches no provider, and a
-      // reviewer working through their queue must never be told to come back.
+      // Accepting and dismissing a proposal are not counted: they reach no
+      // provider, and a reviewer working through their queue must never be
+      // told to come back later. Neither is the status call the panel loads by.
+      const [toAccept, toDismiss] = suggested.proposals
+      expect((await limited.call(`/api/assistant/proposals/${toAccept?.id ?? ''}/accept`, body({}))).status).toBe(200)
+      expect((await limited.call(`/api/assistant/proposals/${toDismiss?.id ?? ''}/dismiss`, body({}))).status).toBe(200)
       expect((await limited.call('/api/assistant')).status).toBe(200)
+
+      // And the budget still stands for anything that would reach a provider.
+      expect((await limited.call('/api/assistant/suggest', body({ capability: 'derive' }))).status).toBe(429)
     } finally {
       await limited.close()
     }

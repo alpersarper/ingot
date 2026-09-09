@@ -26,6 +26,13 @@
  *     contrast adjustment fired. The card says so, because that is a
  *     consequence the reviewer is agreeing to.
  *   - **clean** -- it landed exactly as proposed.
+ *
+ * Before any of that, one gate that is a human's rather than the engine's: a
+ * candidate matching a dismissed suggestion -- same path, same capability,
+ * and the engine's answer it was judged against unchanged -- is withheld,
+ * because a person already answered it and nothing they were answering has
+ * moved. When the answer has moved, the candidate proceeds and is marked as a
+ * re-offer, never rendered as new.
  */
 import { applyOverrides, planOverrideWrite, readTokenValue, tokenSlots } from '@ingot/engine'
 import type { Diagnostic, PristineTokens, TokenOverride, TokensDocument } from '@ingot/engine'
@@ -36,6 +43,23 @@ export interface Candidate {
   value: string
   title: string
   rationale: string
+}
+
+/**
+ * A suggestion a human already said no to, as the suppression gate needs it.
+ *
+ * A dismissal is respected exactly as long as the world it was made in stands:
+ * while the engine's answer at the path is still the one the dismissed card
+ * recorded, the same kind of suggestion at the same path is withheld. When the
+ * answer moves, the dismissal no longer applies -- the same law the kit follows
+ * for overrides and conflicts, where a decision holds until the evidence does
+ * not. The caller supplies only the dismissals of the capability being run:
+ * a dismissed `derive` must not silence a `merge` that happens to share a path.
+ */
+export interface DismissedSuggestion {
+  path: string
+  /** The engine's answer the dismissal was made against. */
+  baseValue: string
 }
 
 /** A candidate the engine will take, with everything a card needs to say. */
@@ -55,6 +79,12 @@ export interface CheckedProposal {
    * restatement of them.
    */
   engineNotes: string[]
+  /**
+   * True when this suggestion had been dismissed and the engine's answer at
+   * its path has since moved. It may come back, but never as though it were
+   * new: the panel marks it as a re-offer the evidence reopened.
+   */
+  reoffered: boolean
 }
 
 export interface RefusedProposal {
@@ -67,6 +97,14 @@ export interface RefusedProposal {
 export interface CheckResult {
   accepted: CheckedProposal[]
   refused: RefusedProposal[]
+  /**
+   * Candidates withheld because a standing dismissal still applies.
+   *
+   * Not refusals: the engine never judged them, a person did, and the card is
+   * withheld out of respect for that answer rather than because the value
+   * could not land. Logged, never shown.
+   */
+  suppressed: RefusedProposal[]
 }
 
 /**
@@ -76,14 +114,22 @@ export interface CheckResult {
  * own against that state rather than against the previous candidate: two
  * suggestions from one run are two independent offers, and a reviewer who
  * accepts the second without the first must get what the card promised.
+ *
+ * `dismissed` is the suppression gate, and it lives here -- the one boundary
+ * every proposal passes through -- so no capability can re-offer a suggestion
+ * a human said no to while the engine's answer it was judged against still
+ * stands. It is an additional gate, never a replacement: what survives it is
+ * still checked by the engine in full.
  */
 export function checkProposals(
   pristine: PristineTokens,
   standing: readonly TokenOverride[],
   candidates: readonly Candidate[],
+  dismissed: readonly DismissedSuggestion[],
 ): CheckResult {
   const accepted: CheckedProposal[] = []
   const refused: RefusedProposal[] = []
+  const suppressed: RefusedProposal[] = []
 
   // The kit as it stands, which every candidate's consequences are measured
   // against. Computed once: it is the same document for all of them.
@@ -117,6 +163,22 @@ export function checkProposals(
     const plan = planOverrideWrite(pristine, standing, { path, value })
     if (plan.outcome === 'refused') {
       refused.push({ path, value, reason: plan.reason })
+      continue
+    }
+
+    // The dismissal check is made against `plan.record.baseValue` -- the
+    // engine's own current answer for the path, read by `planOverrideWrite`
+    // from the baseline -- and against the answer the dismissed card recorded,
+    // which the same call produced when that card was made. One measurement on
+    // both sides, so "the evidence moved" is the engine's judgement and never a
+    // string comparison this file invented.
+    const priors = dismissed.filter((entry) => entry.path === path)
+    if (priors.some((entry) => entry.baseValue === plan.record.baseValue)) {
+      suppressed.push({
+        path,
+        value,
+        reason: 'a suggestion here was dismissed and the engine\'s answer has not changed since',
+      })
       continue
     }
 
@@ -176,10 +238,11 @@ export function checkProposals(
       title: candidate.title,
       rationale: candidate.rationale,
       engineNotes,
+      reoffered: priors.length > 0,
     })
   }
 
-  return { accepted, refused }
+  return { accepted, refused, suppressed }
 }
 
 /** A diagnostic's identity for set membership: code, path and message together. */

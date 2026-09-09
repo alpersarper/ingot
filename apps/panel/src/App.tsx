@@ -75,11 +75,17 @@ export function App(): ReactNode {
    *
    * Failures are swallowed on purpose: the assistant is advisory, and a panel
    * that could not render its captures because an assistant status call failed
-   * would have the dependency exactly backwards.
+   * would have the dependency exactly backwards. `stillWanted` is the same
+   * cancellation discipline the scope-change effect applies to captures and
+   * kit: a slow answer for a scope the user has since left must not land.
    */
-  const refreshAssistant = useCallback(async (groupId: string | null): Promise<void> => {
-    setAssistant(await api.assistant(groupId).catch(() => null))
-  }, [])
+  const refreshAssistant = useCallback(
+    async (groupId: string | null, stillWanted: () => boolean = () => true): Promise<void> => {
+      const next = await api.assistant(groupId).catch(() => null)
+      if (stillWanted()) setAssistant(next)
+    },
+    [],
+  )
 
   /** The library list is the count behind "Whole library" and the fallback view. */
   const refreshLibrary = useCallback(async (): Promise<void> => {
@@ -126,7 +132,7 @@ export function App(): ReactNode {
         setCaptures(nextCaptures)
         setKit(nextKit)
         setKitError(null)
-        if (!cancelled) await refreshAssistant(selectedGroupId)
+        if (!cancelled) await refreshAssistant(selectedGroupId, () => !cancelled)
       } catch (error) {
         if (!cancelled) setKitError(handle(error))
       }

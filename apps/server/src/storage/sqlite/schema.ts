@@ -173,8 +173,10 @@ const MIGRATIONS: string[][] = [
     //
     // Keyed on scope_key like the rest of the review state, with the same
     // durability and the same limits -- see the note on token_overrides.
-    // Dismissed rows are kept rather than deleted: a suggestion a human said no
-    // to must not be re-offered as though it were new.
+    // Dismissed rows are kept rather than deleted: a kept dismissal suppresses
+    // the same suggestion -- same path, same capability -- while the engine's
+    // answer it recorded in base_value still stands, and when the evidence
+    // moves the suggestion may return, marked as a re-offer rather than new.
     `CREATE TABLE assistant_proposals (
        id             TEXT PRIMARY KEY,
        scope_key      TEXT NOT NULL,
@@ -195,6 +197,9 @@ const MIGRATIONS: string[][] = [
        -- was shown rather than about whatever the kit is when it is next read.
        engine_notes   TEXT NOT NULL,
        status         TEXT NOT NULL CHECK (status IN ('open', 'accepted', 'dismissed')),
+       -- 1 when a dismissed proposal stood at this path and the engine's
+       -- answer has moved since: the card returns marked, never as new.
+       reoffered      INTEGER NOT NULL DEFAULT 0,
        created_at     TEXT NOT NULL,
        updated_at     TEXT NOT NULL
      )`,

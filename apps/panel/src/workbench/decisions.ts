@@ -112,6 +112,13 @@ export interface DecisionCard {
   engineNotes?: string[]
   /** Present on an assistant proposal: the model and template behind it. */
   attribution?: string
+  /**
+   * Present on an assistant proposal the reviewer had dismissed before the
+   * engine's answer at its path moved. Marked beside the "Assistant
+   * suggestion" label -- the `override.now-agrees` transparency rule: nothing
+   * reappears quietly, the panel states what changed.
+   */
+  reoffered?: boolean
 }
 
 export interface CardInputs {
@@ -301,6 +308,7 @@ export function decisionCards({
       state: proposal.status === 'open' ? 'open' : proposal.status === 'accepted' ? 'accepted' : 'dismissed',
       engineNotes: proposal.engineNotes,
       attribution: `${proposal.capability} · ${proposal.model} · ${proposal.promptVersion}`,
+      ...(proposal.reoffered === true ? { reoffered: true } : {}),
     })
   }
 

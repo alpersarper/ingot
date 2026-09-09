@@ -350,8 +350,12 @@ export interface ReviewRepository {
  * not come back looking new.
  *
  * `status` is the whole lifecycle. `dismissed` is kept rather than deleted so
- * the same suggestion is not re-offered on the next run, and so that "the
- * assistant proposed this and a human said no" is a fact the panel can state.
+ * that "the assistant proposed this and a human said no" is a fact the panel
+ * can state, and so the dismissal can do its work: a kept row suppresses the
+ * same suggestion -- same path, same capability -- for as long as the engine's
+ * answer it recorded in `baseValue` still stands. When the evidence moves, the
+ * suggestion may return, and it returns with `reoffered` set rather than as
+ * though it were new.
  */
 export interface StoredProposal {
   id: string
@@ -376,6 +380,13 @@ export interface StoredProposal {
    */
   engineNotes: string[]
   status: 'open' | 'accepted' | 'dismissed'
+  /**
+   * True when a dismissed proposal of this capability stood at this path and
+   * the engine's answer has moved since. The panel marks the card as a
+   * re-offer the evidence reopened; absent is the ordinary case and means the
+   * suggestion is new.
+   */
+  reoffered?: boolean
   createdAt: string
   updatedAt: string
 }
@@ -390,6 +401,7 @@ export interface ProposalInput {
   title: string
   rationale: string
   engineNotes?: string[]
+  reoffered?: boolean
 }
 
 /**

@@ -471,10 +471,20 @@ export function describeStoreContract(name: string, createStore: () => Store | P
 
         expect(await store.proposals.clearOpen('group-1')).toBe(1)
         const left = await store.proposals.list('group-1')
-        // The dismissed one survives on purpose: a suggestion a human said no
-        // to must not come back on the next run looking new.
+        // The dismissed one survives on purpose: it is what suppresses the
+        // same suggestion while the engine's answer it recorded is unchanged,
+        // and what lets a return after the evidence moves be marked a re-offer.
         expect(left.map((entry) => entry.id).sort()).toEqual([accepted.id, dismissed.id].sort())
         expect(await store.proposals.get('group-1', open.id)).toBeNull()
+      })
+
+      it('keeps the re-offer mark, and its absence', async () => {
+        const fresh = await store.proposals.create(null, proposal)
+        const returned = await store.proposals.create(null, { ...proposal, path: 'radius.steps.md', reoffered: true })
+
+        // Absent means "new", so it must read back absent rather than false.
+        expect((await store.proposals.get(null, fresh.id))?.reoffered).toBeUndefined()
+        expect((await store.proposals.get(null, returned.id))?.reoffered).toBe(true)
       })
     })
 

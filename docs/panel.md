@@ -240,6 +240,14 @@ lands but moves something else -- a snapped length, a shade pinned to a gamut
 pole -- becomes a card that says so, because that is a consequence the reviewer
 is agreeing to.
 
+A dismissal is a standing answer, not a deleted row, and it follows the same
+law overrides and conflicts do: a human decision is respected until the world
+changes, and nothing resurfaces or retires silently. A kept dismissed proposal
+suppresses the same suggestion -- same path, same capability -- for as long as
+the engine's answer it was judged against is unchanged. When the evidence
+moves, the suggestion may return, and its card is marked "previously dismissed
+-- evidence has since changed" rather than rendered as new.
+
 **The assistant never writes a token, and there is no bypass.** Accepting goes
 through `planOverrideWrite` and `store.reviews.setOverride`, the same two calls
 the Tokens editor makes, with `suggestedBy: 'assistant'` set. That is a

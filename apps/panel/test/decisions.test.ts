@@ -306,4 +306,12 @@ describe('assistant proposals in the queue', () => {
     expect(card?.options).toEqual([])
     expect(openCount(dismissed)).toBe(openCount(withProposals([])))
   })
+
+  it('carries the re-offer mark, so a returning card never reads as new', () => {
+    const back = withProposals([{ ...proposal, reoffered: true }]).find((entry) => entry.id === 'proposal:p-1')
+    expect(back?.reoffered).toBe(true)
+    // And its absence stays absent: an ordinary suggestion carries no mark.
+    const fresh = withProposals([proposal]).find((entry) => entry.id === 'proposal:p-1')
+    expect(fresh?.reoffered).toBeUndefined()
+  })
 })
