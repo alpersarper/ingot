@@ -10,6 +10,13 @@ export target never means changing this shape.
 - TypeScript types: [`packages/engine/src/tokens/types.ts`](../packages/engine/src/tokens/types.ts)
 - Worked examples: [`examples/*/tokens.json`](../examples)
 
+Version 4 (engine 0.4.0) added `components.states.error`, which carries the one
+answer the engine may not supply on its own -- how a form signals an invalid
+field -- so a palette with no error colour is a stated question rather than a
+silent omission; the `card` recipe, measured because every capture set records
+cards; and, because a container is as tall as what a consumer puts in it,
+`height` became optional on a recipe.
+
 Version 3 (engine 0.3.0) added the `user-override` provenance strategy and the
 two fields that carry it -- `supersedes` and `note` -- so a value a human set in
 the panel is a first-class provenance state rather than an annotation, and
@@ -152,8 +159,11 @@ Applying one does three things beyond writing the value:
 - **Re-derives what depended on the value.** Overriding a base colour re-derives
   the interaction shades computed from it -- `primaryHover`, `primaryActive`,
   `selectedSurface` and the disabled pair -- through the engine's own derivation
-  path, holds them to the floors in `color.contrast`, and restates
-  `color.state-collapsed` for the palette that results. A shade the reviewer set
+  path, holds them to the floors in `color.contrast`, respends the state budget
+  on chroma where a floor flattened a shade -- the same rescue the distiller
+  runs, so a palette gets one answer whether it arrived by capture or by
+  override -- and restates `color.state-collapsed` for the palette that
+  results. A shade the reviewer set
   by hand is pinned: it is neither recomputed nor bypassed by the shades below
   it. Without this a kit would ship a blue `primary` whose hover was still the
   old green, under a derivation naming a colour the document no longer holds.
@@ -248,7 +258,7 @@ than the step's font size, which is what the shared record's own `chosen` names.
 ```jsonc
 {
   "schemaVersion": 4,
-  "engine": { "name": "ingot-engine", "version": "0.3.0" },
+  "engine": { "name": "ingot-engine", "version": "0.4.0" },
   "source": { /* set id, name, description, capture ids, origins, component-type counts */ },
   "color":      { "mode", "roles", "contrast", "palette" },
   "spacing":    { "baseUnit", "unit", "snappingRule", "layoutRule", "fit", "largestObservedMultiple", "steps" },
