@@ -26,7 +26,8 @@ import { round } from '../util/num'
 import { snapSpacing } from '../spacing/spacing'
 import type { CaptureRecord } from '../capture/types'
 import { parsePx } from '../capture/read'
-import { parseColor } from '../color/space'
+import { parseColor, renderedDistance } from '../color/space'
+import { AMBIENT_SEPARATION_MIN } from '../color/roles'
 import { DISABLED_CONTRAST_FLOOR } from '../color/contrast'
 import { decide, derive, provenance, sanction, tally } from '../provenance'
 import type { Contribution, DominantChoice } from '../provenance'
@@ -39,6 +40,7 @@ import type {
   ComponentRecipeName,
   ComponentTokens,
   Diagnostic,
+  ErrorSignalMode,
   RadiusStepName,
   RadiusTokens,
   SpacingTokens,
@@ -48,8 +50,9 @@ import type {
   TypographyTokens,
 } from '../tokens/types'
 
-/** Emission order. Fixed so the document's key order never depends on input. */
-const RECIPE_ORDER: ComponentRecipeName[] = [
+/** Emission order, exported so the override replay can insert into it. */
+export const RECIPE_ORDER: ComponentRecipeName[] = [
+  'card',
   'button.primary',
   'button.secondary',
   'button.ghost',
@@ -91,6 +94,80 @@ const FOCUS_RING_OFFSET = 2
 
 /** Minimum focus ring width, in px. Below 2px a ring reads as a border. */
 const FOCUS_RING_WIDTH_MIN = 2
+
+/**
+ * What the kit says out loud about how it signals an error.
+ *
+ * One owner, two callers: the distiller raises it, and the override replay
+ * restates it after a reviewer nominates a colour or acknowledges the absence.
+ * A second copy of this sentence is how a kit ends up warning that it cannot
+ * signal errors on a screen where a reviewer already settled that it will.
+ */
+export function errorSignalDiagnostic(mode: ErrorSignalMode): Diagnostic | undefined {
+  if (mode === 'color') return undefined
+  if (mode === 'acknowledged') {
+    return {
+      level: 'info',
+      code: 'color.no-destructive',
+      path: 'components.states.error.mode',
+      message:
+        'This kit has no destructive colour and a reviewer acknowledged that it ships without one. A form here ' +
+        'cannot signal an error in colour, so `design.md` prescribes the non-colour error language instead: ' +
+        'an icon, the emphasis weight and an explicit `Error:` prefix on the message. The ' +
+        'acknowledgment stands until a person clears it -- if a later capture set supplies a red, that is ' +
+        'reported as a conflict rather than quietly taken.',
+    }
+  }
+  return {
+    level: 'warning',
+    code: 'color.no-destructive',
+    path: 'components.states.error.mode',
+    message:
+      'No captured colour in this set reads as a red, so this kit has no destructive colour -- and a brand ' +
+      'decision is the one thing the engine will not default. The consequence is concrete: a form built ' +
+      'against this kit cannot signal errors in colour. Either set an error colour on `color.roles.destructive`, or ' +
+      'acknowledge that the kit ships without one so `design.md` can prescribe the non-colour error language ' +
+      'instead of only stating the prohibition.',
+  }
+}
+
+/**
+ * The destructive button, built from the primary one.
+ *
+ * A destructive button is a primary button in another colour, and that rule has
+ * two callers: the distiller, for a palette whose captures carried a red, and
+ * the override replay, for a kit whose reviewer supplied the red the engine
+ * refused to invent. Both take this, so the button a nomination produces is the
+ * same button a capture would have produced -- same geometry, same borrowed
+ * provenance, same sentence explaining where it came from.
+ */
+export function destructiveButtonFrom(primary: ComponentRecipe): ComponentRecipe {
+  const detail = 'nothing described a button.destructive; took the button.primary value'
+  const borrowed = (field: string, chosen: string): DominantChoice =>
+    derive(chosen, { method: 'same-geometry-as', from: [`components.recipes.button.primary.${field}`], detail })
+  return {
+    name: 'button.destructive',
+    purpose: 'Irreversible actions only. Never for emphasis.',
+    colors: {
+      surface: 'color.roles.destructive',
+      foreground: 'color.roles.destructiveForeground',
+      border: null,
+      // This kit derives no hover shade for destructive; see the prose.
+      hoverSurface: null,
+    },
+    ...(primary.height === undefined
+      ? {}
+      : { height: numberToken(primary.height.value, borrowed('height', `${primary.height.value}px`)) }),
+    paddingY: numberToken(primary.paddingY.value, borrowed('paddingY', `${primary.paddingY.value}px`)),
+    paddingX: numberToken(primary.paddingX.value, borrowed('paddingX', `${primary.paddingX.value}px`)),
+    radius: stringToken(primary.radius.value, borrowed('radius', primary.radius.value)),
+    typeStep: stringToken(primary.typeStep.value, borrowed('typeStep', primary.typeStep.value)),
+    fontWeight: numberToken(
+      primary.fontWeight.value,
+      borrowed('fontWeight', String(primary.fontWeight.value)),
+    ),
+  }
+}
 
 /** True when a capture paints an opaque fill of its own. */
 function hasOpaqueFill(capture: CaptureRecord): boolean {
@@ -213,6 +290,57 @@ export function distillComponents(
   const hasRole = (role: ColorRoleName): boolean => color.roles[role] !== undefined
   const path = (role: ColorRoleName): string => `color.roles.${role}`
 
+  /**
+   * The badge's fill.
+   *
+   * A badge is the only control in this kit that sits on another control's
+   * *interactive* surface: a status pill lives inside a table row, and that row
+   * changes colour under the pointer. The obvious quiet fill -- and what this
+   * was -- is `surfaceHover`, which is also the row's own hover fill, so on a
+   * hovered row the pill and the row became one colour and the pill was left to
+   * be read off a 1.2:1 border. Both sides were prescribed here, so a consumer
+   * following the kit could not fix it without leaving the system.
+   *
+   * So the fill is chosen rather than fixed: the first candidate that is
+   * perceptibly distinct from the row at rest *and* from the row under the
+   * pointer. `background` leads because it is the one neutral the row layer
+   * never uses -- a recessed pill on a light kit, a sunken one on a dark kit --
+   * and it clears the floor against both on every fixture set. The others are
+   * there so a palette with no page/panel separation still gets a badge rather
+   * than nothing, and the diagnostic says when that happened.
+   */
+  const badgeFill = (): { role: ColorRoleName; collides: boolean } => {
+    const against: ColorRoleName[] = ['surface', 'surfaceHover']
+    const colorOf = (role: ColorRoleName) => {
+      const hex = color.roles[role]?.value.hex
+      return hex === undefined ? undefined : parseColor(hex)?.oklch
+    }
+    const distinct = (role: ColorRoleName): boolean => {
+      const fill = colorOf(role)
+      if (fill === undefined) return false
+      return against.every((other) => {
+        const layer = colorOf(other)
+        return layer === undefined || renderedDistance(fill, layer) >= AMBIENT_SEPARATION_MIN
+      })
+    }
+    const candidates: ColorRoleName[] = ['background', 'surfaceHover', 'surface']
+    const chosen = candidates.find(distinct)
+    if (chosen !== undefined) return { role: chosen, collides: false }
+    return { role: hasRole('surfaceHover') ? 'surfaceHover' : 'surface', collides: true }
+  }
+  const badgeSurface = badgeFill()
+  if (badgeSurface.collides) {
+    diagnostics.push({
+      level: 'warning',
+      code: 'components.badge-collides',
+      path: 'components.recipes.badge',
+      message:
+        `No neutral in this palette is far enough from both \`surface\` and \`surfaceHover\` to fill a badge, ` +
+        `so the pill takes \`${badgeSurface.role}\` and will disappear into a table row in at least one of its ` +
+        'states. Give the badge its own fill, or draw it as an outline rather than a pill.',
+    })
+  }
+
   // --- scale lookups --------------------------------------------------------
   const stepPx = spacing.steps.map((step) => step.value.px).sort(byNumber)
   const smallestPositiveStep = stepPx.find((px) => px > 0) ?? spacing.baseUnit
@@ -272,6 +400,7 @@ export function distillComponents(
 
   // --- capture pools --------------------------------------------------------
   const buttons = captures.filter((capture) => capture.componentType === 'button')
+  const cards = captures.filter((capture) => capture.componentType === 'card')
   const inputsCaptured = captures.filter((capture) => capture.componentType === 'input')
   const primaryButtons = buttons.filter(
     (capture) => backgroundRoleByCapture.get(capture.id) === 'primary',
@@ -295,6 +424,11 @@ export function distillComponents(
      * field; a destructive button is a primary button in another colour.
      */
     like?: ComponentRecipeName
+    /**
+     * True for a box that wraps content rather than a control that wraps one
+     * line of text. A container emits no `height`: see {@link ComponentRecipe}.
+     */
+    container?: boolean
     /**
      * Values this recipe states for itself. They beat `like` -- a table cell is
      * an input's padding but never an input's corner radius -- and observation
@@ -477,7 +611,7 @@ export function distillComponents(
       name: draft.name,
       purpose: draft.purpose,
       colors: draft.colors,
-      height: heightToken,
+      ...(draft.container === true ? {} : { height: heightToken }),
       paddingY,
       paddingX,
       radius: radiusToken,
@@ -496,6 +630,24 @@ export function distillComponents(
   const buttonDefaults = { radius: controlRadius, typeStep: baseStepName, fontWeight: emphasisWeight }
 
   const drafts: Draft[] = [
+    {
+      // The box every other recipe is drawn inside, and the one that sets a
+      // page's density. Every fixture set captures cards, so its padding and
+      // radius are measured rather than invented -- the third of the card a
+      // consumer used to have to guess, and the one a `design.md` reader felt
+      // first.
+      name: 'card',
+      purpose: 'Panels, cards and any titled box that holds other components.',
+      colors: {
+        surface: path('surface'),
+        foreground: path('text'),
+        border: path('border'),
+        hoverSurface: null,
+      },
+      captures: cards,
+      container: true,
+      fixed: { radius: preferredRadius('lg', 'md', 'sm'), typeStep: baseStepName, fontWeight: bodyWeight },
+    },
     {
       name: 'button.primary',
       purpose: 'The one call to action on a screen.',
@@ -532,23 +684,6 @@ export function distillComponents(
       captures: pool(ghostButtons, buttons),
       fixed: buttonDefaults,
     },
-    ...(hasRole('destructive') && hasRole('destructiveForeground')
-      ? [
-          {
-            name: 'button.destructive' as ComponentRecipeName,
-            purpose: 'Irreversible actions only. Never for emphasis.',
-            colors: {
-              surface: path('destructive'),
-              foreground: path('destructiveForeground'),
-              border: null,
-              // This kit derives no hover shade for destructive; see the prose.
-              hoverSurface: null,
-            },
-            captures: [] as readonly CaptureRecord[],
-            like: 'button.primary' as ComponentRecipeName,
-          },
-        ]
-      : []),
     {
       name: 'input',
       purpose: 'Text fields and textareas.',
@@ -608,7 +743,7 @@ export function distillComponents(
       name: 'badge',
       purpose: 'Status pills inside tables and cards.',
       colors: {
-        surface: hasRole('surfaceHover') ? path('surfaceHover') : path('surface'),
+        surface: path(badgeSurface.role),
         foreground: path('text'),
         border: path('border'),
         hoverSurface: null,
@@ -627,6 +762,15 @@ export function distillComponents(
   ]
 
   for (const draft of drafts) built.set(draft.name, build(draft))
+
+  // The destructive button is assembled from `button.primary` by the one
+  // function that knows how, because the distiller is not its only builder: a
+  // reviewer who nominates the error colour the engine refused to invent gets
+  // the same button, built the same way, during the override replay.
+  const primaryButton = built.get('button.primary')
+  if (primaryButton !== undefined && hasRole('destructive') && hasRole('destructiveForeground')) {
+    built.set('button.destructive', destructiveButtonFrom(primaryButton))
+  }
   const recipes = RECIPE_ORDER.map((name) => built.get(name)).filter(
     (recipe): recipe is ComponentRecipe => recipe !== undefined,
   )
@@ -638,6 +782,50 @@ export function distillComponents(
       path: 'components.recipes',
       message: `Nothing in the captures or the rest of the kit described these controls: ${defaulted.sort(byString).join(', ')}. Each carries a sanctioned default rather than being omitted, and every defaulted value says so in its provenance.`,
     })
+  }
+
+  /**
+   * How this kit signals an invalid field.
+   *
+   * The engine will not invent a brand colour, so a palette with no red gets no
+   * `destructive` role -- and that used to be the end of it: `design.md` stated
+   * the prohibition and a consumer built a form whose invalid field looked
+   * exactly like a valid one. The absence is a *decision* now rather than a
+   * silence: `unresolved` says the question is open and names the consequence,
+   * and a reviewer answers it by nominating a colour or by acknowledging that
+   * the kit ships without one. Neither answer is the engine's to make.
+   */
+  const errorState = (): ComponentTokens['states']['error'] => {
+    if (hasRole('destructive')) {
+      return {
+        mode: stringToken(
+          'color' as const,
+          derive('color', {
+            method: 'palette-has-destructive',
+            from: [path('destructive')],
+            detail: `this palette carries a destructive colour (${color.roles.destructive?.value.hex}), so an error state is drawn in it`,
+          }),
+        ),
+        color: path('destructive'),
+        foreground: hasRole('destructiveForeground') ? path('destructiveForeground') : null,
+      }
+    }
+    const notice = errorSignalDiagnostic('unresolved')
+    if (notice !== undefined) diagnostics.push(notice)
+    return {
+      mode: stringToken(
+        'unresolved' as const,
+        derive('unresolved', {
+          method: 'palette-has-no-destructive',
+          from: ['color.palette'],
+          detail:
+            'no captured colour reads as a red and the engine will not invent a brand colour, so how this kit ' +
+            'signals an error is an open question a person has to answer',
+        }),
+      ),
+      color: null,
+      foreground: null,
+    }
   }
 
   // --- states ---------------------------------------------------------------
@@ -661,6 +849,7 @@ export function distillComponents(
       surface: path('selectedSurface'),
       foreground: path('text'),
     },
+    error: errorState(),
     focusRing: {
       colorRole: path('primary'),
       unit: 'px',

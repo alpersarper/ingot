@@ -521,6 +521,12 @@ function TokensTab({
   // than present-and-broken.
   const draft = assistant?.assistant.configured === true ? onDraftReason : undefined
 
+  // The engine's own sentence about an absent error colour, shown where the
+  // palette is actually edited. Read from the document rather than restated
+  // here: a second copy would be a second opinion, and this one is the one the
+  // review queue and `design.md` also carry.
+  const errorNotice = tokens.diagnostics.find((diagnostic) => diagnostic.code === 'color.no-destructive')
+
   const grouped = new Map<OverrideGroup, TokenSlot[]>()
   for (const slot of slots) {
     const list = grouped.get(slot.group) ?? []
@@ -535,6 +541,18 @@ function TokensTab({
           <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             {GROUP_LABEL[group]}
           </h3>
+          {group === 'color' && errorNotice !== undefined ? (
+            <p
+              className={`mb-2 rounded-sm border px-2 py-1.5 text-[11px] leading-snug ${
+                errorNotice.level === 'warning'
+                  ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                  : 'border-border bg-muted/40 text-muted-foreground'
+              }`}
+              role={errorNotice.level === 'warning' ? 'alert' : undefined}
+            >
+              {errorNotice.message}
+            </p>
+          ) : null}
           <ul className="flex flex-col">
             {(grouped.get(group) ?? []).map((slot) => {
               const note = notes.get(slot.path)

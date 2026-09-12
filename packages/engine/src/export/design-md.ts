@@ -14,7 +14,9 @@ import { finish, plural, table } from './markdown'
 import { overriddenSlots } from '../tokens/overrides'
 import type { OverrideResult, RetiredConflict } from '../tokens/overrides'
 import type { PristineTokens } from '../tokens/documents'
-import { SHADE_RELATIONS } from '../color/roles'
+import { collapsedShades, collapsedShadesSentence } from '../color/roles'
+import { parseColor } from '../color/space'
+import { errorSignalGuidance } from './error-signal'
 import { round } from '../util/num'
 import type {
   ColorRoleName,
@@ -85,6 +87,9 @@ export function renderDesignMarkdown(kit: PristineTokens | OverrideResult): stri
 
   const role = (name: ColorRoleName): ColorToken | undefined => color.roles[name]
   const hexOf = (name: ColorRoleName): string => role(name)?.value.hex ?? 'n/a'
+  // One owner for everything this document says about drawing an error, so §2's
+  // prohibition and §7's recipe cannot end up describing two different kits.
+  const errorSignal = errorSignalGuidance(tokens)
 
   // Values a human replaced in the panel. They are as binding as the distilled
   // ones -- more so, since somebody looked at them -- but a reader is entitled
@@ -199,9 +204,10 @@ export function renderDesignMarkdown(kit: PristineTokens | OverrideResult): stri
   // colour layer. Reading it and comparing the document's own hexes keeps this a
   // pure function of the tokens document, and keeps the diagnostic's sentence a
   // convenience rather than a parsing contract.
-  const collapsedStates = SHADE_RELATIONS.filter(
-    ([shade, base]) => role(shade) !== undefined && role(base) !== undefined && hexOf(shade) === hexOf(base),
-  )
+  const collapsedStates = collapsedShades((name) => {
+    const token = role(name)
+    return token === undefined ? undefined : parseColor(token.value.hex)?.oklch
+  })
 
   push(
     '### Colour rules',
@@ -212,15 +218,13 @@ export function renderDesignMarkdown(kit: PristineTokens | OverrideResult): stri
     `- A selected row, tab or nav item is filled with \`selectedSurface\` (${hexOf('selectedSurface')}) and keeps \`text\` on top. Selection reads by hue, hover reads by lightness; do not swap them.`,
     `- A disabled control is filled with \`disabledSurface\` (${hexOf('disabledSurface')}) and labelled \`disabledForeground\` (${hexOf('disabledForeground')}). Never build a disabled state out of \`opacity\`.`,
     `- Borders are ${border.width.value}px \`border\`. Do not use shadows in place of borders for separation, and do not use \`text\` at reduced opacity as a border.`,
-    role('destructive')
-      ? `- \`destructive\` is reserved for irreversible actions and error states. Never use it for emphasis. It is contrast-checked as a text colour as well as a fill, so error copy may be set in it.`
-      : `- This system has no destructive colour. If you need one, add it explicitly rather than reaching for an arbitrary red.`,
+    `- ${errorSignal.colorRule}`,
     '',
   )
 
   if (collapsedStates.length > 0) {
     push(
-      `> **These states render identically:** ${collapsedStates.map(([shade, base]) => `\`${shade}\` and \`${base}\``).join(', ')}. Holding the label at the contrast floor consumed the whole offset, so the fill cannot carry the distinction on this palette. Signal the state with the focus ring, a border, or a transform — not with the fill.`,
+      `> **These states are not distinguishable on screen:** ${collapsedShadesSentence(collapsedStates)}. Holding the label at the contrast floor consumed the offset and the palette had no chroma left to buy it back, so the fill cannot carry the distinction here. Signal the state with the focus ring, a border, or a transform — not with the fill.`,
       '',
     )
   }
@@ -404,7 +408,7 @@ export function renderDesignMarkdown(kit: PristineTokens | OverrideResult): stri
    */
   const recipeSource = (recipe: ComponentRecipe): string => {
     const decisions = [
-      recipe.height,
+      ...(recipe.height === undefined ? [] : [recipe.height]),
       recipe.paddingY,
       recipe.paddingX,
       recipe.radius,
@@ -439,7 +443,7 @@ export function renderDesignMarkdown(kit: PristineTokens | OverrideResult): stri
       ['Component', 'Height', 'Padding (y, x)', 'Radius', 'Type', 'Weight', 'From'],
       components.recipes.map((recipe) => [
         `\`${recipe.name}\``,
-        `${recipe.height.value}px`,
+        recipe.height === undefined ? '— (container)' : `${recipe.height.value}px`,
         `${recipe.paddingY.value}px, ${recipe.paddingX.value}px`,
         `\`${recipe.radius.value}\` (${radius.steps[recipe.radius.value]?.value ?? 0}px)`,
         `\`${recipe.typeStep.value}\` (${stepFontSize(recipe.typeStep.value)})`,
@@ -468,9 +472,7 @@ export function renderDesignMarkdown(kit: PristineTokens | OverrideResult): stri
     `- A control's radius is the step named above, not a px value of your own. Nest smaller radii inside larger ones.`,
     `- The type step carries its line height with it (see §3). Do not restyle a control's font size away from its step.`,
     `- \`From\` says where the geometry came from: \`captured\` was measured in the sources, \`like x\` was taken from another recipe, \`default\` is this engine's sanctioned value because nothing described that control. Per-value provenance is in \`tokens.json\` under \`components.recipes\`.`,
-    role('destructive')
-      ? `- \`button.destructive\` has no derived hover fill in this kit. Keep its fill constant on hover and use the focus ring for feedback rather than inventing a darker red.`
-      : `- There is no destructive button in this kit, because there is no destructive colour (see §2). Do not add one from outside the system.`,
+    `- ${errorSignal.componentRule}`,
     '',
     '### States',
     '',
@@ -494,8 +496,19 @@ export function renderDesignMarkdown(kit: PristineTokens | OverrideResult): stri
           'disabled',
           `Fill \`disabledSurface\` (${hexOf('disabledSurface')}), text \`disabledForeground\` (${hexOf('disabledForeground')}), measured at ${components.states.disabled.ratio}:1. Keep the border. Do **not** use \`opacity\`.`,
         ],
+        ['error', errorSignal.stateCell],
       ],
     ),
+    ...(errorSignal.language.length === 0
+      ? []
+      : [
+          '',
+          '#### The error state, without a colour',
+          '',
+          'This kit has no error colour and a reviewer decided it ships without one. These are not suggestions: an error state drawn with fewer than all three signals is one a reader can miss.',
+          '',
+          ...errorSignal.language.map((rule) => `- ${rule}`),
+        ]),
     '',
     `\`opacity\` is not a disabled state: on a light kit a 50% label over a 50% fill measures 1:1 and disappears. The two colours above are real, and they are checked (§2).`,
     '',

@@ -12,8 +12,15 @@ import type { CaptureRecord, CaptureSet } from './capture/types'
 import { readBorderWidths, readRadii, readSpacing } from './capture/read'
 import { clusterColors, readColors } from './color/cluster'
 import type { ColorCluster } from './color/cluster'
-import { SHADE_RELATIONS, assignRoles, deriveInteractionShades, detectMode } from './color/roles'
-import type { RoleAssignment } from './color/roles'
+import {
+  assignRoles,
+  collapsedShades,
+  collapsedShadesSentence,
+  deriveInteractionShades,
+  detectMode,
+  restoreStateSeparation,
+} from './color/roles'
+import type { RoleAssignment, SeparationGuard } from './color/roles'
 import {
   CONTRAST_FLOOR,
   DISABLED_CONTRAST_FLOOR,
@@ -34,7 +41,7 @@ import { distillComponents } from './components/components'
 import { ENGINE_NAME, ENGINE_VERSION } from './version'
 import { asPristine } from './tokens/documents'
 import type { PristineTokens } from './tokens/documents'
-import { TOKENS_SCHEMA_VERSION } from './tokens/types'
+import { COLOR_ROLE_ORDER, TOKENS_SCHEMA_VERSION } from './tokens/types'
 import { round } from './util/num'
 import type {
   ColorRoleName,
@@ -44,27 +51,8 @@ import type {
   TokensDocument,
 } from './tokens/types'
 
-/**
- * Order roles are emitted in. Fixed rather than alphabetical so the document
- * reads structurally -- page, then surfaces, then text, then brand.
- */
-const ROLE_ORDER: ColorRoleName[] = [
-  'background',
-  'surface',
-  'surfaceHover',
-  'selectedSurface',
-  'border',
-  'text',
-  'textMuted',
-  'primary',
-  'primaryHover',
-  'primaryActive',
-  'primaryForeground',
-  'destructive',
-  'destructiveForeground',
-  'disabledSurface',
-  'disabledForeground',
-]
+/** Order roles are emitted in. Owned by the token model; see {@link COLOR_ROLE_ORDER}. */
+const ROLE_ORDER = COLOR_ROLE_ORDER
 
 /** One pairing the engine guarantees, and which side yields when it fails. */
 interface GuaranteedPair {
@@ -157,7 +145,12 @@ function recordAdjustment(
   return existing
 }
 
-function colorToken(assignment: RoleAssignment, color: Oklch, adjustment?: ContrastAdjustment): ColorToken {
+function colorToken(
+  assignment: RoleAssignment,
+  color: Oklch,
+  adjustment?: ContrastAdjustment,
+  rescue?: string,
+): ColorToken {
   const rounded = roundOklch(color)
   const value = {
     oklch: formatOklch(color),
@@ -199,9 +192,15 @@ function colorToken(assignment: RoleAssignment, color: Oklch, adjustment?: Contr
     const direction = adjustment.deltaL < 0 ? 'darkened' : adjustment.deltaL > 0 ? 'lightened' : 'adjusted'
     const against = adjustment.against.map((path) => path.replace('color.roles.', '')).join(', ')
     decision.summary +=
-      `; then ${direction} to ${value.hex} for contrast against ${against}` +
+      `; then ${direction} for contrast against ${against}` +
       ` (${adjustment.ratioBefore}:1 -> ${adjustment.ratioAfter}:1)`
   }
+
+  // The state rescue reads last because it happens last: it is the move that
+  // answers what the contrast walk cost, and a summary that named it earlier
+  // would have the reader believe the floor was never reached.
+  if (rescue) decision.summary += `; ${rescue}`
+  if (adjustment || rescue) decision.summary += `, yielding ${value.hex}`
 
   return {
     value,
@@ -346,6 +345,45 @@ function distillColor(
     }
   }
 
+  // A state the contrast walk just flattened is bought back on the chroma axis
+  // before anything is reported: a hover the reviewer cannot see is a defect,
+  // and the diagnostic is the answer only once the palette really has no room.
+  // Every guarantee made above bounds the walk, so this can never reopen one.
+  const guardsOf = (role: ColorRoleName): SeparationGuard[] => {
+    const guards: SeparationGuard[] = []
+    for (const pair of DERIVED_PAIRS) {
+      if (!pair.backgrounds.includes(role)) continue
+      const foreground = colors.get(pair.foreground)
+      if (foreground !== undefined) guards.push({ color: foreground, floor: pair.floor ?? CONTRAST_FLOOR })
+    }
+    return guards
+  }
+  const rescues = new Map<ColorRoleName, string>()
+  for (const rescue of restoreStateSeparation((role) => colors.get(role), guardsOf)) {
+    colors.set(rescue.role, rescue.color)
+    rescues.set(rescue.role, rescue.detail)
+
+    // The walk that preceded the rescue is one record, and it now names a hex
+    // and a ratio that are no longer the shipped ones. Amending it rather than
+    // adding a second record keeps `design.md`'s "moved away from" table a
+    // description of where the colour actually ended up.
+    const adjustment = adjustments.get(rescue.role)
+    if (adjustment === undefined) continue
+    const guards = guardsOf(rescue.role)
+    const ratioAfter = guards.reduce(
+      (worst, guard) => Math.min(worst, contrastRatio(guard.color, rescue.color)),
+      21,
+    )
+    adjustment.to = {
+      hex: oklchToHex(rescue.color),
+      oklch: formatOklch(rescue.color),
+      lightness: round(rescue.color.l, 4),
+    }
+    adjustment.ratioAfter = ratioAfter
+    adjustment.met = guards.every((guard) => contrastRatio(guard.color, rescue.color) >= guard.floor)
+    adjustment.reason += `; the offset that bought was invisible, so chroma moved at fixed lightness to restore the state (${ratioAfter}:1)`
+  }
+
   // --- final ratios ---------------------------------------------------------
   const contrast: ContrastPair[] = []
   const seenPairs = new Set<string>()
@@ -370,20 +408,16 @@ function distillColor(
     }
   }
 
-  const collapsed = SHADE_RELATIONS.filter(([shade, base]) => {
-    const a = colors.get(shade)
-    const b = colors.get(base)
-    return a !== undefined && b !== undefined && oklchToHex(a) === oklchToHex(b)
-  })
+  const collapsed = collapsedShades((role) => colors.get(role))
   if (collapsed.length > 0) {
     diagnostics.push({
       level: 'info',
       code: 'color.state-collapsed',
       path: 'color.roles',
       message:
-        `${collapsed.map(([shade, base]) => `${shade} and ${base}`).join('; ')} render as the same colour: ` +
-        'holding the foreground at the contrast floor consumed the whole offset. The state exists in the ' +
-        'token set but cannot be seen; distinguish it with something other than fill.',
+        `${collapsedShadesSentence(collapsed)}. Holding the foreground at the contrast floor consumed the ` +
+        'offset, and the palette had no chroma left to buy it back. The state exists in the token set but ' +
+        'cannot be seen; distinguish it with something other than fill.',
     })
   }
 
@@ -410,7 +444,7 @@ function distillColor(
     const assignment = byRole.get(role)
     const color = colors.get(role)
     if (!assignment || color === undefined) continue
-    roles[role] = colorToken(assignment, color, adjustments.get(role))
+    roles[role] = colorToken(assignment, color, adjustments.get(role), rescues.get(role))
   }
 
   const roleOfCluster = new Map<string, ColorRoleName>()

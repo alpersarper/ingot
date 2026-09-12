@@ -14,6 +14,7 @@
  * provenance the panel does.
  */
 import { byString } from '../util/sort'
+import { errorSignalGuidance } from './error-signal'
 import { originOf, tokenSlots } from '../tokens/overrides'
 import type { TokenOrigin } from '../tokens/overrides'
 import type { Provenance } from '../provenance'
@@ -370,6 +371,7 @@ function buttonDoc(ctx: Context): ComponentDoc {
 
 function fieldDoc(ctx: Context, id: 'input' | 'select', title: string, recipe: ComponentRecipeName): ComponentDoc {
   const { tokens } = ctx
+  const errorSignal = errorSignalGuidance(tokens)
   return {
     id,
     title,
@@ -393,15 +395,22 @@ function fieldDoc(ctx: Context, id: 'input' | 'select', title: string, recipe: C
     usage: [
       'The label sits above the control and is `text`, not `textMuted` — a label is not a hint.',
       `Help text is \`textMuted\` (${ctx.hex('textMuted') ?? 'n/a'}) at the smallest type step this kit has.`,
-      tokens.color.roles.destructive === undefined
-        ? 'This kit has no destructive colour, so an error message is set in `text` and carried by the message itself. Do not introduce a red for it.'
-        : `An error message is set in \`destructive\` (${ctx.hex('destructive')}), which is contrast-checked as a text colour against both \`background\` and \`surface\`.`,
+      ...(tokens.color.roles.destructive === undefined
+        ? // The field is where a form's error state is actually drawn, so this
+          // page carries the same language `design.md` prescribes rather than a
+          // shorter paraphrase of it -- per-component markdown is self-sufficient.
+          [errorSignal.stateCell, ...errorSignal.language]
+        : [
+            `An error message is set in \`destructive\` (${ctx.hex('destructive')}), which is contrast-checked as a text colour against both \`background\` and \`surface\`.`,
+          ]),
       'On focus the border goes to `primary` and the ring is drawn outside it. Both, not one.',
     ],
     doNot: [
       'Do not put the label inside the control as a placeholder. A placeholder disappears the moment someone types.',
       'Do not change the control height between a field with an error and one without. The message goes below; the box does not move.',
-      'Do not use a border colour other than `border`, `primary` on focus, or the error colour above.',
+      tokens.color.roles.destructive === undefined
+        ? 'Do not use a border colour other than `border` and `primary` on focus. This kit names no error border colour, and bringing one in is the one thing it forbids outright.'
+        : 'Do not use a border colour other than `border`, `primary` on focus, or the error colour above.',
     ],
   }
 }
@@ -422,15 +431,22 @@ function cardDoc(ctx: Context): ComponentDoc {
     if (resolved !== undefined) row.resolved = resolved
     rows.push(row)
   }
-  const largestRadius = (['lg', 'md', 'sm', 'none'] as const).find(
-    (step) => tokens.radius.steps[step] !== undefined,
-  )
-  const padStep = [...tokens.spacing.steps]
-    .filter((step) => step.value.band === 'component')
-    .sort((a, b) => b.value.px - a.value.px)[0]
-
-  if (largestRadius !== undefined) push('radius', `radius.steps.${largestRadius}`)
-  if (padStep !== undefined) push('padding', `spacing.steps.${padStep.value.name}`)
+  // The card is measured now: every capture set records cards, so its padding
+  // and radius are evidence. The composed fallback below is what this page said
+  // in full before that, and it stays for a kit whose captures carry no card.
+  const recipe = ctx.recipe('card')
+  if (recipe === undefined) {
+    const largestRadius = (['lg', 'md', 'sm', 'none'] as const).find(
+      (step) => tokens.radius.steps[step] !== undefined,
+    )
+    const padStep = [...tokens.spacing.steps]
+      .filter((step) => step.value.band === 'component')
+      .sort((a, b) => b.value.px - a.value.px)[0]
+    if (largestRadius !== undefined) push('radius', `radius.steps.${largestRadius}`)
+    if (padStep !== undefined) push('padding', `spacing.steps.${padStep.value.name}`)
+  } else {
+    rows.push(...recipeRows(ctx, 'card'))
+  }
   push('border width', 'border.width')
   if (tokens.shadow.steps.sm !== undefined) push('shadow', 'shadow.steps.sm')
 
@@ -438,7 +454,9 @@ function cardDoc(ctx: Context): ComponentDoc {
     id: 'card',
     title: 'Card',
     summary:
-      'A card is a surface, a border and a radius. The engine emits no card recipe, because no capture measures "a card" — so this one is composed from the scales, and the table below says which steps it uses rather than pretending they were measured.',
+      recipe === undefined
+        ? 'A card is a surface, a border and a radius. Nothing in this kit\'s captures measures a card, so this one is composed from the scales, and the table below says which steps it uses rather than pretending they were measured.'
+        : 'A card is a surface, a border, a radius and a padding — and the padding is the number that sets a page\'s density, so it is stated rather than left to the reader. Captured cards supply it; the table below says so for each value.',
     variants: [
       { id: 'default', label: 'Card', note: 'A titled panel with body copy.' },
       { id: 'actions', label: 'With actions', note: 'Buttons in a row at the foot of the card.' },
@@ -454,7 +472,9 @@ function cardDoc(ctx: Context): ComponentDoc {
     usage: [
       `A card is \`surface\` (${ctx.hex('surface') ?? 'n/a'}) on \`background\` (${ctx.hex('background') ?? 'n/a'}), separated by a ${tokens.border.width.value}px \`border\`.`,
       'Nest smaller radii inside the card, never larger ones. The card is the outer box.',
-      'Pad a card with a component step and separate cards with a layout step. Using one number for both is what makes a page read flat.',
+      recipe === undefined
+        ? 'Pad a card with a component step and separate cards with a layout step. Using one number for both is what makes a page read flat.'
+        : `Pad a card with ${recipe.paddingY.value}px vertically and ${recipe.paddingX.value}px horizontally, and separate cards with a layout step. Using one number for both is what makes a page read flat.`,
     ],
     doNot: [
       'Do not use a shadow in place of the border for separation.',

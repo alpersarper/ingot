@@ -54,6 +54,17 @@ history owns the chronology.
 - **Blind-LLM acceptance loop.** `design.md` handed to an LLM with no other
   context must yield ship-quality UI. That run, not unit tests, is the bar a
   major engine change is measured against.
+- **A kit's error state clears the bar with *either* a destructive colour or a
+  recorded acknowledgment.** Quality run #2 (2026-09-12) put the bar and the
+  no-invented-brand-colour law in direct tension on `linear-dark`: a kit with no
+  red and an explicit prohibition on adding one cannot draw a shippable billing
+  form, so the bar as written was unreachable for that fixture. The ruling keeps
+  the law untouched and moves the workbench: the absence is surfaced with its
+  concrete consequence, and the reviewer either supplies a colour or
+  acknowledges shipping without one. Requires: a kit with neither is measured as
+  *unresolved* rather than as passing. Forbids: satisfying the bar by capturing
+  a red into a fixture instead of answering the question, and hard-blocking
+  export on an unresolved kit — the card and the kit status stay visibly open.
 
 ## Architecture
 
@@ -121,3 +132,21 @@ history owns the chronology.
   carries forward when a write supplies none.
 - **No literal visual values outside tokens, anywhere** — fallbacks fall back to
   kit tokens.
+- **The engine never invents a brand colour; a reviewer may supply one.**
+  `color.roles.destructive` is an overridable slot even where the kit has none.
+  Nominating a colour makes the engine finish the job — foreground, contrast
+  pairs, destructive button — through the functions `distill` already uses.
+  Forbids a second write path, and forbids the engine ever writing
+  `components.states.error.mode: acknowledged`.
+- **Shipping without an error colour is informed consent, not a default.** Only
+  a person may write `acknowledged`, and only after the kit has stated the
+  consequence. It is an ordinary override, so it is durable provenance, survives
+  regeneration, and retires only by user action; when a later capture set
+  supplies a red the engine's answer moves and the standing conflict machinery
+  reports the disagreement. The assistant may propose the *colour* and is
+  refused the *decision* — a consent card a reviewer clicked through on the
+  assistant's suggestion would not be consent.
+- **A state is collapsed when a reader cannot see it, not when two hexes
+  match.** Perceptibility floors are measured against the rendered colours, and
+  the derivation spends chroma to restore a state before the diagnostic
+  concedes it. Forbids reintroducing an equality test as a proxy.

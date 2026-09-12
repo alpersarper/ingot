@@ -143,11 +143,21 @@ The right column is the product, not a settings page. It has four tabs:
   runner-up 12px") -- and each carries its evidence and its runner-up as a
   one-click override. Accepting is one click; overriding is one more. A card id
   is derived from the kit's own content, so an acceptance survives regeneration.
+
+  One card is a decision rather than a finding: a kit whose palette carries no
+  error colour cannot signal an invalid field in colour, and the card says so
+  and offers the two exits -- set `color.roles.destructive`, or acknowledge
+  shipping without one. The acknowledgment is an ordinary override, so it is
+  durable, it survives regeneration, and it retires only when the reviewer
+  clears it. Nothing is blocked while it is open: the card and the kit status
+  simply stay unresolved. [docs/tokens.md](tokens.md#states) has the lifecycle.
 - **Tokens** is the whole document, group by group. Every value shows its origin
   -- measured, derived, default, contrast-adjusted, yours -- and opens its full
   provenance on demand: contributing captures, every raw value observed, the
   dominant-choice record, any adjustment, and, for an overridden token, the
-  engine's own answer it replaced.
+  engine's own answer it replaced. The colour group also carries the engine's
+  own notice when the kit has no error colour, because that is where a reviewer
+  is when the question is worth asking.
 - **Export** is the four artefacts, and says how many of their values came from
   an assistant suggestion you accepted.
 - **Assistant** is the advisory layer, and the only tab that can be absent: with
@@ -216,7 +226,7 @@ in `assistant/prompts.ts`:
 
 | | | |
 | --- | --- | --- |
-| **derive** | proposal cards | Fills tokens the captures were silent about, where the engine had to state a `sanctioned-default`. |
+| **derive** | proposal cards | Fills tokens the captures were silent about, where the engine had to state a `sanctioned-default`. It may also propose the error colour a kit has none of, calibrated to the palette it is given -- but never the choice to ship without one, which is refused before the engine is consulted. |
 | **merge** | proposal cards | Finds near-duplicates -- two greys a hair apart, two paddings a pixel apart -- and proposes collapsing one onto the other. |
 | **name** | content | A brand-meaningful vocabulary for the palette. Content rather than cards *because the token model has no writable name*: Ingot's role names are a fixed, stack-agnostic set every export depends on, so a rename card would be one whose accept button could not do anything. |
 | **rationale** | content | Drafts the reason behind an override that has none. Offered in the Tokens tab only where the reason field is empty; it fills the box and the reviewer still presses Override. |

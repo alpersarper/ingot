@@ -1,13 +1,13 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/alpersarper/ingot/schemas/tokens.schema.json",
-  "title": "Ingot tokens document, version 3",
+  "title": "Ingot tokens document, version 4",
   "description": "The distilled design system for one capture set. Stack-agnostic: nothing here names Tailwind, shadcn or CSS variables. Prose documentation: docs/tokens.md",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "engine", "source", "color", "spacing", "border", "radius", "shadow", "typography", "components", "diagnostics"],
   "properties": {
-    "schemaVersion": { "const": 3 },
+    "schemaVersion": { "const": 4 },
     "engine": {
       "type": "object",
       "additionalProperties": false,
@@ -295,7 +295,7 @@
         "states": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["disabled", "selected", "focusRing"],
+          "required": ["disabled", "selected", "error", "focusRing"],
           "description": "Interaction states beyond hover and pressed. Colours are referenced by token path into color.roles rather than duplicated.",
           "properties": {
             "disabled": {
@@ -319,6 +319,25 @@
                 "foreground": { "type": "string", "description": "Token path of the label colour drawn on it." }
               }
             },
+            "error": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["mode", "color", "foreground"],
+              "description": "How a form signals an invalid field. `unresolved` means the palette carries no destructive colour and nobody has decided what to do about it; `acknowledged` means a reviewer chose to ship without one. The engine only ever writes `color` or `unresolved`.",
+              "properties": {
+                "mode": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["value", "provenance"],
+                  "properties": {
+                    "value": { "enum": ["color", "unresolved", "acknowledged"] },
+                    "provenance": { "$ref": "#/definitions/provenance" }
+                  }
+                },
+                "color": { "type": ["string", "null"], "description": "Token path of the error colour, or null when the kit has none." },
+                "foreground": { "type": ["string", "null"], "description": "Token path of the label drawn on that colour, or null." }
+              }
+            },
             "focusRing": {
               "type": "object",
               "additionalProperties": false,
@@ -339,10 +358,10 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["name", "purpose", "colors", "height", "paddingY", "paddingX", "radius", "typeStep", "fontWeight"],
+            "required": ["name", "purpose", "colors", "paddingY", "paddingX", "radius", "typeStep", "fontWeight"],
             "properties": {
               "name": {
-                "enum": ["button.primary", "button.secondary", "button.ghost", "button.destructive", "input", "select", "table.header", "table.row", "badge"]
+                "enum": ["card", "button.primary", "button.secondary", "button.ghost", "button.destructive", "input", "select", "table.header", "table.row", "badge"]
               },
               "purpose": { "type": "string", "description": "One line on what the recipe is for, written for the consumer." },
               "colors": {
@@ -357,7 +376,7 @@
                   "hoverSurface": { "type": ["string", "null"] }
                 }
               },
-              "height": { "$ref": "#/definitions/numberToken", "description": "Total border-box height in px: paddingY x 2 + line box + border x 2." },
+              "height": { "$ref": "#/definitions/numberToken", "description": "Total border-box height in px: paddingY x 2 + line box + border x 2. Absent on a container, which is as tall as its content." },
               "paddingY": { "$ref": "#/definitions/numberToken" },
               "paddingX": { "$ref": "#/definitions/numberToken" },
               "radius": { "$ref": "#/definitions/stringToken", "description": "Name of the radius step, so the value tracks radius.steps." },
