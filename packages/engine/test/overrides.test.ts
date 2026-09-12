@@ -392,6 +392,60 @@ describe('what an override invalidates', () => {
     expect(collapsed[0]?.message).toContain('primaryHover and primary')
   })
 
+  it('rescues a re-derived shade exactly as the distiller does, so one palette has one answer', () => {
+    // linear-dark's #5e6ad2 sits within 0.01 lightness of the ceiling a white
+    // label can clear AA on, so the derived hover and pressed offsets are
+    // walked straight back onto the base and only the chroma rescue keeps the
+    // states visible. The same colour arriving by override must buy them back
+    // identically: same shade hexes, same (absent) collapse diagnostic.
+    const distilled = kit('linear-dark')
+    const primary = distilled.color.roles.primary?.value.hex as string
+    const { tokens: next } = applyOverrides(distilled, [{ path: 'color.roles.primary', value: primary }])
+
+    expect(next.color.roles.primaryHover?.value.hex).toBe(distilled.color.roles.primaryHover?.value.hex)
+    expect(next.color.roles.primaryActive?.value.hex).toBe(distilled.color.roles.primaryActive?.value.hex)
+    // The parity is meaningful only because the rescue had work to do here.
+    expect(next.color.roles.primaryHover?.value.hex).not.toBe(primary)
+    expect(next.diagnostics.filter((entry) => entry.code === 'color.state-collapsed')).toEqual(
+      distilled.diagnostics.filter((entry) => entry.code === 'color.state-collapsed'),
+    )
+    // ...and the spend is on the shade's own record, in the distiller's voice.
+    expect(next.color.roles.primaryHover?.provenance.decision.derivation?.detail).toContain(
+      'spent on chroma',
+    )
+  })
+
+  it('never lets the rescue move a shade the reviewer set by hand', () => {
+    const distilled = kit('linear-dark')
+    const primary = distilled.color.roles.primary?.value.hex as string
+    // A hand-set hover pinned exactly where the contrast walk would leave it:
+    // too close to the base to see, but the reviewer's to keep. The rescue
+    // must stand aside and the diagnostic must speak instead.
+    const { tokens: next } = applyOverrides(distilled, [
+      { path: 'color.roles.primary', value: primary },
+      { path: 'color.roles.primaryHover', value: primary },
+    ])
+    expect(next.color.roles.primaryHover?.value.hex).toBe(primary)
+    expect(next.color.roles.primaryHover?.provenance.decision.strategy).toBe('user-override')
+    const collapsed = next.diagnostics.filter((entry) => entry.code === 'color.state-collapsed')
+    expect(collapsed).toHaveLength(1)
+    expect(collapsed[0]?.message).toContain('primaryHover and primary are the same colour')
+  })
+
+  it('states the collapse in the distiller\'s own sentence when the palette has no room', () => {
+    // An achromatic primary has no hue, so the rescue has no chroma axis to
+    // spend on -- on either path. No fixture distils to a collapse any more
+    // (the rescue is why), so the replay is exercised directly and asserted to
+    // make the statement the distiller makes: same code, same claim that the
+    // buy-back was attempted and found nothing.
+    const { tokens: next } = applyOverrides(kit(), [{ path: 'color.roles.primary', value: '#000000' }])
+    const collapsed = next.diagnostics.filter((entry) => entry.code === 'color.state-collapsed')
+    expect(collapsed).toHaveLength(1)
+    expect(collapsed[0]?.level).toBe('info')
+    expect(collapsed[0]?.path).toBe('color.roles')
+    expect(collapsed[0]?.message).toContain('no chroma left to buy it back')
+  })
+
   it('restates a collapse the engine reported against the palette now on screen', () => {
     // No fixture distils with a collapse any more -- the chroma rescue is why --
     // so the stale statement is manufactured the only honest way there is: a

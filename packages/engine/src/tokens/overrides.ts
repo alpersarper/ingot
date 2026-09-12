@@ -34,9 +34,15 @@
 import { contrastRatio, formatOklch, oklchToHex, parseColor, roundOklch } from '../color/space'
 import type { Oklch } from '../color/space'
 import { CONTRAST_FLOOR, enforceContrastByChroma, enforceContrastOnBackground } from '../color/contrast'
-import { bestContrastPole, collapsedShades, collapsedShadesSentence, deriveInteractionShades } from '../color/roles'
+import {
+  bestContrastPole,
+  collapsedShades,
+  collapsedShadesSentence,
+  deriveInteractionShades,
+  restoreStateSeparation,
+} from '../color/roles'
 import { RECIPE_ORDER, destructiveButtonFrom, errorSignalDiagnostic } from '../components/components'
-import type { RoleAssignment } from '../color/roles'
+import type { RoleAssignment, SeparationGuard } from '../color/roles'
 import { parseShadow } from '../shadow/shadow'
 import { round } from '../util/num'
 import { byNumber, byString, chain } from '../util/sort'
@@ -682,7 +688,8 @@ function replay(tokens: TokensDocument, ordered: readonly TokenOverride[]): Repl
     if (colorTouched.has('destructive')) completeDestructive(next)
     const shades = rederiveShades(next, colorTouched)
     for (const path of shades.yielded) yielded.add(path)
-    enforceShades(next, shades.rewritten)
+    enforceShades(next, shades.rewritten, shades.colors)
+    rescueShades(next, shades.colors)
     recomputeContrast(next)
     restateCollapsedStates(next)
     restateContrastAdjustments(next)
@@ -1381,7 +1388,7 @@ function writeColorValue(token: ColorToken, color: Oklch): void {
 function rederiveShades(
   tokens: TokensDocument,
   touched: ReadonlySet<ColorRoleName>,
-): { rewritten: ColorRoleName[]; yielded: string[] } {
+): { rewritten: ColorRoleName[]; yielded: string[]; colors: Map<ColorRoleName, Oklch> } {
   const pinned = new Set<ColorRoleName>()
   const base: RoleAssignment[] = []
   for (const [name, token] of Object.entries(tokens.color.roles)) {
@@ -1403,6 +1410,11 @@ function rederiveShades(
   const stale = new Set<ColorRoleName>(touched)
   const rewritten: ColorRoleName[] = []
   const yielded: string[] = []
+  // The full-precision colours behind the hexes just written. The stored hex
+  // quantises to 8-bit sRGB, and the enforcement and rescue that follow walk
+  // from these instead so the replay lands on the same colours the distiller's
+  // own full-precision pipeline does.
+  const colors = new Map<ColorRoleName, Oklch>()
 
   for (const shape of deriveInteractionShades(base, tokens.color.mode)) {
     const moved = shape.derivedFrom.filter((from) => stale.has(from))
@@ -1430,9 +1442,10 @@ function rederiveShades(
     }
     stale.add(shade.role)
     rewritten.push(shade.role)
+    colors.set(shade.role, shade.color)
   }
 
-  return { rewritten, yielded }
+  return { rewritten, yielded, colors }
 }
 
 /**
@@ -1448,7 +1461,11 @@ function rederiveShades(
  * already guaranteed against. A shade exists to serve a role, so it gives way,
  * lightness first and then chroma, exactly as the derived-surface pass does.
  */
-function enforceShades(tokens: TokensDocument, shades: readonly ColorRoleName[]): void {
+function enforceShades(
+  tokens: TokensDocument,
+  shades: readonly ColorRoleName[],
+  colors: Map<ColorRoleName, Oklch>,
+): void {
   for (const role of shades) {
     const token = tokens.color.roles[role]
     if (token === undefined) continue
@@ -1458,7 +1475,7 @@ function enforceShades(tokens: TokensDocument, shades: readonly ColorRoleName[])
       .sort(chain((a, b) => byString(a.foreground, b.foreground)))
     if (pairs.length === 0) continue
 
-    let color = readColor(token.value.hex)
+    let color = colors.get(role) ?? readColor(token.value.hex)
     if (color === undefined) continue
     let moved = false
 
@@ -1480,6 +1497,7 @@ function enforceShades(tokens: TokensDocument, shades: readonly ColorRoleName[])
     }
 
     if (!moved) continue
+    colors.set(role, color)
     writeColorValue(token, color)
     const derivation = token.provenance.decision.derivation
     if (derivation === undefined) continue
@@ -1488,6 +1506,62 @@ function enforceShades(tokens: TokensDocument, shades: readonly ColorRoleName[])
       decision: derive(token.value.hex, {
         ...derivation,
         detail: `${derivation.detail}, then held at the contrast floor as ${token.value.hex}`,
+      }),
+    }
+  }
+}
+
+/**
+ * Buy back the state visibility the contrast floor consumed, exactly as the
+ * distiller does.
+ *
+ * Holding a re-derived shade to its floors can walk the whole lightness offset
+ * back onto its base role, which is the collapse {@link restoreStateSeparation}
+ * exists to answer -- and it is one answer: the distiller and the replay call
+ * the same function, so a palette gets the same interaction shades whether its
+ * colours arrived by capture or by override. The guards come from
+ * `tokens.color.contrast`, the kit's own statement of what it guarantees, so
+ * a rescue can never reopen a pair the kit promises; a shade the reviewer set
+ * by hand is pinned out of the walk entirely, exactly as it is pinned out of
+ * re-derivation.
+ *
+ * `colors` carries the full-precision values behind the re-derived hexes, so
+ * the walk starts where the enforcement actually stopped rather than where the
+ * 8-bit hex says it did.
+ */
+function rescueShades(tokens: TokensDocument, colors: ReadonlyMap<ColorRoleName, Oklch>): void {
+  const pinned = new Set<ColorRoleName>()
+  for (const [name, token] of Object.entries(tokens.color.roles)) {
+    if (token?.provenance.decision.strategy === 'user-override') pinned.add(name as ColorRoleName)
+  }
+  const colorOf = (role: ColorRoleName): Oklch | undefined => {
+    const known = colors.get(role)
+    if (known !== undefined) return known
+    const hex = tokens.color.roles[role]?.value.hex
+    return hex === undefined ? undefined : readColor(hex)
+  }
+  const guardsOf = (role: ColorRoleName): SeparationGuard[] => {
+    const path = `color.roles.${role}`
+    const guards: SeparationGuard[] = []
+    for (const pair of tokens.color.contrast) {
+      if (pair.background !== path) continue
+      const foreground = colorOf(pair.foreground.replace('color.roles.', '') as ColorRoleName)
+      if (foreground !== undefined) guards.push({ color: foreground, floor: pair.floor })
+    }
+    return guards
+  }
+
+  for (const rescue of restoreStateSeparation(colorOf, guardsOf, pinned)) {
+    const token = tokens.color.roles[rescue.role]
+    if (token === undefined) continue
+    writeColorValue(token, rescue.color)
+    const derivation = token.provenance.decision.derivation
+    if (derivation === undefined) continue
+    token.provenance = {
+      ...token.provenance,
+      decision: derive(token.value.hex, {
+        ...derivation,
+        detail: `${derivation.detail}; ${rescue.detail}`,
       }),
     }
   }

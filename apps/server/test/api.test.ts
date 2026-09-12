@@ -519,11 +519,13 @@ describe('review: overrides and decisions', () => {
   /**
    * The kit with no error colour.
    *
-   * `ghost-warm` captures no red, so the engine emits no `destructive` -- the
-   * law -- and the reviewer is asked to decide rather than left with a form
-   * that cannot signal an invalid field. Both exits go through the ordinary
-   * override endpoint, which is the whole point: there is no second write path
-   * into a kit and no separate consent store.
+   * `linear-dark` is the coherent set whose captures carry no red, so the
+   * engine emits no `destructive` -- the law -- and the reviewer is asked to
+   * decide rather than left with a form that cannot signal an invalid field.
+   * (`ghost-warm` would not do here: its captures carry a destructive colour.)
+   * Both exits go through the ordinary override endpoint, which is the whole
+   * point: there is no second write path into a kit and no separate consent
+   * store.
    */
   async function seedWithoutRed(): Promise<KitResponse> {
     await harness.call('/api/captures/import', body(await linearDarkSet()))
@@ -543,7 +545,7 @@ describe('review: overrides and decisions', () => {
         put({
           path: 'components.states.error.mode',
           value: 'acknowledged',
-          note: 'Ghost has no red anywhere; we ship without one.',
+          note: 'Linear has no red anywhere; we ship without one.',
         }),
       )
     ).json()) as KitResponse
@@ -585,7 +587,7 @@ describe('review: overrides and decisions', () => {
     const nominated = (await (
       await harness.call(
         '/api/reviews/overrides',
-        put({ path: 'color.roles.destructive', value: '#b42318', note: 'Ghost uses this red in its docs.' }),
+        put({ path: 'color.roles.destructive', value: '#b42318', note: 'Linear uses this red in its docs.' }),
       )
     ).json()) as KitResponse
     expect(nominated.tokens.color.roles['destructive']?.value.hex).toBe('#b42318')

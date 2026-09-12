@@ -18,7 +18,7 @@ import { byNumber, byString, chain } from '../util/sort'
 import { clamp, round } from '../util/num'
 import type { ColorCluster } from './cluster'
 import type { Oklch } from './space'
-import { contrastRatio, oklchToHex, renderedDistance, withLightness } from './space'
+import { contrastRatio, oklchToHex, renderedDistance, withChroma, withLightness } from './space'
 import type { ColorRoleName } from '../tokens/types'
 
 /**
@@ -646,10 +646,14 @@ export interface SeparationRescue {
  * Roles are rescued in `SHADE_RELATIONS` order and each sees the moves made
  * before it, which is what lets `primaryActive` separate from a `primaryHover`
  * that has itself just moved.
+ *
+ * `pinned` roles are never moved: a shade a reviewer set by hand is theirs, and
+ * the rescue steps aside from it exactly as the shade derivation does.
  */
 export function restoreStateSeparation(
   colorOf: (role: ColorRoleName) => Oklch | undefined,
   guardsOf: (role: ColorRoleName) => readonly SeparationGuard[],
+  pinned?: ReadonlySet<ColorRoleName>,
 ): SeparationRescue[] {
   const moved = new Map<ColorRoleName, Oklch>()
   const current = (role: ColorRoleName): Oklch | undefined => moved.get(role) ?? colorOf(role)
@@ -661,6 +665,7 @@ export function restoreStateSeparation(
   }
 
   for (const role of order) {
+    if (pinned?.has(role)) continue
     const start = current(role)
     if (start === undefined || start.h === undefined) continue
     const relations = SHADE_RELATIONS.filter(
@@ -690,7 +695,7 @@ export function restoreStateSeparation(
         const next = round(clamp(chroma + direction * RESCUE_CHROMA_STEP, 0, RESCUE_CHROMA_MAX), 4)
         if (next === chroma) break
         chroma = next
-        const color: Oklch = { ...start, c: chroma }
+        const color = withChroma(start, chroma)
         if (!meetsGuards(color)) break
         const score = satisfaction(color)
         const better =
