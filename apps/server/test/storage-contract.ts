@@ -462,19 +462,41 @@ export function describeStoreContract(name: string, createStore: () => Store | P
         expect((await store.proposals.get('group-1', stored.id))?.status).toBe('accepted')
       })
 
-      it('clears only the open proposals, so a decision is never forgotten', async () => {
+      it('clears only the named capability\'s open proposals, so a decision is never forgotten', async () => {
         const open = await store.proposals.create('group-1', proposal)
+        const otherOpen = await store.proposals.create('group-1', {
+          ...proposal,
+          capability: 'merge',
+          path: 'radius.steps.sm',
+        })
         const accepted = await store.proposals.create('group-1', { ...proposal, path: 'radius.steps.md' })
         const dismissed = await store.proposals.create('group-1', { ...proposal, path: 'radius.steps.lg' })
+        const otherAccepted = await store.proposals.create('group-1', {
+          ...proposal,
+          capability: 'merge',
+          path: 'spacing.steps.sm',
+        })
+        const otherDismissed = await store.proposals.create('group-1', {
+          ...proposal,
+          capability: 'merge',
+          path: 'spacing.steps.md',
+        })
         await store.proposals.resolve('group-1', accepted.id, 'accepted')
         await store.proposals.resolve('group-1', dismissed.id, 'dismissed')
+        await store.proposals.resolve('group-1', otherAccepted.id, 'accepted')
+        await store.proposals.resolve('group-1', otherDismissed.id, 'dismissed')
 
-        expect(await store.proposals.clearOpen('group-1')).toBe(1)
+        expect(await store.proposals.clearOpen('group-1', 'derive')).toBe(1)
         const left = await store.proposals.list('group-1')
-        // The dismissed one survives on purpose: it is what suppresses the
+        // The merge card survives a derive clear on purpose: the clear is
+        // capability-scoped like dismissal suppression, so re-running one
+        // capability never silently destroys another's unreviewed cards. The
+        // dismissed ones survive too: a kept dismissal is what suppresses the
         // same suggestion while the engine's answer it recorded is unchanged,
         // and what lets a return after the evidence moves be marked a re-offer.
-        expect(left.map((entry) => entry.id).sort()).toEqual([accepted.id, dismissed.id].sort())
+        expect(left.map((entry) => entry.id).sort()).toEqual(
+          [otherOpen.id, accepted.id, dismissed.id, otherAccepted.id, otherDismissed.id].sort(),
+        )
         expect(await store.proposals.get('group-1', open.id)).toBeNull()
       })
 

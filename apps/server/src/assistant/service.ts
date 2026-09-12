@@ -60,12 +60,18 @@ export interface AssistantService {
   /**
    * Run a proposing capability over a kit and store what survives the engine.
    *
-   * The open queue for the scope is replaced rather than appended to: a fresh
-   * run is a fresh reading of the kit, and a queue that only grows is one
-   * nobody works through. Accepted and dismissed proposals are kept, and the
-   * kept dismissals gate this run: a suggestion of the same capability at the
-   * same path is withheld while the engine's answer the dismissal was made
-   * against still stands, and comes back marked as a re-offer when it moved.
+   * The capability's own open queue for the scope is replaced rather than
+   * appended to: a fresh run is a fresh reading of the kit, and a queue that
+   * only grows is one nobody works through. Another capability's open cards
+   * survive untouched -- clearing is capability-scoped for the same reasons
+   * suppression is (a derive run must not silence a merge), and nothing
+   * user-facing disappears silently: each of those cards cost real credit to
+   * produce. The queue stays bounded even so, because every capability's own
+   * re-run still replaces its own cards. Accepted and dismissed proposals are
+   * kept, and the kept dismissals gate this run: a suggestion of the same
+   * capability at the same path is withheld while the engine's answer the
+   * dismissal was made against still stands, and comes back marked as a
+   * re-offer when it moved.
    */
   suggest(input: SuggestInput): Promise<SuggestResult>
   /** Name the kit's vocabulary. Content: nothing here can change a token. */
@@ -292,7 +298,7 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
         logger.warn(`assistant proposal withheld at ${entry.path}: ${entry.reason}`)
       }
 
-      await store.proposals.clearOpen(input.scope)
+      await store.proposals.clearOpen(input.scope, input.capability)
       const proposals: StoredProposal[] = []
       for (const proposal of checked.accepted) {
         proposals.push(

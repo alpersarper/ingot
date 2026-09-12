@@ -674,10 +674,10 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
       return row ? hydrateProposal(row) : null
     },
 
-    async clearOpen(scope) {
+    async clearOpen(scope, capability) {
       return db
-        .prepare(`DELETE FROM assistant_proposals WHERE scope_key = ? AND status = 'open'`)
-        .run(scopeKey(scope)).changes
+        .prepare(`DELETE FROM assistant_proposals WHERE scope_key = ? AND capability = ? AND status = 'open'`)
+        .run(scopeKey(scope), capability).changes
     },
   }
 

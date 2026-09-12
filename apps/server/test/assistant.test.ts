@@ -319,7 +319,7 @@ describe('the proposal pipeline', () => {
     expect((await harness.call(`/api/assistant/proposals/${id}/accept`, body({}))).status).toBe(409)
   })
 
-  it('replaces the open queue on a fresh run and keeps what was decided', async () => {
+  it('replaces only the re-run capability\'s open queue and keeps what was decided', async () => {
     await importAndGenerate()
     await storeKey()
 
@@ -336,18 +336,92 @@ describe('the proposal pipeline', () => {
     const kept = first.proposals.find((entry) => entry.path === 'border.width')?.id ?? ''
     await harness.call(`/api/assistant/proposals/${kept}/accept`, body({}))
 
+    // A merge run leaves the still-open derive card alone: clearing is
+    // capability-scoped, so one capability's fresh reading never silently
+    // destroys another's unreviewed cards.
+    harness.llm.reply({
+      proposals: [{ path: 'radius.steps.sm', value: '3px', title: 'One small radius', rationale: 'Merge.' }],
+    })
+    await harness.call('/api/assistant/suggest', body({ capability: 'merge' }))
+
+    const afterMerge = await harness.store.proposals.list(null)
+    expect(afterMerge.map((entry) => `${entry.capability}:${entry.path}:${entry.status}`).sort()).toEqual([
+      'derive:border.width:accepted',
+      'derive:radius.steps.md:open',
+      'merge:radius.steps.sm:open',
+    ])
+
     harness.llm.reply({
       proposals: [{ path: 'radius.steps.lg', value: '16px', title: 'Rounder still', rationale: 'Three.' }],
     })
     await harness.call('/api/assistant/suggest', body({ capability: 'derive' }))
 
     const proposals = await harness.store.proposals.list(null)
-    // The accepted one survives; the untouched one from the first run does not,
-    // because it was a reading of a kit that has since moved.
-    expect(proposals.map((entry) => `${entry.path}:${entry.status}`).sort()).toEqual([
-      'border.width:accepted',
-      'radius.steps.lg:open',
+    // The accepted derive survives; the untouched open one from the first
+    // derive run does not, because it was a reading of a kit that has since
+    // moved -- while the merge card, which the derive re-run has no business
+    // touching, is still there to be worked through.
+    expect(proposals.map((entry) => `${entry.capability}:${entry.path}:${entry.status}`).sort()).toEqual([
+      'derive:border.width:accepted',
+      'derive:radius.steps.lg:open',
+      'merge:radius.steps.sm:open',
     ])
+  })
+
+  it('offers a proposal at an overridden token without a phantom conflict', async () => {
+    await importAndGenerate()
+    await storeKey()
+
+    // A standing override at the very path the model will target.
+    await harness.call('/api/reviews/overrides', {
+      method: 'PUT',
+      body: JSON.stringify({ groupId: null, path: 'border.width', value: '2px' }),
+    })
+
+    harness.llm.reply({
+      proposals: [{ path: 'border.width', value: '3px', title: 'Thicker still', rationale: 'A bolder frame.' }],
+    })
+    const result = await harness.json<{
+      proposals: Array<{ path: string; baseValue: string; engineNotes: string[] }>
+      refusedCount: number
+    }>('/api/assistant/suggest', body({ capability: 'derive' }))
+
+    expect(result.refusedCount).toBe(0)
+    expect(result.proposals).toHaveLength(1)
+    // The base value is still the engine's own answer, not the override's.
+    expect(result.proposals[0]?.baseValue).toBe('1px')
+    // Accepting upserts on the path, replacing the standing override, so no
+    // conflict between the two can ever exist and the card must not claim one.
+    expect(result.proposals[0]?.engineNotes.join('\n')).not.toContain('still in force')
+  })
+
+  it('still reports a genuine consequence when the proposal targets an overridden token', async () => {
+    await importAndGenerate()
+    await storeKey()
+
+    await harness.call('/api/reviews/overrides', {
+      method: 'PUT',
+      body: JSON.stringify({ groupId: null, path: 'color.roles.primary', value: '#136f54' }),
+    })
+
+    // A pure black primary leaves its darker-walked hover and active shades
+    // nowhere to go, which the engine says out loud -- the consequence half of
+    // the card, which losing the phantom conflict must not lose with it.
+    harness.llm.reply({
+      proposals: [
+        { path: 'color.roles.primary', value: '#000000', title: 'Ink primary', rationale: 'Match the text.' },
+      ],
+    })
+    const result = await harness.json<{
+      proposals: Array<{ engineNotes: string[] }>
+      refusedCount: number
+    }>('/api/assistant/suggest', body({ capability: 'derive' }))
+
+    expect(result.refusedCount).toBe(0)
+    expect(result.proposals).toHaveLength(1)
+    const notes = result.proposals[0]?.engineNotes ?? []
+    expect(notes.length).toBeGreaterThan(0)
+    expect(notes.join('\n')).not.toContain('still in force')
   })
 
   it('grounds an answer in the kit and names any citation that does not resolve', async () => {

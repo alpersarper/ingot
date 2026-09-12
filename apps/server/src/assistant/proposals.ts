@@ -187,7 +187,14 @@ export function checkProposals(
       value: plan.record.value,
       baseValue: plan.record.baseValue,
     }
-    const after = applyOverrides(pristine, [...standing, candidateOverride])
+    // The simulation is of the accept transition, and accepting upserts on
+    // the path: a standing override there is replaced, never sat beside. Two
+    // same-path entries would each read the other as the engine's fresh
+    // answer and manufacture a conflict that accepting can never create.
+    const after = applyOverrides(pristine, [
+      ...standing.filter((override) => override.path !== path),
+      candidateOverride,
+    ])
 
     const rejection = after.report.rejected.find((entry) => entry.path === path)
     if (rejection !== undefined) {

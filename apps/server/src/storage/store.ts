@@ -425,14 +425,20 @@ export interface ProposalRepository {
   /** Moves one proposal out of `open`. Null when there is no such proposal. */
   resolve(scope: ReviewScope, id: string, status: 'accepted' | 'dismissed'): Promise<StoredProposal | null>
   /**
-   * Forgets every proposal for a scope that is still open.
+   * Forgets one capability's still-open proposals for a scope.
    *
-   * A fresh run replaces the open queue rather than adding to it: the kit the
-   * old suggestions were about may have moved, and a queue that only ever grows
-   * is a queue nobody reads. Accepted and dismissed ones are kept -- they are
-   * the record of what was decided.
+   * A fresh run replaces that capability's open queue rather than adding to
+   * it: the kit the old suggestions were about may have moved, and a queue
+   * that only ever grows is a queue nobody reads. The clear is scoped to the
+   * capability being re-run for the same reasons dismissal suppression is --
+   * a derive run has no business silencing a merge -- and because nothing
+   * user-facing disappears silently: another capability's unreviewed cards,
+   * each of which cost real credit to produce, survive untouched. The queue
+   * stays bounded even so, since every capability's own re-run still replaces
+   * its own cards, so no capability holds more than one generation. Accepted
+   * and dismissed ones are kept -- they are the record of what was decided.
    */
-  clearOpen(scope: ReviewScope): Promise<number>
+  clearOpen(scope: ReviewScope, capability: string): Promise<number>
 }
 
 /**
