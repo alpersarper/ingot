@@ -33,12 +33,13 @@
  */
 import { contrastRatio, formatOklch, oklchToHex, parseColor, roundOklch } from '../color/space'
 import type { Oklch } from '../color/space'
-import { enforceContrastByChroma, enforceContrastOnBackground } from '../color/contrast'
-import { collapsedShades, collapsedShadesSentence, deriveInteractionShades } from '../color/roles'
+import { CONTRAST_FLOOR, enforceContrastByChroma, enforceContrastOnBackground } from '../color/contrast'
+import { bestContrastPole, collapsedShades, collapsedShadesSentence, deriveInteractionShades } from '../color/roles'
+import { RECIPE_ORDER, destructiveButtonFrom, errorSignalDiagnostic } from '../components/components'
 import type { RoleAssignment } from '../color/roles'
 import { parseShadow } from '../shadow/shadow'
 import { round } from '../util/num'
-import { byString, chain } from '../util/sort'
+import { byNumber, byString, chain } from '../util/sort'
 import { derive, userOverride } from '../provenance'
 import type { BaselineTokens, EffectiveTokens, PristineTokens } from './documents'
 import type { DominantChoice, Provenance, ResolvedConflict } from '../provenance'
@@ -46,6 +47,7 @@ import type { ContrastAdjustment } from '../color/contrast'
 import type {
   ColorRoleName,
   ColorToken,
+  ErrorSignalMode,
   ComponentRecipe,
   Diagnostic,
   RadiusStepName,
@@ -58,6 +60,23 @@ import type {
 /** What a slot holds, which is what its replacement has to parse as. */
 export type OverrideKind =
   | 'color'
+  /**
+   * A colour the kit may legitimately not have: today only the error colour.
+   *
+   * Its own kind rather than a `color` with a special case, because the value
+   * domain really is different -- `none` is a statement the kit makes about
+   * itself, not a colour -- and because the panel has to offer a different
+   * editor for "nominate the red the engine refused to invent" than for
+   * "replace this red".
+   */
+  | 'color-or-none'
+  /**
+   * How the kit signals an error. The only value a person may write is
+   * `acknowledged`: the other two are the engine's own answers about the
+   * palette, and a reviewer typing one would be restating evidence rather than
+   * deciding anything.
+   */
+  | 'error-mode'
   | 'length'
   | 'ratio'
   | 'weight'
@@ -260,12 +279,41 @@ export function tokenSlots(tokens: TokensDocument): TokenSlot[] {
       path: `color.roles.${name}`,
       group: 'color',
       label: name,
-      kind: 'color',
+      // The error colour keeps one kind in both states of the kit, so the path
+      // a reviewer edits and the refusal they read are the same whether or not
+      // the captures happened to carry a red.
+      kind: name === 'destructive' ? 'color-or-none' : 'color',
       value: token.value.hex,
       provenance: token.provenance,
     }
     if (token.contrastAdjustment !== undefined) slot.contrastAdjustment = token.contrastAdjustment
     slots.push(slot)
+  }
+
+  // The one colour a kit is allowed not to have, offered even when it does not
+  // have it. The engine will not invent a brand colour, and that stands -- but
+  // a reviewer may supply one, and a slot is how they do it. Offering nothing
+  // is what left `linear-dark` with a form whose invalid field looked exactly
+  // like a valid one and no way inside the product to fix it.
+  if (tokens.color.roles.destructive === undefined) {
+    slots.push({
+      path: 'color.roles.destructive',
+      group: 'color',
+      label: 'destructive (not set)',
+      kind: 'color-or-none',
+      value: 'none',
+      provenance: {
+        captureIds: [],
+        observed: [],
+        decision: derive('none', {
+          method: 'no-captured-red',
+          from: ['color.palette'],
+          detail:
+            'no captured colour in this set reads as a red, and a brand decision is the one thing the engine ' +
+            'will not default; set one here to give this kit an error colour',
+        }),
+      },
+    })
   }
 
   for (const step of tokens.spacing.steps) {
@@ -382,6 +430,15 @@ export function tokenSlots(tokens: TokensDocument): TokenSlot[] {
       recipeSlot(base, recipe.name, 'fontWeight', 'weight', String(recipe.fontWeight.value), recipe.fontWeight),
     )
   }
+
+  slots.push({
+    path: 'components.states.error.mode',
+    group: 'state',
+    label: 'error signal',
+    kind: 'error-mode',
+    value: tokens.components.states.error.mode.value,
+    provenance: tokens.components.states.error.mode.provenance,
+  })
 
   const ring = tokens.components.states.focusRing
   slots.push(
@@ -619,6 +676,9 @@ function replay(tokens: TokensDocument, ordered: readonly TokenOverride[]): Repl
 
   if (recipesTouched.size > 0) for (const path of recomputeHeights(next, recipesTouched)) yielded.add(path)
   if (colorTouched.size > 0) {
+    // A nominated error colour is not a replacement but an addition, so what it
+    // implies has to be built before anything reads the palette back.
+    if (colorTouched.has('destructive')) completeDestructive(next)
     const shades = rederiveShades(next, colorTouched)
     for (const path of shades.yielded) yielded.add(path)
     enforceShades(next, shades.rewritten)
@@ -626,6 +686,9 @@ function replay(tokens: TokensDocument, ordered: readonly TokenOverride[]): Repl
     restateCollapsedStates(next)
     restateContrastAdjustments(next)
   }
+  // Unconditional: acknowledging the absence touches no colour at all, and the
+  // statement the kit makes about its error signal still has to follow it.
+  restateErrorSignal(next)
 
   return { tokens: next, written, rejected, colorTouched, yielded }
 }
@@ -1034,6 +1097,24 @@ function parseFor(slot: TokenSlot, tokens: TokensDocument, raw: string): Parsed 
   switch (slot.kind) {
     case 'color':
       return parseHex(raw)
+    case 'color-or-none': {
+      // `none` is only ever an answer where the kit already has none. Where it
+      // has one, writing `none` would be an override the engine cannot apply --
+      // an edit that silently does nothing -- so it is refused with the action
+      // that actually works.
+      if (raw.trim().toLowerCase() === 'none') {
+        return tokens.color.roles.destructive === undefined
+          ? { canonical: 'none' }
+          : 'this kit already has a destructive colour; clear the override to take the engine\'s answer back rather than setting it to none'
+      }
+      return parseHex(raw)
+    }
+    case 'error-mode': {
+      const value = raw.trim().toLowerCase()
+      return value === 'acknowledged'
+        ? { canonical: 'acknowledged' }
+        : 'the only thing a person can say here is `acknowledged` -- that this kit ships without an error colour on purpose. `color` and `unresolved` are the engine\'s own reading of the palette; set `color.roles.destructive` to change it'
+    }
     case 'length':
       return parseLength(raw)
     case 'ratio':
@@ -1104,12 +1185,30 @@ function write(
 
   const path = slot.path
 
+  if (path === 'components.states.error.mode') {
+    // The reviewer read the consequence and chose to ship without an error
+    // colour. Nothing else in the document moves: the acknowledgment is a
+    // decision *about* the absence, not a value that fills it.
+    const mode = tokens.components.states.error.mode
+    mode.value = value as ErrorSignalMode
+    stamp(mode)
+    return
+  }
+
   if (path.startsWith('color.roles.')) {
     const role = path.slice('color.roles.'.length) as ColorRoleName
-    const token = tokens.color.roles[role]
-    if (token === undefined) return
     const color = readColor(value)
     if (color === undefined) return
+    let token = tokens.color.roles[role]
+    if (token === undefined) {
+      // The one role a reviewer may bring into existence: the error colour the
+      // engine refused to invent. Everything that follows from it --
+      // `destructiveForeground`, the contrast pairs, the destructive button --
+      // is the engine's own work and is done in `completeDestructive`.
+      if (role !== 'destructive') return
+      token = { value: { oklch: '', hex: '', lightness: 0, chroma: 0, hue: 0 }, provenance: slot.provenance }
+      tokens.color.roles[role] = token
+    }
     // Built exactly the way `distill` builds one, so an overridden colour and a
     // distilled one are the same shape down to the rounding.
     writeColorValue(token, color)
@@ -1391,6 +1490,104 @@ function enforceShades(tokens: TokensDocument, shades: readonly ColorRoleName[])
       }),
     }
   }
+}
+
+/**
+ * Build everything a nominated error colour implies.
+ *
+ * The engine will not invent a brand colour; it will absolutely finish the job
+ * once a person supplies one. `destructiveForeground` is chosen by the same
+ * rule `assignRoles` uses, the two pairs the kit guarantees around a red are
+ * added to the contrast table so `enforceShades` and `recomputeContrast` can
+ * see them, and the destructive button is assembled by the same function the
+ * distiller uses. Nothing here is a second opinion: every rule is imported.
+ *
+ * Idempotent, because the replay runs it on every write that touches the role.
+ */
+function completeDestructive(tokens: TokensDocument): void {
+  const destructive = tokens.color.roles.destructive
+  if (destructive === undefined) return
+  const color = readColor(destructive.value.hex)
+  if (color === undefined) return
+
+  if (tokens.color.roles.destructiveForeground === undefined) {
+    const pole = bestContrastPole(color)
+    const token: ColorToken = {
+      value: { oklch: '', hex: '', lightness: 0, chroma: 0, hue: 0 },
+      provenance: { captureIds: [], observed: [], decision: derive('', { method: pole.rule, from: [], detail: '' }) },
+    }
+    writeColorValue(token, pole.color)
+    token.provenance = {
+      captureIds: [],
+      observed: [],
+      decision: derive(token.value.hex, {
+        method: pole.rule,
+        from: ['color.roles.destructive'],
+        detail: `${pole.detail}, derived when a reviewer nominated the error colour this kit's captures never supplied`,
+      }),
+    }
+    tokens.color.roles.destructiveForeground = token
+  }
+
+  const addPair = (foreground: string, background: string): void => {
+    if (tokens.color.contrast.some((pair) => pair.foreground === foreground && pair.background === background)) {
+      return
+    }
+    tokens.color.contrast.push({ foreground, background, ratio: 0, floor: CONTRAST_FLOOR, passes: false })
+  }
+  addPair('color.roles.destructive', 'color.roles.background')
+  addPair('color.roles.destructive', 'color.roles.surface')
+  addPair('color.roles.destructiveForeground', 'color.roles.destructive')
+
+  const recipes = tokens.components.recipes
+  const primary = recipes.find((recipe) => recipe.name === 'button.primary')
+  if (primary !== undefined && !recipes.some((recipe) => recipe.name === 'button.destructive')) {
+    recipes.push(destructiveButtonFrom(primary))
+    recipes.sort((a, b) => byNumber(RECIPE_ORDER.indexOf(a.name), RECIPE_ORDER.indexOf(b.name)))
+  }
+}
+
+/**
+ * Restate what the kit says about its error signal, and warn while it is open.
+ *
+ * The mode is the engine's reading of the palette unless a person has written
+ * one, which is what makes the lifecycle work: a reviewer's `acknowledged`
+ * stands until they clear it, and if a later capture set supplies a red the
+ * engine's answer moves to `color` while the acknowledgment does not -- so the
+ * ordinary conflict machinery reports the disagreement instead of the kit
+ * quietly taking the new colour or quietly keeping the old decision.
+ */
+function restateErrorSignal(tokens: TokensDocument): void {
+  const error = tokens.components.states.error
+  const has = tokens.color.roles.destructive !== undefined
+  error.color = has ? 'color.roles.destructive' : null
+  error.foreground =
+    has && tokens.color.roles.destructiveForeground !== undefined ? 'color.roles.destructiveForeground' : null
+
+  if (error.mode.provenance.decision.strategy !== 'user-override') {
+    const engineMode: ErrorSignalMode = has ? 'color' : 'unresolved'
+    if (error.mode.value !== engineMode) {
+      error.mode.value = engineMode
+      error.mode.provenance = {
+        captureIds: [],
+        observed: [],
+        decision: derive(engineMode, {
+          method: has ? 'palette-has-destructive' : 'palette-has-no-destructive',
+          from: has ? ['color.roles.destructive'] : ['color.palette'],
+          detail: has
+            ? `this palette carries a destructive colour (${tokens.color.roles.destructive?.value.hex}), so an error state is drawn in it`
+            : 'no colour in this palette reads as a red, so how this kit signals an error is an open question a person has to answer',
+        }),
+      }
+    }
+  }
+
+  // The notice is about an absence, so it goes when the absence does -- even
+  // where an acknowledgment still stands, because that disagreement is reported
+  // as a conflict on this path and a kit must not call one thing both.
+  tokens.diagnostics = tokens.diagnostics.filter((diagnostic) => diagnostic.code !== 'color.no-destructive')
+  const notice = has ? undefined : errorSignalDiagnostic(error.mode.value)
+  if (notice !== undefined) tokens.diagnostics.push(notice)
 }
 
 /**

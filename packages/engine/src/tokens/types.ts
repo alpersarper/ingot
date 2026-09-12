@@ -264,6 +264,34 @@ export interface FocusRingTokens {
   offset: Token<number>
 }
 
+/**
+ * How a form signals an invalid field in this kit.
+ *
+ * - `color` -- the palette carries a `destructive` colour and error states are
+ *   drawn in it.
+ * - `unresolved` -- it does not, and nobody has decided what to do about that.
+ *   The engine will not invent a brand colour, so the kit says the absence out
+ *   loud and a form built from it cannot signal an error in colour at all.
+ * - `acknowledged` -- a reviewer read that consequence and chose to ship
+ *   without one. Only a person can put the kit in this state; the engine's own
+ *   answer is always `color` or `unresolved`, which is exactly what makes a
+ *   later captured red a *conflict* with a standing acknowledgment rather than
+ *   something that quietly overrides it.
+ *
+ * The mode is a token rather than a fact derived at each surface because it is
+ * overridable, and an override is provenance: who decided, against what the
+ * engine said at the time, with their reason attached.
+ */
+export type ErrorSignalMode = 'color' | 'unresolved' | 'acknowledged'
+
+export interface ErrorStateTokens {
+  mode: Token<ErrorSignalMode>
+  /** Token path of the error colour, or `null` when the kit has none. */
+  color: string | null
+  /** Token path of the label drawn on that colour, or `null`. */
+  foreground: string | null
+}
+
 /** The interaction states a control can be in, beyond hover and pressed. */
 export interface StateTokens {
   /**
@@ -288,6 +316,8 @@ export interface StateTokens {
     /** Token path of the label colour drawn on it. */
     foreground: string
   }
+  /** How a form signals an invalid field. See {@link ErrorStateTokens}. */
+  error: ErrorStateTokens
   focusRing: FocusRingTokens
 }
 

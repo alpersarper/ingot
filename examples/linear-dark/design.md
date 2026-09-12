@@ -94,7 +94,7 @@ Every colour in the UI must come from this table. There are no other colours in 
 - A selected row, tab or nav item is filled with `selectedSurface` (#14182b) and keeps `text` on top. Selection reads by hue, hover reads by lightness; do not swap them.
 - A disabled control is filled with `disabledSurface` (#222324) and labelled `disabledForeground` (#696e76). Never build a disabled state out of `opacity`.
 - Borders are 1px `border`. Do not use shadows in place of borders for separation, and do not use `text` at reduced opacity as a border.
-- This system has no destructive colour. If you need one, add it explicitly rather than reaching for an arbitrary red.
+- This system has no destructive colour, and **how it signals an error is undecided**. The consequence is concrete: a form built from this kit cannot signal an error in colour. Do not reach for an arbitrary red — add one to the system explicitly, or decide deliberately to ship without one.
 
 ### Contrast
 
@@ -232,13 +232,14 @@ Colours for the same controls:
 
 ### States
 
-| State    | How to draw it                                                                                                                        |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| hover    | The recipe's hover fill above. On a primary fill that is `primaryHover` (#5d66ec).                                                    |
-| pressed  | `primaryActive` (#5a5eff) on a primary fill; otherwise keep the hover fill.                                                           |
-| focus    | `2px solid var(--ring)` at `outline-offset: 2px`, on every focusable control. Never remove it.                                        |
-| selected | Fill `selectedSurface` (#14182b), text `text`.                                                                                        |
-| disabled | Fill `disabledSurface` (#222324), text `disabledForeground` (#696e76), measured at 3.07:1. Keep the border. Do **not** use `opacity`. |
+| State    | How to draw it                                                                                                                                      |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| hover    | The recipe's hover fill above. On a primary fill that is `primaryHover` (#5d66ec).                                                                  |
+| pressed  | `primaryActive` (#5a5eff) on a primary fill; otherwise keep the hover fill.                                                                         |
+| focus    | `2px solid var(--ring)` at `outline-offset: 2px`, on every focusable control. Never remove it.                                                      |
+| selected | Fill `selectedSurface` (#14182b), text `text`.                                                                                                      |
+| disabled | Fill `disabledSurface` (#222324), text `disabledForeground` (#696e76), measured at 3.07:1. Keep the border. Do **not** use `opacity`.               |
+| error    | **Undecided.** This kit has no error colour and no decision to ship without one, so it cannot tell you how to draw this state. Do not invent a red. |
 
 `opacity` is not a disabled state: on a light kit a 50% label over a 50% fill measures 1:1 and disappears. The two colours above are real, and they are checked (§2).
 
@@ -260,5 +261,9 @@ Colours for the same controls:
 | https://linear.app | 10       |
 
 Component types captured: button (3), typography (3), card (2), input (2).
+
+Warnings raised during distillation:
+
+- **color.no-destructive**: No captured colour in this set reads as a red, so this kit has no destructive colour -- and a brand decision is the one thing the engine will not default. The consequence is concrete: a form built against this kit cannot signal errors in colour. Either set an error colour on `color.roles.destructive`, or acknowledge that the kit ships without one so `design.md` can prescribe the non-colour error language instead of only stating the prohibition.
 
 Full provenance for every token — contributing capture ids, raw observed values, and the machine-readable dominant-choice record behind each decision — is in `tokens.json` next to this file.

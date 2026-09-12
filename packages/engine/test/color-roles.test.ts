@@ -7,6 +7,15 @@
 import { describe, expect, it } from 'vitest'
 import { assignRoles, clusterColors, detectMode, readColors } from '../src/index'
 import type { CaptureRecord, ColorRoleName, ComponentType } from '../src/index'
+import {
+  AMBIENT_SEPARATION_MIN,
+  CONTROL_STATE_SEPARATION_MIN,
+  SELECTED_SURFACE_SEPARATION,
+  collapsedShades,
+  deriveInteractionShades,
+} from '../src/color/roles'
+import { parseColor, renderedDistance } from '../src/color/space'
+import type { Oklch } from '../src/color/space'
 
 let counter = 0
 function capture(styles: Record<string, string>, componentType: ComponentType = 'button'): CaptureRecord {
@@ -156,5 +165,106 @@ describe('assignRoles', () => {
     const assigned = new Set(assignRoles(clusters, detectMode(clusters)).map((a) => a.role))
     const required: ColorRoleName[] = ['background', 'surface', 'border', 'text', 'textMuted', 'primary', 'primaryForeground']
     for (const role of required) expect(assigned).toContain(role)
+  })
+})
+
+/**
+ * State perceptibility.
+ *
+ * A hover the reviewer cannot see is a defect whether or not the two hexes are
+ * equal, and quality run #2 shipped `linear-dark` with three identical-looking
+ * primary buttons because the old test asked the wrong question. The numbers
+ * below are that run's own measurements, so a threshold that stopped separating
+ * the kits it was calibrated on fails here rather than on a screenshot.
+ */
+describe('collapsed states', () => {
+  const oklch = (hex: string): Oklch => parseColor(hex)?.oklch as Oklch
+  const collapsedFor = (pairs: Partial<Record<ColorRoleName, string>>): string[] =>
+    collapsedShades((role) => {
+      const hex = pairs[role]
+      return hex === undefined ? undefined : oklch(hex)
+    }).map((entry) => `${entry.shade}/${entry.base}`)
+
+  it('reads the three kits a reviewer could see as separated', () => {
+    // primaryHover vs primary, measured: 0.040 / 0.042 / 0.043.
+    for (const [primary, hover] of [
+      ['#635bff', '#594df1'],
+      ['#0f7a5a', '#006d50'],
+      ['#0373ec', '#0067d7'],
+    ] as const) {
+      expect(collapsedFor({ primary, primaryHover: hover })).toEqual([])
+    }
+  })
+
+  it('reads the kit a reviewer could not see as collapsed, equal hexes or not', () => {
+    // The pair that shipped: 1.04:1, one hex digit apart, and invisible.
+    expect(collapsedFor({ primary: '#5e6ad2', primaryHover: '#616dd5' })).toEqual(['primaryHover/primary'])
+    expect(collapsedFor({ primaryHover: '#616dd5', primaryActive: '#616dd5' })).toEqual([
+      'primaryActive/primaryHover',
+    ])
+  })
+
+  it('holds the ambient tints to a lower bar than a control fill', () => {
+    // A hovered row is 0.030 from its resting fill in every kit and is meant to
+    // be quiet. Judging it by the control floor would flood every kit with a
+    // diagnostic about a state that works.
+    expect(collapsedFor({ surface: '#f6f9fc', surfaceHover: '#eceff2' })).toEqual([])
+    // ...but a tint that does not move at all is still a collapse.
+    expect(collapsedFor({ surface: '#f6f9fc', surfaceHover: '#f6f9fc' })).toEqual(['surfaceHover/surface'])
+  })
+
+  it('says how far apart a collapsed pair actually renders', () => {
+    const [entry] = collapsedShades((role) =>
+      role === 'primary' ? oklch('#5e6ad2') : role === 'primaryHover' ? oklch('#616dd5') : undefined,
+    )
+    expect(entry?.distance).toBeCloseTo(0.0098, 4)
+    expect(entry?.floor).toBe(CONTROL_STATE_SEPARATION_MIN)
+  })
+
+  it('keeps a pairing with a missing side out of it', () => {
+    expect(collapsedFor({ primary: '#5e6ad2' })).toEqual([])
+  })
+})
+
+/**
+ * The selected-row tint.
+ *
+ * The rule this replaced asked for a chroma and let the sRGB gamut decide what
+ * landed, which is why one reviewer called the same code path a highlighter
+ * mark on one kit and a whisper on another.
+ */
+describe('the selected-row tint', () => {
+  const tintFor = (surface: string, primary: string, mode: 'light' | 'dark'): number => {
+    const base = [
+      { role: 'surface' as ColorRoleName, color: parseColor(surface)?.oklch as Oklch, rule: '', detail: '', derivedFrom: [] },
+      { role: 'primary' as ColorRoleName, color: parseColor(primary)?.oklch as Oklch, rule: '', detail: '', derivedFrom: [] },
+    ]
+    const shade = deriveInteractionShades(base, mode).find((entry) => entry.role === 'selectedSurface')
+    return renderedDistance(shade?.color as Oklch, parseColor(surface)?.oklch as Oklch)
+  }
+
+  it('lands on one perceptual distance whatever headroom the brand hue has', () => {
+    // A light blue has almost no chroma left at surface lightness; a green has
+    // plenty. Before this they landed at 0.025 and 0.054.
+    expect(tintFor('#f6f9fc', '#635bff', 'light')).toBeCloseTo(SELECTED_SURFACE_SEPARATION, 2)
+    expect(tintFor('#f5f2ec', '#0f7a5a', 'light')).toBeCloseTo(SELECTED_SURFACE_SEPARATION, 2)
+    expect(tintFor('#141516', '#5e6ad2', 'dark')).toBeCloseTo(SELECTED_SURFACE_SEPARATION, 2)
+  })
+
+  it('stays distinguishable from the hover fill it sits beside', () => {
+    for (const [surface, hover, primary, mode] of [
+      ['#f6f9fc', '#eceff2', '#635bff', 'light'],
+      ['#f5f2ec', '#ebe8e2', '#0f7a5a', 'light'],
+      ['#141516', '#1b1c1d', '#5e6ad2', 'dark'],
+    ] as const) {
+      const base = [
+        { role: 'surface' as ColorRoleName, color: parseColor(surface)?.oklch as Oklch, rule: '', detail: '', derivedFrom: [] },
+        { role: 'primary' as ColorRoleName, color: parseColor(primary)?.oklch as Oklch, rule: '', detail: '', derivedFrom: [] },
+      ]
+      const shade = deriveInteractionShades(base, mode).find((entry) => entry.role === 'selectedSurface')
+      expect(renderedDistance(shade?.color as Oklch, parseColor(hover)?.oklch as Oklch)).toBeGreaterThanOrEqual(
+        AMBIENT_SEPARATION_MIN,
+      )
+    }
   })
 })

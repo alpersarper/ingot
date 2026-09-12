@@ -261,6 +261,7 @@ exports[`linear-dark > distils to the expected decisions 1`] = `
     "disabledForeground on disabledSurface = 3.07:1 (floor 3) pass",
   ],
   "diagnostics": [
+    "warning color.no-destructive",
     "info color.contrast-adjusted",
     "info color.contrast-adjusted",
     "info color.contrast-adjusted",

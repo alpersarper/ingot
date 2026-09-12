@@ -295,7 +295,7 @@
         "states": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["disabled", "selected", "focusRing"],
+          "required": ["disabled", "selected", "error", "focusRing"],
           "description": "Interaction states beyond hover and pressed. Colours are referenced by token path into color.roles rather than duplicated.",
           "properties": {
             "disabled": {
@@ -317,6 +317,25 @@
               "properties": {
                 "surface": { "type": "string", "description": "Token path of the fill." },
                 "foreground": { "type": "string", "description": "Token path of the label colour drawn on it." }
+              }
+            },
+            "error": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["mode", "color", "foreground"],
+              "description": "How a form signals an invalid field. `unresolved` means the palette carries no destructive colour and nobody has decided what to do about it; `acknowledged` means a reviewer chose to ship without one. The engine only ever writes `color` or `unresolved`.",
+              "properties": {
+                "mode": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["value", "provenance"],
+                  "properties": {
+                    "value": { "enum": ["color", "unresolved", "acknowledged"] },
+                    "provenance": { "$ref": "#/definitions/provenance" }
+                  }
+                },
+                "color": { "type": ["string", "null"], "description": "Token path of the error colour, or null when the kit has none." },
+                "foreground": { "type": ["string", "null"], "description": "Token path of the label drawn on that colour, or null." }
               }
             },
             "focusRing": {

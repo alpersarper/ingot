@@ -14,6 +14,7 @@
  * provenance the panel does.
  */
 import { byString } from '../util/sort'
+import { errorSignalGuidance } from './error-signal'
 import { originOf, tokenSlots } from '../tokens/overrides'
 import type { TokenOrigin } from '../tokens/overrides'
 import type { Provenance } from '../provenance'
@@ -370,6 +371,7 @@ function buttonDoc(ctx: Context): ComponentDoc {
 
 function fieldDoc(ctx: Context, id: 'input' | 'select', title: string, recipe: ComponentRecipeName): ComponentDoc {
   const { tokens } = ctx
+  const errorSignal = errorSignalGuidance(tokens)
   return {
     id,
     title,
@@ -393,15 +395,22 @@ function fieldDoc(ctx: Context, id: 'input' | 'select', title: string, recipe: C
     usage: [
       'The label sits above the control and is `text`, not `textMuted` — a label is not a hint.',
       `Help text is \`textMuted\` (${ctx.hex('textMuted') ?? 'n/a'}) at the smallest type step this kit has.`,
-      tokens.color.roles.destructive === undefined
-        ? 'This kit has no destructive colour, so an error message is set in `text` and carried by the message itself. Do not introduce a red for it.'
-        : `An error message is set in \`destructive\` (${ctx.hex('destructive')}), which is contrast-checked as a text colour against both \`background\` and \`surface\`.`,
+      ...(tokens.color.roles.destructive === undefined
+        ? // The field is where a form's error state is actually drawn, so this
+          // page carries the same language `design.md` prescribes rather than a
+          // shorter paraphrase of it -- per-component markdown is self-sufficient.
+          [errorSignal.stateCell, ...errorSignal.language]
+        : [
+            `An error message is set in \`destructive\` (${ctx.hex('destructive')}), which is contrast-checked as a text colour against both \`background\` and \`surface\`.`,
+          ]),
       'On focus the border goes to `primary` and the ring is drawn outside it. Both, not one.',
     ],
     doNot: [
       'Do not put the label inside the control as a placeholder. A placeholder disappears the moment someone types.',
       'Do not change the control height between a field with an error and one without. The message goes below; the box does not move.',
-      'Do not use a border colour other than `border`, `primary` on focus, or the error colour above.',
+      tokens.color.roles.destructive === undefined
+        ? 'Do not use a border colour other than `border` and `primary` on focus. This kit names no error border colour, and bringing one in is the one thing it forbids outright.'
+        : 'Do not use a border colour other than `border`, `primary` on focus, or the error colour above.',
     ],
   }
 }

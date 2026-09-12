@@ -437,20 +437,30 @@ export function assignRoles(clusters: readonly ColorCluster[], mode: Mode): Role
       detail: `saturated red-hued colour (hue ${destructive.oklch.h}, chroma ${destructive.oklch.c}) observed ${destructive.count} time(s)`,
       derivedFrom: [],
     })
-    const white: Oklch = { l: 1, c: 0, h: undefined }
-    const black: Oklch = { l: 0, c: 0, h: undefined }
-    const color =
-      contrastRatio(white, destructive.oklch) >= contrastRatio(black, destructive.oklch) ? white : black
-    push({
-      role: 'destructiveForeground',
-      color,
-      rule: 'best-contrast-pole',
-      detail: `chose ${color.l === 1 ? 'white' : 'black'} for higher contrast on the destructive colour`,
-      derivedFrom: ['destructive'],
-    })
+    push({ ...bestContrastPole(destructive.oklch), role: 'destructiveForeground', derivedFrom: ['destructive'] })
   }
 
   return assignments
+}
+
+/**
+ * The label colour for a fill: whichever gamut pole reads better on it.
+ *
+ * Exported because the distiller is no longer the only caller. A reviewer may
+ * nominate the error colour the engine refused to invent, and the foreground
+ * that goes with it has to be decided the same way in both places -- one rule,
+ * two callers, rather than the override replay growing a second opinion about
+ * what "legible on red" means.
+ */
+export function bestContrastPole(on: Oklch): { color: Oklch; rule: string; detail: string } {
+  const white: Oklch = { l: 1, c: 0, h: undefined }
+  const black: Oklch = { l: 0, c: 0, h: undefined }
+  const color = contrastRatio(white, on) >= contrastRatio(black, on) ? white : black
+  return {
+    color,
+    rule: 'best-contrast-pole',
+    detail: `chose ${color.l === 1 ? 'white' : 'black'} for higher contrast on the destructive colour`,
+  }
 }
 
 /**

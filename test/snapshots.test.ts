@@ -123,7 +123,19 @@ describe('cross-set expectations', () => {
 
     // The ship bar applies to the coherent sets; messy-mixed is the smoke test
     // and is expected to warn. See README, "The fixture sets".
-    for (const setId of COHERENT_SETS) expect(await warnings(setId), setId).toEqual([])
+    //
+    // One warning is allowed through, and only where it is true: a coherent set
+    // whose captures carry no red has no error colour, and that is a product
+    // question the engine is *right* to refuse and *required* to say out loud.
+    // Silencing it to keep this list empty would be the quiet the whole
+    // informed-consent ruling exists to stop. Every other warning is still a
+    // regression, and a set that carries this code while its palette does have
+    // a destructive colour is a bug in the restatement rather than an exception.
+    for (const setId of COHERENT_SETS) {
+      const tokens = await tokensFor(setId)
+      const allowed = tokens.color.roles.destructive === undefined ? ['color.no-destructive'] : []
+      expect(await warnings(setId), setId).toEqual(allowed)
+    }
     expect((await warnings('messy-mixed')).length).toBeGreaterThan(0)
   })
 

@@ -1198,3 +1198,142 @@ describe('where an accepted value came from', () => {
     expect(byHand).not.toContain('assistant')
   })
 })
+
+/**
+ * The error colour a kit does not have.
+ *
+ * The law stands: no captured red means no `destructive`, because a brand
+ * decision is the one thing the engine will not default. What the reviewer gets
+ * is the informed choice -- nominate a colour, or acknowledge that the kit ships
+ * without one -- and the whole lifecycle of that acknowledgment is an ordinary
+ * override, so the properties tested here are the ones the override machinery
+ * already promises, asked of the decision that stops a form going quiet.
+ */
+describe('shipping without an error colour', () => {
+  const MODE = 'components.states.error.mode'
+  const ROLE = 'color.roles.destructive'
+  const acknowledge = (tokens: PristineTokens, standing: TokenOverride[] = []): TokenOverride => {
+    const plan = planOverrideWrite(tokens, standing, { path: MODE, value: 'acknowledged', note: 'no red in these captures' })
+    if (plan.outcome !== 'stored') throw new Error(plan.reason)
+    const { record } = plan
+    return { path: record.path, value: record.value, baseValue: record.baseValue, note: record.note }
+  }
+
+  it('states the consequence rather than going quiet about it', () => {
+    const tokens = kit('linear-dark')
+    const notice = tokens.diagnostics.find((entry) => entry.code === 'color.no-destructive')
+    expect(notice?.level).toBe('warning')
+    expect(notice?.message).toContain('cannot signal errors in colour')
+    expect(notice?.path).toBe(MODE)
+    expect(tokens.components.states.error.mode.value).toBe('unresolved')
+  })
+
+  it('offers both exits as real slots, so neither is an edit that does nothing', () => {
+    const paths = new Set(tokenSlots(kit('linear-dark')).map((slot) => slot.path))
+    expect(paths.has(MODE)).toBe(true)
+    // The one role a reviewer may bring into existence.
+    expect(paths.has(ROLE)).toBe(true)
+  })
+
+  it('refuses to let a person restate the engine reading instead of deciding', () => {
+    const tokens = kit('linear-dark')
+    const baseline = baselineFor(tokens, [], MODE)
+    expect(overrideRejection(baseline, { path: MODE, value: 'unresolved' })).toContain('acknowledged')
+    expect(overrideRejection(baseline, { path: MODE, value: 'acknowledged' })).toBeUndefined()
+  })
+
+  it('records who decided what, and keeps the reason', () => {
+    const tokens = kit('linear-dark')
+    const { tokens: next } = applyOverrides(tokens, [acknowledge(tokens)])
+    const mode = next.components.states.error.mode
+    expect(mode.value).toBe('acknowledged')
+    expect(mode.provenance.decision.strategy).toBe('user-override')
+    expect(mode.provenance.decision.note).toBe('no red in these captures')
+    // The engine's own answer at the time is on the row, which is what makes the
+    // later disagreement measurable rather than a matter of opinion.
+    expect(acknowledge(tokens).baseValue).toBe('unresolved')
+  })
+
+  it('prescribes the non-colour error language once, and only once it is decided', () => {
+    const tokens = kit('linear-dark')
+    const open = renderDesignMarkdown(applyOverrides(tokens, []))
+    expect(open).toContain('how it signals an error is undecided')
+    expect(open).not.toContain('`Error: `')
+
+    const settled = renderDesignMarkdown(applyOverrides(tokens, [acknowledge(tokens)]))
+    expect(settled).toContain('deliberately ships **without** an error colour')
+    expect(settled).toContain('`Error: `')
+    // Icon, weight and prefix -- the three signals, all of them.
+    expect(settled).toContain('Put an icon immediately before the message')
+    expect(settled).toContain('Set the message at weight')
+    // The field's own page carries the same language; it is where a form
+    // actually draws the state.
+    expect(renderComponentMarkdown(applyOverrides(tokens, [acknowledge(tokens)]).tokens, 'input')).toContain(
+      '`Error: `',
+    )
+  })
+
+  it('survives a regeneration the way every other decision does', () => {
+    // A later distillation of the same captures is a new document; the row is
+    // replayed onto it and the decision is still the reviewer's.
+    const standing = acknowledge(kit('linear-dark'))
+    const { tokens: next, report } = applyOverrides(kit('linear-dark'), [standing])
+    expect(next.components.states.error.mode.value).toBe('acknowledged')
+    expect(report.rejected).toEqual([])
+    expect(report.conflicts).toEqual([])
+  })
+
+  it('reports the disagreement when a later capture set does supply a red', () => {
+    // The acknowledgment answered an absence. The absence is gone, so the two
+    // are in conflict -- and the reviewer's value stays in force until they say
+    // otherwise, which is the whole point of an override.
+    const withRed = kit('messy-mixed')
+    expect(withRed.components.states.error.mode.value).toBe('color')
+
+    const { tokens: next, report } = applyOverrides(withRed, [
+      { path: MODE, value: 'acknowledged', baseValue: 'unresolved' },
+    ])
+    expect(report.conflicts.map((conflict) => conflict.path)).toEqual([MODE])
+    expect(report.conflicts[0]?.engineValue).toBe('color')
+    expect(next.components.states.error.mode.value).toBe('acknowledged')
+    // ...and the kit does not call the same thing both answered and absent.
+    expect(next.diagnostics.some((entry) => entry.code === 'color.no-destructive')).toBe(false)
+  })
+
+  it('finishes the job when a reviewer nominates the colour instead', () => {
+    const tokens = kit('linear-dark')
+    const plan = planOverrideWrite(tokens, [], { path: ROLE, value: '#e5484d' })
+    expect(plan.outcome).toBe('stored')
+    if (plan.outcome !== 'stored') return
+    expect(plan.record.baseValue).toBe('none')
+
+    const { tokens: next, report } = applyOverrides(tokens, [
+      { path: ROLE, value: '#e5484d', baseValue: plan.record.baseValue },
+    ])
+    expect(report.rejected).toEqual([])
+    expect(next.color.roles.destructive?.value.hex).toBe('#e5484d')
+    // Everything the nomination implies is the engine's own work.
+    expect(next.color.roles.destructiveForeground).toBeDefined()
+    expect(next.components.recipes.map((recipe) => recipe.name)).toContain('button.destructive')
+    expect(next.components.states.error.mode.value).toBe('color')
+    expect(next.diagnostics.some((entry) => entry.code === 'color.no-destructive')).toBe(false)
+    const pairs = next.color.contrast.filter((pair) => pair.background === ROLE || pair.foreground === ROLE)
+    expect(pairs.length).toBeGreaterThanOrEqual(3)
+    for (const pair of pairs) expect(pair.ratio).toBeGreaterThan(1)
+    expect(renderDesignMarkdown({ tokens: next, report })).toContain('`button.destructive`')
+  })
+
+  it('refuses `none` where the kit has a colour, rather than doing nothing', () => {
+    const baseline = baselineFor(kit('messy-mixed'), [], ROLE)
+    expect(overrideRejection(baseline, { path: ROLE, value: 'none' })).toContain('clear the override')
+  })
+
+  it('stays deterministic: the same review state replays to the same bytes', () => {
+    const standing = [acknowledge(kit('linear-dark'))]
+    const first = serializeTokens(applyOverrides(kit('linear-dark'), standing).tokens)
+    const second = serializeTokens(applyOverrides(kit('linear-dark'), standing).tokens)
+    expect(first).toBe(second)
+    // ...and a kit nobody reviewed is byte-identical with the feature present.
+    expect(serializeTokens(applyOverrides(kit('linear-dark'), []).tokens)).not.toBe(first)
+  })
+})

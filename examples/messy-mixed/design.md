@@ -254,6 +254,7 @@ Colours for the same controls:
 | focus    | `2px solid var(--ring)` at `outline-offset: 2px`, on every focusable control. Never remove it.                                     |
 | selected | Fill `selectedSurface` (#e2edfb), text `text`.                                                                                     |
 | disabled | Fill `disabledSurface` (#e3e3e4), text `disabledForeground` (#828282), measured at 3:1. Keep the border. Do **not** use `opacity`. |
+| error    | Message and field border in `destructive` (#d72e23). Keep the message text at the base step; the colour carries the signal.        |
 
 `opacity` is not a disabled state: on a light kit a 50% label over a 50% fill measures 1:1 and disappears. The two colours above are real, and they are checked (§2).
 
