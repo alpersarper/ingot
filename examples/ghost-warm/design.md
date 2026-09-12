@@ -1,6 +1,6 @@
 # Ghost-like warm editorial UI — design system
 
-Distilled by ingot-engine 0.3.0 from 10 captured components across 2 origins.
+Distilled by ingot-engine 0.4.0 from 10 captured components across 2 origins.
 
 A warm editorial publishing surface captured across a marketing page and the writer-facing admin of one product: near-black warm ink on an off-white paper background, sand-tinted panels, an evergreen brand fill, a reading type scale that is deliberately larger than the control type scale, and one red reserved for validation errors.
 

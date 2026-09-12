@@ -20,6 +20,11 @@ async function ghostWarmSet(): Promise<unknown> {
   return JSON.parse(await readFile(`${ROOT}fixtures/ghost-warm/set.json`, 'utf8'))
 }
 
+/** The coherent set whose captures carry no red, which is the point of it here. */
+async function linearDarkSet(): Promise<unknown> {
+  return JSON.parse(await readFile(`${ROOT}fixtures/linear-dark/set.json`, 'utf8'))
+}
+
 let harness: Harness
 
 beforeEach(async () => {
@@ -509,6 +514,90 @@ describe('review: overrides and decisions', () => {
     )
     // ...and the engine is not credited with independently choosing it.
     expect(after.tokens.diagnostics.some((entry) => entry.code === 'override.now-agrees')).toBe(false)
+  })
+
+  /**
+   * The kit with no error colour.
+   *
+   * `ghost-warm` captures no red, so the engine emits no `destructive` -- the
+   * law -- and the reviewer is asked to decide rather than left with a form
+   * that cannot signal an invalid field. Both exits go through the ordinary
+   * override endpoint, which is the whole point: there is no second write path
+   * into a kit and no separate consent store.
+   */
+  async function seedWithoutRed(): Promise<KitResponse> {
+    await harness.call('/api/captures/import', body(await linearDarkSet()))
+    return (await (await harness.call('/api/kits', body({}))).json()) as KitResponse
+  }
+
+  it('warns that the kit cannot signal an error, and takes the acknowledgment', async () => {
+    const generated = await seedWithoutRed()
+    const warning = generated.tokens.diagnostics.find((entry) => entry.code === 'color.no-destructive')
+    expect(warning?.level).toBe('warning')
+    expect(warning?.message).toContain('cannot signal errors in colour')
+    expect(generated.designMd).toContain('how it signals an error is undecided')
+
+    const acknowledged = (await (
+      await harness.call(
+        '/api/reviews/overrides',
+        put({
+          path: 'components.states.error.mode',
+          value: 'acknowledged',
+          note: 'Ghost has no red anywhere; we ship without one.',
+        }),
+      )
+    ).json()) as KitResponse
+    expect(acknowledged.review.overrides).toEqual([
+      expect.objectContaining({ path: 'components.states.error.mode', value: 'acknowledged', baseValue: 'unresolved' }),
+    ])
+    // The consequence is answered, so the document prescribes what to do
+    // instead of only stating the prohibition.
+    expect(acknowledged.designMd).toContain('deliberately ships **without** an error colour')
+    expect(acknowledged.designMd).toContain('`Error: `')
+    expect(
+      acknowledged.tokens.diagnostics.find((entry) => entry.code === 'color.no-destructive')?.level,
+    ).toBe('info')
+
+    // ...and it survives a regeneration, like every other decision.
+    const regenerated = (await (await harness.call('/api/kits', body({}))).json()) as KitResponse
+    expect(regenerated.kit.version).toBe(generated.kit.version + 1)
+    expect(regenerated.review.overrides).toEqual([
+      expect.objectContaining({ path: 'components.states.error.mode', value: 'acknowledged' }),
+    ])
+    expect(regenerated.review.conflicts).toEqual([])
+    expect(regenerated.designMd).toContain('`Error: `')
+  })
+
+  it('refuses anything at that path but the decision itself', async () => {
+    await seedWithoutRed()
+    const refused = await harness.call(
+      '/api/reviews/overrides',
+      put({ path: 'components.states.error.mode', value: 'color' }),
+    )
+    expect(refused.status).toBe(422)
+    expect(await refused.text()).toContain('acknowledged')
+  })
+
+  it('lets a reviewer nominate the error colour the engine refused to invent', async () => {
+    const generated = await seedWithoutRed()
+    expect(generated.tokens.color.roles['destructive']).toBeUndefined()
+
+    const nominated = (await (
+      await harness.call(
+        '/api/reviews/overrides',
+        put({ path: 'color.roles.destructive', value: '#b42318', note: 'Ghost uses this red in its docs.' }),
+      )
+    ).json()) as KitResponse
+    expect(nominated.tokens.color.roles['destructive']?.value.hex).toBe('#b42318')
+    // Everything the nomination implies is the engine's own work, not a second
+    // set of writes the panel had to make.
+    expect(nominated.tokens.color.roles['destructiveForeground']).toBeDefined()
+    expect(nominated.tokens.components.recipes.map((recipe) => recipe.name)).toContain('button.destructive')
+    expect(nominated.tokens.diagnostics.some((entry) => entry.code === 'color.no-destructive')).toBe(false)
+    expect(nominated.designMd).toContain('`button.destructive`')
+    expect(nominated.review.overrides).toEqual([
+      expect.objectContaining({ path: 'color.roles.destructive', value: '#b42318', baseValue: 'none' }),
+    ])
   })
 
   it('lets a reviewer pin a colour shade back to its pre-override value', async () => {

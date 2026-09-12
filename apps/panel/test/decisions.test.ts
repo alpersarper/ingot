@@ -315,3 +315,44 @@ describe('assistant proposals in the queue', () => {
     expect(fresh?.reoffered).toBeUndefined()
   })
 })
+
+/**
+ * The kit with no error colour.
+ *
+ * The absence is a decision somebody has to make, so it reaches the reviewer as
+ * a card rather than as a line in `design.md` nobody opens -- and the card
+ * carries the exit the Tokens tab cannot offer in one click.
+ */
+describe('the missing error colour', () => {
+  const MODE = 'components.states.error.mode'
+  const card = (tokens: TokensDocument, overridden: string[] = []) =>
+    cardsFor(tokens, [], overridden).find((entry) => entry.title.startsWith('This kit cannot signal'))
+
+  it('reaches the review queue, named by its consequence', () => {
+    const found = card(kit('linear-dark'))
+    expect(found?.severity).toBe('warning')
+    expect(found?.state).toBe('open')
+    expect(found?.path).toBe(MODE)
+    expect(found?.detail).toContain('cannot signal errors in colour')
+    // Both exits are named; only the one that is a single value is a button.
+    expect(found?.evidence.join(' ')).toContain('color.roles.destructive')
+    expect(found?.options).toEqual([
+      { kind: 'override', value: 'acknowledged', label: 'Ship without an error colour' },
+    ])
+  })
+
+  it('settles once the reviewer has answered it, without disappearing', () => {
+    const acknowledged = applyOverrides(kit('linear-dark'), [
+      { path: MODE, value: 'acknowledged', baseValue: 'unresolved' },
+    ]).tokens
+    const found = card(acknowledged, [MODE])
+    // Still in the queue, so "I decided this" is a thing the reviewer can check.
+    expect(found?.state).toBe('overridden')
+    expect(found?.severity).toBe('info')
+  })
+
+  it('says nothing at all about a kit that has an error colour', () => {
+    expect(card(kit('ghost-warm'))).toBeUndefined()
+    expect(card(kit('stripe-light'))).toBeUndefined()
+  })
+})

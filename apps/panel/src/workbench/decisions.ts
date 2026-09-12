@@ -241,6 +241,19 @@ export function decisionCards({
     if (diagnostic.code === 'override.rejected' && diagnostic.path !== undefined) {
       card.options = [{ kind: 'clear', label: 'Clear this override' }]
     }
+    // The kit has no error colour. Two exits, and the card carries the one the
+    // Tokens tab cannot offer in a click -- acknowledging the consequence --
+    // while naming the other, because picking a colour is a value a person
+    // types (or accepts from the assistant) rather than a button.
+    if (diagnostic.code === 'color.no-destructive') {
+      card.title = 'This kit cannot signal an error in colour'
+      card.evidence = [
+        'no captured colour reads as a red, so there is no `destructive` role',
+        'set `color.roles.destructive` in the Tokens tab to give this kit an error colour',
+        'or acknowledge below, and `design.md` will prescribe the non-colour error language instead',
+      ]
+      card.options = [{ kind: 'override', value: 'acknowledged', label: 'Ship without an error colour' }]
+    }
     cards.push(card)
   }
 

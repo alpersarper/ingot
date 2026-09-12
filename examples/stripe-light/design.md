@@ -1,6 +1,6 @@
 # Stripe-like light product UI — design system
 
-Distilled by ingot-engine 0.3.0 from 10 captured components across 2 origins.
+Distilled by ingot-engine 0.4.0 from 10 captured components across 2 origins.
 
 A light commerce surface captured across a marketing page and a dashboard of one product: white page, a tinted panel colour, a saturated indigo brand, layered shadows for elevation, and a red used only for validation errors.
 

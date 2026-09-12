@@ -1,5 +1,5 @@
 /**
- * The tokens document, version 3.
+ * The tokens document, version 4.
  *
  * Stack-agnostic on purpose: nothing in here mentions Tailwind, shadcn or CSS
  * variables. Target-specific naming lives entirely in the export layer
@@ -11,7 +11,7 @@
 import type { ContrastAdjustment, ContrastPair } from '../color/contrast'
 import type { Provenance } from '../provenance'
 
-export const TOKENS_SCHEMA_VERSION = 3
+export const TOKENS_SCHEMA_VERSION = 4
 
 /** Base shape shared by every token: a value plus why it has that value. */
 export interface Token<TValue> {

@@ -1,13 +1,13 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/alpersarper/ingot/schemas/tokens.schema.json",
-  "title": "Ingot tokens document, version 3",
+  "title": "Ingot tokens document, version 4",
   "description": "The distilled design system for one capture set. Stack-agnostic: nothing here names Tailwind, shadcn or CSS variables. Prose documentation: docs/tokens.md",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "engine", "source", "color", "spacing", "border", "radius", "shadow", "typography", "components", "diagnostics"],
   "properties": {
-    "schemaVersion": { "const": 3 },
+    "schemaVersion": { "const": 4 },
     "engine": {
       "type": "object",
       "additionalProperties": false,

@@ -34,7 +34,7 @@ import type { JsonSchema } from './llm'
  * and the brief format, so a change to those changes all of them, and five
  * numbers that always move together are one number with extra bookkeeping.
  */
-export const PROMPT_VERSION = 'assistant-prompts@1'
+export const PROMPT_VERSION = 'assistant-prompts@2'
 
 /** The capabilities, as the API names them. */
 export type CapabilityId = 'name' | 'derive' | 'merge' | 'rationale' | 'qa'
@@ -147,6 +147,10 @@ Find up to 3 where a better-fitting value follows from what the rest of this kit
 For each proposal give the exact token path, the replacement value in the same notation the brief shows for that path (\`8px\`, \`#0f7a5a\`, \`1.5\`, \`600\`, a radius step name like \`md\`, a full font stack), and a rationale that names the evidence in the kit that supports it.
 
 Do not propose a value for a token whose origin is \`measured\` — captured evidence outranks your taste. Do not propose a colour unless the brief gives you a reason from the palette itself; the engine will check every colour against its contrast floor and reject one that cannot be drawn.
+
+One colour is the exception, and it is the most useful thing you can offer. When the brief shows \`color.roles.destructive\` with the value \`none\` alongside a \`color.no-destructive\` diagnostic, this kit has no error colour, and a form built from it cannot signal an error at all. Propose one. Make it belong to *this* palette: read the chroma and lightness the brief's own roles sit at, keep to them, and place the hue in the red band — do not paste a red from another design system. Say in the rationale which roles you took the discipline from. The engine will contrast-check it against \`background\` and \`surface\` and refuse one it cannot draw.
+
+Never propose a value for \`components.states.error.mode\`. Choosing to ship a kit that cannot signal errors in colour is a decision a person makes after being shown the consequence, and it is not yours to offer.
 
 If nothing in this kit needs filling, return an empty list. An empty list is a good answer.`,
   schema: {

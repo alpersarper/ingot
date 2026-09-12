@@ -1,6 +1,6 @@
 # Linear-like dark product UI — design system
 
-Distilled by ingot-engine 0.3.0 from 10 captured components across 1 origin.
+Distilled by ingot-engine 0.4.0 from 10 captured components across 1 origin.
 
 A single dark product surface captured across two pages of one app: near-black page background, one indigo brand colour, tight 13px body type, and 1px borders doing all the separation work.
 

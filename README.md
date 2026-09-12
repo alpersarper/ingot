@@ -235,7 +235,16 @@ provenance, no silent invention -- not to look good. Judging it on ship quality
 measures the fixture, not the engine.
 
 `test/snapshots.test.ts` encodes the split: the coherent sets must distil with
-zero warning diagnostics, `messy-mixed` must produce some.
+zero warning diagnostics, `messy-mixed` must produce some. One warning is
+allowed through on a coherent set, `color.no-destructive`, and only where it is
+true: a set whose captures carry no red has no error colour, the engine will not
+invent a brand colour, and saying so is the point rather than a defect.
+
+That is also where the bar has an explicit edge. A kit's error state clears it
+with **either** a destructive colour **or** a reviewer's recorded acknowledgment
+that the kit ships without one -- an acknowledgment the workbench asks for by
+name, having first stated the consequence. A kit with neither is measured as
+unresolved, not as passing. See [DECISIONS.md](DECISIONS.md#quality-bar).
 
 ## Design constraints
 
