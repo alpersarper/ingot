@@ -85,7 +85,22 @@ not the number of captures: one card contributes four corner radii.
 | `role-assignment` | A colour cluster was given a semantic role by the role heuristics. `summary` names the rule that fired. |
 | `derived` | Nothing suitable was observed; the value was computed from another token. Carries a `derivation`. |
 | `sanctioned-default` | Nothing was observed **and** nothing else in the document implied the value, so the engine supplied one of its own. Carries a `derivation` and never any `captureIds`. Kept separate from `derived` because the two carry different authority: a derived value is a consequence of this kit, a default is the engine's house choice and is the first thing a reviewer should feel free to override. |
-| `user-override` | A human replaced the engine's answer in the panel. Carries `supersedes` -- the whole decision it replaced -- and, when the reviewer gave one, a `note`. `observed` is left exactly as the engine wrote it: an override changes the answer, never the evidence. On a token holding several overridable fields it also carries `fields` and `supersededValue`: which field was set, and what stood in that field before. |
+| `user-override` | A human replaced the engine's answer in the panel. Carries `supersedes` -- the whole decision it replaced -- and, when the reviewer gave one, a `note`. `observed` is left exactly as the engine wrote it: an override changes the answer, never the evidence. On a token holding several overridable fields it also carries `fields` and `supersededValue`: which field was set, and what stood in that field before. When the value was one the assistant proposed and the reviewer accepted, it also carries `suggestedBy: "assistant"` -- see below. |
+
+There is deliberately **no strategy for a value the assistant chose**, because
+there is no such value. The assistant proposes; the engine checks the proposal
+against its own guardrails; a person accepts it. The decision is therefore the
+reviewer's, and the strategy is `user-override` like any other.
+
+Where the *candidate* came from is a different question, and it is answered
+separately by `suggestedBy` on the decision. Absent -- the ordinary case -- means
+the reviewer wrote the value themselves; `"assistant"` means they accepted one
+that was offered. It follows the value rather than the row: a note-only edit
+keeps it, because annotating a suggestion does not make you its author, and a
+later value change clears it, because the reviewer typed that one. `design.md`
+§10 names the tokens it applies to, since where a value came from is part of
+what makes it traceable. The full pipeline is in
+[docs/panel.md](panel.md#the-assistant).
 
 ### Overrides
 

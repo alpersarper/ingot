@@ -18,6 +18,14 @@
  * **Export** is the four artefacts. Three come from the server byte for byte;
  * the docs site is rendered here from the same components the preview draws,
  * which is why it needs no server to open.
+ *
+ * **Assistant** is the advisory layer, and it is the only tab that can be
+ * absent: with no API key it shows how to get one and nothing else in this
+ * column changes. Its *suggestions* do not live here -- they are cards in the
+ * Review queue alongside the engine's own findings, drawn with a distinct icon,
+ * tone and attribution line, because a reviewer works through one queue and
+ * must be able to tell at a glance which findings came from the evidence and
+ * which came from a language model reading it.
  */
 import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -33,15 +41,17 @@ import {
 } from 'lucide-react'
 import { COMPONENT_DOC_IDS, originOf, tokenSlots } from '@ingot/engine'
 import type { ComponentDocId, OverrideGroup, TokensDocument, TokenSlot } from '@ingot/engine'
+import type { CardSeverity } from './decisions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import type { KitSummary, ReviewState } from '@/lib/api'
+import type { AssistantAnswer, AssistantNaming, AssistantState, KitSummary, ReviewState } from '@/lib/api'
 import { decisionCards, openCount } from './decisions'
 import type { DecisionCard } from './decisions'
+import { AssistantTab } from './AssistantPanel'
 import { TokenRow } from './TokenRow'
 
-type Tab = 'review' | 'tokens' | 'export'
+type Tab = 'review' | 'tokens' | 'export' | 'assistant'
 
 /** Group headings, in the order the kit is built up. */
 const GROUP_ORDER: OverrideGroup[] = [
@@ -82,10 +92,32 @@ export interface SystemPanelProps {
   onOverride: (path: string, value: string, note?: string) => void
   onClearOverride: (path: string) => void
   onDecide: (cardId: string, state: 'accepted' | 'open') => void
+  /**
+   * The assistant's own state and this scope's proposals, or `null` when the
+   * panel has not been able to ask. Null renders the tab in its setup state
+   * rather than hiding it: an assistant nobody can find is an assistant nobody
+   * sets up.
+   */
+  assistant: AssistantState | null
+  onAcceptProposal: (id: string) => void
+  onDismissProposal: (id: string) => void
+  onSuggest: (capability: 'derive' | 'merge') => Promise<void>
+  onAsk: (question: string) => Promise<AssistantAnswer>
+  onName: () => Promise<AssistantNaming>
+  onSaveLlmKey: (key: string) => Promise<void>
+  onSaveLlmModel: (model: string) => Promise<void>
+  /**
+   * Draft a reason for one override.
+   *
+   * A draft, not a write: it fills the reason box and the reviewer still has to
+   * press Override. That is the same rule the proposal cards follow -- the
+   * assistant produces candidates, a person produces decisions.
+   */
+  onDraftReason: (path: string) => Promise<string>
 }
 
 export function SystemPanel(props: SystemPanelProps): ReactNode {
-  const { kit, tokens, review, scopeLabel, captureCount, generating, error, onGenerate } = props
+  const { kit, tokens, review, assistant, scopeLabel, captureCount, generating, error, onGenerate } = props
   const [tab, setTab] = useState<Tab>('review')
 
   const cards = useMemo(() => {
@@ -96,8 +128,9 @@ export function SystemPanel(props: SystemPanelProps): ReactNode {
       overriddenPaths: new Set((review?.overrides ?? []).map((entry) => entry.path)),
       rejectedPaths: new Set((review?.rejected ?? []).map((entry) => entry.path)),
       accepted: new Set(review?.accepted ?? []),
+      proposals: assistant?.proposals ?? [],
     })
-  }, [tokens, review])
+  }, [tokens, review, assistant])
 
   const open = openCount(cards)
 
@@ -136,12 +169,16 @@ export function SystemPanel(props: SystemPanelProps): ReactNode {
             <TabButton current={tab} value="export" onSelect={setTab}>
               Export
             </TabButton>
+            <TabButton current={tab} value="assistant" onSelect={setTab}>
+              Assistant
+            </TabButton>
           </nav>
 
           <div className="min-h-0 flex-1 overflow-y-auto">
             {tab === 'review' ? <ReviewTab {...props} cards={cards} /> : null}
             {tab === 'tokens' ? <TokensTab {...props} tokens={tokens} /> : null}
             {tab === 'export' ? <ExportTab {...props} kit={kit} /> : null}
+            {tab === 'assistant' ? <AssistantTab {...props} /> : null}
           </div>
         </>
       )}
@@ -192,6 +229,8 @@ function ReviewTab({
   onDecide,
   onOverride,
   onClearOverride,
+  onAcceptProposal,
+  onDismissProposal,
 }: SystemPanelProps & { cards: DecisionCard[] }): ReactNode {
   if (cards.length === 0) {
     return (
@@ -220,23 +259,30 @@ function ReviewTab({
           onDecide={onDecide}
           onOverride={onOverride}
           onClearOverride={onClearOverride}
+          onAcceptProposal={onAcceptProposal}
+          onDismissProposal={onDismissProposal}
         />
       ))}
     </ul>
   )
 }
 
-const SEVERITY_ICON = {
+const SEVERITY_ICON: Record<CardSeverity, typeof Info> = {
   conflict: TriangleAlert,
   warning: AlertTriangle,
   info: Info,
-} as const
+  // A different icon, not a different colour of the same one: the distinction
+  // between "the engine found this" and "the assistant suggests this" has to
+  // survive being glanced at, and it has to survive being colour-blind.
+  suggestion: Sparkles,
+}
 
-const SEVERITY_TONE = {
+const SEVERITY_TONE: Record<CardSeverity, string> = {
   conflict: 'text-destructive',
   warning: 'text-amber-600 dark:text-amber-500',
   info: 'text-muted-foreground',
-} as const
+  suggestion: 'text-violet-600 dark:text-violet-400',
+}
 
 function ReviewCard({
   card,
@@ -245,6 +291,8 @@ function ReviewCard({
   onDecide,
   onOverride,
   onClearOverride,
+  onAcceptProposal,
+  onDismissProposal,
 }: {
   card: DecisionCard
   /** Whether this card's path already carries a reason the reviewer wrote. */
@@ -253,19 +301,30 @@ function ReviewCard({
   onDecide: (cardId: string, state: 'accepted' | 'open') => void
   onOverride: (path: string, value: string, note?: string) => void
   onClearOverride: (path: string) => void
+  onAcceptProposal: (id: string) => void
+  onDismissProposal: (id: string) => void
 }): ReactNode {
   // Conflicts open by default: they are the one card whose whole purpose is to
-  // be read, and a collapsed conflict is a conflict nobody sees.
-  const [open, setOpen] = useState(card.severity === 'conflict')
+  // be read, and a collapsed conflict is a conflict nobody sees. A proposal
+  // opens too, because its value and its reasoning are the entire card and a
+  // collapsed suggestion is one the reviewer will accept without reading.
+  const [open, setOpen] = useState(card.severity === 'conflict' || card.kind === 'proposal')
   const [custom, setCustom] = useState('')
   const Icon = SEVERITY_ICON[card.severity]
 
   const settled = card.state !== 'open'
+  const proposal = card.kind === 'proposal'
 
   return (
     <li
-      className={`border-b border-border px-4 py-3 last:border-b-0 ${settled ? 'opacity-60' : ''}`}
+      // The left rule and the tint are the second half of the visual
+      // distinction the icon starts: a proposal reads as a different kind of
+      // thing before a word of it is read, which is the point.
+      className={`border-b border-border px-4 py-3 last:border-b-0 ${settled ? 'opacity-60' : ''} ${
+        proposal ? 'border-l-2 border-l-violet-500/70 bg-violet-500/5 dark:bg-violet-400/5' : ''
+      }`}
       data-card-state={card.state}
+      data-card-kind={card.kind}
     >
       <div className="flex items-start gap-2">
         <Icon className={`mt-0.5 size-3.5 shrink-0 ${SEVERITY_TONE[card.severity]}`} aria-hidden />
@@ -276,6 +335,16 @@ function ReviewCard({
             aria-expanded={open}
             onClick={() => setOpen(!open)}
           >
+            {proposal ? (
+              <span className="mb-0.5 flex flex-wrap items-baseline gap-x-1.5 text-[10px] font-semibold uppercase tracking-wider text-violet-600 dark:text-violet-400">
+                Assistant suggestion
+                {card.reoffered === true ? (
+                  <span className="font-normal normal-case tracking-normal text-muted-foreground">
+                    previously dismissed — evidence has since changed
+                  </span>
+                ) : null}
+              </span>
+            ) : null}
             <span className="block text-xs font-medium">{card.title}</span>
             <span className="mt-0.5 block text-[11px] leading-relaxed text-muted-foreground">{card.detail}</span>
           </button>
@@ -292,7 +361,49 @@ function ReviewCard({
                 </ul>
               )}
 
-              <div className="flex flex-wrap items-center gap-1.5">
+              {/*
+                A proposal has its own two actions and nothing else. Accept goes
+                through the assistant endpoint, which writes the override *and*
+                records that the assistant proposed it; dismiss writes nothing
+                to the kit at all. Neither is an "Accept" in the sense the
+                engine's cards use it, so neither shares that button.
+              */}
+              {proposal ? (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {card.options.map((option) =>
+                    option.kind === 'accept-proposal' ? (
+                      <Button
+                        key={option.label}
+                        size="sm"
+                        className="h-7 font-mono"
+                        disabled={busy}
+                        onClick={() => onAcceptProposal(option.id)}
+                      >
+                        <Check aria-hidden />
+                        {option.label}
+                      </Button>
+                    ) : option.kind === 'dismiss-proposal' ? (
+                      <Button
+                        key={option.label}
+                        size="sm"
+                        variant="ghost"
+                        className="h-7"
+                        disabled={busy}
+                        onClick={() => onDismissProposal(option.id)}
+                      >
+                        {option.label}
+                      </Button>
+                    ) : null,
+                  )}
+                  {card.attribution === undefined ? null : (
+                    <span className="text-[10px] text-muted-foreground" title="Capability, model and prompt version">
+                      {card.attribution}
+                    </span>
+                  )}
+                </div>
+              ) : null}
+
+              <div className={`flex flex-wrap items-center gap-1.5 ${proposal ? 'hidden' : ''}`}>
                 {card.state === 'open' ? (
                   <Button size="sm" variant="outline" className="h-7" disabled={busy} onClick={() => onDecide(card.id, 'accepted')}>
                     <Check aria-hidden />
@@ -307,7 +418,13 @@ function ReviewCard({
                 {card.path === undefined
                   ? null
                   : card.options
-                      .filter((option) => option.kind === 'clear' || card.editable)
+                      // A proposal's own two options are rendered above; this
+                      // block is the engine's cards, and narrowing to those two
+                      // kinds is what lets `option.value` be read at all.
+                      .filter(
+                        (option): option is { kind: 'override'; value: string; label: string } | { kind: 'clear'; label: string } =>
+                          option.kind === 'clear' || (option.kind === 'override' && card.editable),
+                      )
                       .map((option) => (
                       <Button
                         key={option.label}
@@ -388,12 +505,21 @@ function ReviewCard({
 function TokensTab({
   tokens,
   review,
+  assistant,
   busy,
   onOverride,
   onClearOverride,
+  onDraftReason,
 }: SystemPanelProps & { tokens: TokensDocument }): ReactNode {
   const slots = useMemo(() => tokenSlots(tokens), [tokens])
   const notes = new Map((review?.overrides ?? []).map((entry) => [entry.path, entry.note]))
+  const suggestedPaths = new Set(
+    (review?.overrides ?? []).filter((entry) => entry.suggestedBy === 'assistant').map((entry) => entry.path),
+  )
+  // Drafting is offered only when there is an assistant to draft with. Passing
+  // it through as `undefined` is what makes the button simply absent rather
+  // than present-and-broken.
+  const draft = assistant?.assistant.configured === true ? onDraftReason : undefined
 
   const grouped = new Map<OverrideGroup, TokenSlot[]>()
   for (const slot of slots) {
@@ -418,9 +544,11 @@ function TokensTab({
                   slot={slot}
                   origin={originOf(slot)}
                   {...(note === undefined || note === '' ? {} : { note })}
+                  suggested={suggestedPaths.has(slot.path)}
                   busy={busy}
                   onOverride={onOverride}
                   onClear={onClearOverride}
+                  {...(draft === undefined ? {} : { onDraftReason: draft })}
                 />
               )
             })}
@@ -465,6 +593,11 @@ function ExportTab({
   const refused = new Set((review?.rejected ?? []).map((entry) => entry.path))
   const carried = (review?.overrides ?? []).filter((entry) => !refused.has(entry.path)).length
   const dropped = (review?.overrides ?? []).filter((entry) => refused.has(entry.path))
+  // Counted from the overrides in force, not from the proposal list: a proposal
+  // is a suggestion, and only an override actually reaches a file.
+  const suggested = (review?.overrides ?? []).filter(
+    (entry) => !refused.has(entry.path) && entry.suggestedBy === 'assistant',
+  ).length
 
   return (
     <div>
@@ -531,16 +664,12 @@ function ExportTab({
         </p>
       </section>
 
-      {/*
-        The assistant's seam. Nothing in this build calls an LLM; the key is
-        already stored server-side and the review queue this column produces is
-        exactly what the assistant will be asked to reason about.
-      */}
       <section className="px-4 py-3">
         <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Assistant</h3>
         <p className="text-[11px] leading-relaxed text-muted-foreground">
-          Naming, gap-filling and merge suggestions arrive here next. Nothing in this build calls an LLM — the key is
-          stored server-side and never returned to this browser.
+          {suggested === 0
+            ? 'Every value in these files was chosen by the engine or by you. The Assistant tab can propose more, and nothing it proposes reaches a file until you accept it.'
+            : `${suggested === 1 ? 'One value' : `${suggested} values`} in these files came from an assistant suggestion you accepted. design.md names ${suggested === 1 ? 'it' : 'them'}, because where a value came from is part of what makes it traceable.`}
         </p>
       </section>
     </div>

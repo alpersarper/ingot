@@ -595,6 +595,20 @@ export function renderDesignMarkdown(kit: PristineTokens | OverrideResult): stri
       '',
     )
 
+    // Where a value came from is a different question from who decided it, and
+    // the kit answers both. Emitted only when the assistant proposed something
+    // that was accepted, so a kit reviewed entirely by hand says nothing about
+    // an assistant it never ran.
+    const suggested = overridden.filter((slot) => slot.provenance.decision.suggestedBy === 'assistant')
+    if (suggested.length > 0) {
+      push(
+        `${suggested.length === 1 ? 'One of them was' : `${suggested.length} of them were`} proposed by the Ingot assistant and accepted by the reviewer: ` +
+          `${suggested.map((slot) => `\`${slot.path}\``).join(', ')}. ` +
+          'The assistant cannot write a token — every value it proposes is checked against the engine\'s own guardrails and then waits for a person — so these are reviewer decisions like the rest, recorded with where the candidate came from.',
+        '',
+      )
+    }
+
     // A conflict the reviewer answered is a decision of its own. Letting the
     // warning simply stop appearing would be the silent clobbering the rest of
     // this document exists to avoid, so what retired it is stated here.

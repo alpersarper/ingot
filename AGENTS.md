@@ -15,6 +15,8 @@ Two halves: `packages/engine` decides, and the panel (`apps/server` +
 `apps/panel`) is where a human reviews those decisions -- and overrides them,
 which is the experience rather than an escape hatch. The panel is an ordinary
 web app that currently runs locally in Docker -- [docs/panel.md](docs/panel.md).
+The LLM assistant is a third thing beside those two: it advises, and it is the
+only part of the product that is allowed to be wrong on purpose.
 
 ## Commands
 
@@ -35,6 +37,9 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
   `design.md` out. No timestamps in output, explicit locale-independent
   comparators on every sort, one rounding helper for every emitted number.
   Rationale and the full rule list: [docs/tokens.md](docs/tokens.md#determinism).
+  The assistant does not weaken this: it writes nothing, and an accepted
+  suggestion is an ordinary override, so every export is byte-identical with the
+  assistant present or absent until a proposal is accepted.
 - **The token model stays stack-agnostic.** Tailwind and shadcn naming lives only
   in `packages/engine/src/export/`. New export targets are siblings of
   `design-md.ts`, never changes to `packages/engine/src/tokens/types.ts`.
@@ -111,6 +116,37 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
   palette cannot draw (see `color.state-collapsed`) says so out loud. The one
   thing the engine will not default is a brand decision: no captured red means
   no `destructive` and no destructive button.
+- **The assistant advises; it never decides, and it has no write path.** The
+  engine's deterministic core -- colour maths, contrast, scales, conflict
+  determination -- is never the LLM's job; the LLM does the parts that are
+  language. Every value it proposes goes through `checkProposals`
+  (`apps/server/src/assistant/proposals.ts`), which runs the real
+  `applyOverrides` over a throwaway copy, so a candidate the engine will not
+  take never becomes a card. Accepting a card is `planOverrideWrite` plus
+  `store.reviews.setOverride` -- the same two calls the Tokens editor makes --
+  with `suggestedBy: 'assistant'`, which is a record of where the *candidate*
+  came from and not a different kind of decision: the strategy stays
+  `user-override` because a person chose it. A second route into a token, or a
+  proposal shown without an engine check behind it, is the defect this seam
+  exists to make impossible. `packages/engine` imports nothing of it, and
+  `purity.test.ts` would fail if it did.
+- **The provider is behind one narrow interface.** `assistant/llm.ts` takes
+  messages plus a response schema and returns validated structured output;
+  `assistant/anthropic.ts` is its only implementation and the only file in the
+  repository that imports an LLM SDK. Capability code depends on the interface
+  alone. `structuredClient` in the seam does the parsing and, crucially, the
+  **redaction**: an implementation supplies only a transport, so redaction is a
+  property of the seam rather than a promise the next provider has to remember.
+  Prompt templates live in `assistant/prompts.ts`, in code, versioned, and the
+  version travels with every proposal.
+- **The API key goes in and never comes out, and that is tested by scanning.**
+  No endpoint returns it; it is redacted -- with a visible `[redacted]` marker,
+  including from truncated fragments -- from every log and error message,
+  provider-SDK errors included. Assistant endpoints are rate-limited
+  server-side, because they are the only ones where a copied pairing token costs
+  money rather than privacy. Each property has a test in
+  `apps/server/test/assistant.test.ts`; adding an assistant route means adding
+  it to the response-surface scan and the unauthenticated-paths list there.
 - **Contrast coverage is part of the guarantee, not just the maths.** Every pair
   the kit puts on screen is enforced and reported, derived hover/pressed/selected
   surfaces included, in two passes -- base roles first, then the shades that only

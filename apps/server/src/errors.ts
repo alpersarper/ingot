@@ -42,10 +42,22 @@ export class ApiError extends Error {
   static unprocessable(message: string, details?: readonly string[]): ApiError {
     return new ApiError(422, 'unprocessable', message, details)
   }
+
+  /**
+   * An upstream this server depends on failed.
+   *
+   * Distinct from a 500 because it is not this server's bug and the user can
+   * usefully retry. The message reaching a client on this path has always been
+   * through `redact` first -- an upstream error is exactly the kind that echoes
+   * a request header back.
+   */
+  static upstream(message: string): ApiError {
+    return new ApiError(502, 'upstream', message)
+  }
 }
 
 /** The statuses routes actually raise, so the handler needs no cast. */
-export type ApiStatus = 400 | 401 | 403 | 404 | 409 | 422 | 500
+export type ApiStatus = 400 | 401 | 403 | 404 | 409 | 422 | 429 | 500 | 502
 
 export interface ApiErrorBody {
   error: { code: string; message: string; details?: readonly string[] }

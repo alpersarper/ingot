@@ -17,7 +17,7 @@ apps/server/src/storage/
     schema.ts       migrations, applied against PRAGMA user_version
 ```
 
-`Store` is five repositories plus two operations:
+`Store` is six repositories plus two operations:
 
 | Member | Holds |
 | ------ | ----- |
@@ -25,6 +25,7 @@ apps/server/src/storage/
 | `groups` | Named collections and their ordered membership. A group is what a kit is generated from. |
 | `kits` | Generated kits, versioned per scope, with the engine's output stored byte for byte. |
 | `reviews` | The standing review state for a scope: token overrides and accepted decision cards. |
+| `proposals` | The assistant's standing proposals for a scope. Review state, not kit state: nothing here reaches an export. See [docs/panel.md](panel.md#the-assistant). |
 | `settings` | Server-side key/value. The pairing token and the LLM API key live here. |
 | `importCaptureSet` | One atomic bulk import: group, records, membership. |
 | `close` | Release the connection. |

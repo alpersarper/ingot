@@ -11,6 +11,7 @@
  */
 import { Hono } from 'hono'
 import { ApiError, errorBody } from './errors'
+import { assistantRoutes } from './routes/assistant'
 import { cors } from './cors'
 import { captureRoutes } from './routes/captures'
 import { exportRoutes, kitRoutes } from './routes/kits'
@@ -35,6 +36,7 @@ export function createApp(context: AppContext): Hono<AppEnv> {
   app.route('/api/groups', groupRoutes(context))
   app.route('/api/kits', kitRoutes(context))
   app.route('/api/reviews', reviewRoutes(context))
+  app.route('/api/assistant', assistantRoutes(context))
   app.route('/api/export', exportRoutes(context))
 
   app.notFound((c) =>

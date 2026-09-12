@@ -13,6 +13,13 @@
  *   3. **Close calls** -- a dominant choice with a real minority behind it.
  *      "16 of 28 corners at 6px, runner-up 12px" is a decision somebody should
  *      confirm, and the runner-up is right there to take instead.
+ *   4. **Assistant proposals** -- a suggestion the LLM made, already checked
+ *      against the engine's guardrails. They sit in this queue rather than in a
+ *      panel of their own because they are the same kind of thing: a value
+ *      somebody is being asked to agree with. They sort *last* among open cards
+ *      and carry their own kind, because a finding the engine made about the
+ *      evidence outranks a suggestion a language model made about the finding,
+ *      and a reviewer must never have to work out which is which.
  *
  * A card id is derived from the kit's own content rather than from a row id, so
  * accepting a card survives regeneration: the same collision in the next
@@ -20,6 +27,7 @@
  */
 import { tokenSlots } from '@ingot/engine'
 import type { OverrideConflict, OverrideGroup, TokenSlot, TokensDocument } from '@ingot/engine'
+import type { AssistantProposal } from '@/lib/api'
 
 /**
  * What to call a token on a card.
@@ -48,9 +56,9 @@ function slotName(slot: TokenSlot): string {
 /** Below this, a dominant choice is a plurality and is worth a second opinion. */
 export const CLOSE_CALL_CONFIDENCE = 0.6
 
-export type CardKind = 'conflict' | 'diagnostic' | 'choice'
-export type CardSeverity = 'conflict' | 'warning' | 'info'
-export type CardState = 'open' | 'accepted' | 'overridden'
+export type CardKind = 'conflict' | 'diagnostic' | 'choice' | 'proposal'
+export type CardSeverity = 'conflict' | 'warning' | 'info' | 'suggestion'
+export type CardState = 'open' | 'accepted' | 'overridden' | 'dismissed'
 
 /**
  * One resolution a card offers.
@@ -63,6 +71,13 @@ export type CardState = 'open' | 'accepted' | 'overridden'
 export type CardOption =
   | { kind: 'override'; value: string; label: string }
   | { kind: 'clear'; label: string }
+  // The two an assistant proposal offers. They are their own kinds rather than
+  // an `override` with a value, because accepting a proposal goes through a
+  // different endpoint -- one that records where the value came from -- and a
+  // card that offered "set this value" would let the panel take a shortcut
+  // around the provenance the whole feature turns on.
+  | { kind: 'accept-proposal'; id: string; label: string }
+  | { kind: 'dismiss-proposal'; id: string; label: string }
 
 export interface DecisionCard {
   id: string
@@ -87,6 +102,23 @@ export interface DecisionCard {
    */
   editable: boolean
   state: CardState
+  /**
+   * Present on an assistant proposal: what the engine said applying it would
+   * also do, beyond setting the value.
+   *
+   * Shown on the card because it is a consequence the reviewer is agreeing to.
+   * Empty means it lands exactly as proposed.
+   */
+  engineNotes?: string[]
+  /** Present on an assistant proposal: the model and template behind it. */
+  attribution?: string
+  /**
+   * Present on an assistant proposal the reviewer had dismissed before the
+   * engine's answer at its path moved. Marked beside the "Assistant
+   * suggestion" label -- the `override.now-agrees` transparency rule: nothing
+   * reappears quietly, the panel states what changed.
+   */
+  reoffered?: boolean
 }
 
 export interface CardInputs {
@@ -113,6 +145,12 @@ export interface CardInputs {
   rejectedPaths: ReadonlySet<string>
   /** Card ids the reviewer has accepted. */
   accepted: ReadonlySet<string>
+  /**
+   * The assistant's proposals for this scope, in the order the server stores
+   * them. Optional so every existing caller -- and a panel with no key -- keeps
+   * working unchanged.
+   */
+  proposals?: readonly AssistantProposal[]
 }
 
 /**
@@ -129,7 +167,9 @@ export interface CardInputs {
  */
 const NOT_A_DECISION = new Set(['override.applied', 'override.conflict', 'override.now-agrees'])
 
-const SEVERITY_ORDER: Record<CardSeverity, number> = { conflict: 0, warning: 1, info: 2 }
+// A suggestion sorts after everything the engine said. The engine looked at the
+// evidence; the assistant looked at the engine.
+const SEVERITY_ORDER: Record<CardSeverity, number> = { conflict: 0, warning: 1, info: 2, suggestion: 3 }
 
 /** Build the review queue. Deterministic: same kit and state, same order. */
 export function decisionCards({
@@ -138,6 +178,7 @@ export function decisionCards({
   overriddenPaths,
   rejectedPaths,
   accepted,
+  proposals = [],
 }: CardInputs): DecisionCard[] {
   const cards: DecisionCard[] = []
   const slots = tokenSlots(tokens)
@@ -232,6 +273,42 @@ export function decisionCards({
         })),
       editable: true,
       state: cardState(id, slot.path, appliedPaths, accepted),
+    })
+  }
+
+  // The assistant's suggestions, last in construction order as they are last in
+  // sort order. A dismissed one stays in the queue settled rather than
+  // vanishing: "the assistant suggested this and I said no" is a decision, and
+  // a card that disappears is one the reviewer cannot check they made.
+  for (const proposal of proposals) {
+    const id = `proposal:${proposal.id}`
+    cards.push({
+      id,
+      kind: 'proposal',
+      severity: 'suggestion',
+      title: proposal.title,
+      detail: proposal.rationale,
+      path: proposal.path,
+      evidence: [
+        `set ${proposal.path} to ${proposal.value}`,
+        `the engine says ${proposal.baseValue}`,
+        ...proposal.engineNotes,
+      ],
+      options:
+        proposal.status === 'open'
+          ? [
+              { kind: 'accept-proposal', id: proposal.id, label: `Accept (${proposal.value})` },
+              { kind: 'dismiss-proposal', id: proposal.id, label: 'Dismiss' },
+            ]
+          : [],
+      // Typing a different value here would be an override, not an acceptance,
+      // and the Tokens tab is where an override is typed. The card offers the
+      // suggestion or nothing.
+      editable: false,
+      state: proposal.status === 'open' ? 'open' : proposal.status === 'accepted' ? 'accepted' : 'dismissed',
+      engineNotes: proposal.engineNotes,
+      attribution: `${proposal.capability} · ${proposal.model} · ${proposal.promptVersion}`,
+      ...(proposal.reoffered === true ? { reoffered: true } : {}),
     })
   }
 

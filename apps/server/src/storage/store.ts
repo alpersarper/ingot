@@ -274,6 +274,15 @@ export interface StoredOverride {
    * nothing.
    */
   resolvedConflict?: ResolvedConflict
+  /**
+   * Present when the reviewer accepted a value the assistant proposed.
+   *
+   * The decision is still theirs -- the assistant has no write path into a kit
+   * -- so this changes nothing about how the row is applied. It is what lets
+   * the panel and `design.md` say where the candidate came from. Absent is the
+   * ordinary case and means the reviewer wrote the value.
+   */
+  suggestedBy?: 'assistant'
   createdAt: string
   updatedAt: string
 }
@@ -285,6 +294,12 @@ export interface OverrideInput {
   note?: string
   /** Cleared when absent, so a later edit does not inherit an old retirement. */
   resolvedConflict?: ResolvedConflict
+  /**
+   * Where the accepted value came from, when the reviewer did not think of it.
+   * Cleared when absent, for the same reason `resolvedConflict` is: a value the
+   * reviewer typed must not inherit the attribution of one they were offered.
+   */
+  suggestedBy?: 'assistant'
 }
 
 /**
@@ -325,6 +340,108 @@ export interface ReviewRepository {
 }
 
 /**
+ * One thing the assistant proposed, as stored.
+ *
+ * A proposal is review state, not kit state: nothing here is in any export, and
+ * an accepted one becomes an ordinary override row through the same write path
+ * a reviewer's own edit takes. It is persisted rather than held in the browser
+ * for the same reason overrides are -- the review queue has to survive a reload
+ * and a regeneration, and a suggestion the reviewer has already dismissed must
+ * not come back looking new.
+ *
+ * `status` is the whole lifecycle. `dismissed` is kept rather than deleted so
+ * that "the assistant proposed this and a human said no" is a fact the panel
+ * can state, and so the dismissal can do its work: a kept row suppresses the
+ * same suggestion -- same path, same capability -- for as long as the engine's
+ * answer it recorded in `baseValue` still stands. When the evidence moves, the
+ * suggestion may return, and it returns with `reoffered` set rather than as
+ * though it were new.
+ */
+export interface StoredProposal {
+  id: string
+  /** Which capability produced it: `derive`, `merge`. */
+  capability: string
+  /** The prompt template version that produced it, for tracing a bad card. */
+  promptVersion: string
+  /** The model that answered, as the provider reported it. */
+  model: string
+  /** The token this proposes to change. Always an overridable path. */
+  path: string
+  /** The proposed value, already canonicalised by the engine. */
+  value: string
+  /** The engine's own answer at that path when the proposal was checked. */
+  baseValue: string
+  title: string
+  rationale: string
+  /**
+   * What the engine said applying it would also do, when it said anything.
+   * Recorded at check time: it is a statement about the kit the reviewer was
+   * shown, and re-deriving it later would answer about a different kit.
+   */
+  engineNotes: string[]
+  status: 'open' | 'accepted' | 'dismissed'
+  /**
+   * True when a dismissed proposal of this capability stood at this path and
+   * the engine's answer has moved since. The panel marks the card as a
+   * re-offer the evidence reopened; absent is the ordinary case and means the
+   * suggestion is new.
+   */
+  reoffered?: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ProposalInput {
+  capability: string
+  promptVersion: string
+  model: string
+  path: string
+  value: string
+  baseValue: string
+  title: string
+  rationale: string
+  engineNotes?: string[]
+  reoffered?: boolean
+}
+
+/**
+ * The assistant's standing proposals for one scope.
+ *
+ * Keyed on the scope like the rest of the review state, and for the same
+ * reason: a proposal is about a kit's decisions, and regenerating a kit does
+ * not make the reviewer's reading of it start again.
+ */
+export interface ProposalRepository {
+  /**
+   * Proposals for a scope, oldest first.
+   *
+   * Total order: `createdAt` then `id`, and ids are unique, so two proposals
+   * minted in the same clock tick still have one order.
+   */
+  list(scope: ReviewScope): Promise<StoredProposal[]>
+  get(scope: ReviewScope, id: string): Promise<StoredProposal | null>
+  /** Stores one proposal, minting its id. Always `open`. */
+  create(scope: ReviewScope, input: ProposalInput): Promise<StoredProposal>
+  /** Moves one proposal out of `open`. Null when there is no such proposal. */
+  resolve(scope: ReviewScope, id: string, status: 'accepted' | 'dismissed'): Promise<StoredProposal | null>
+  /**
+   * Forgets one capability's still-open proposals for a scope.
+   *
+   * A fresh run replaces that capability's open queue rather than adding to
+   * it: the kit the old suggestions were about may have moved, and a queue
+   * that only ever grows is a queue nobody reads. The clear is scoped to the
+   * capability being re-run for the same reasons dismissal suppression is --
+   * a derive run has no business silencing a merge -- and because nothing
+   * user-facing disappears silently: another capability's unreviewed cards,
+   * each of which cost real credit to produce, survive untouched. The queue
+   * stays bounded even so, since every capability's own re-run still replaces
+   * its own cards, so no capability holds more than one generation. Accepted
+   * and dismissed ones are kept -- they are the record of what was decided.
+   */
+  clearOpen(scope: ReviewScope, capability: string): Promise<number>
+}
+
+/**
  * Server-side key/value settings.
  *
  * This is where the pairing token and the LLM API key live. Both are secrets
@@ -360,6 +477,7 @@ export interface Store {
   readonly groups: GroupRepository
   readonly kits: KitRepository
   readonly reviews: ReviewRepository
+  readonly proposals: ProposalRepository
   readonly settings: SettingsRepository
   /**
    * Import a whole capture set atomically: create or reuse the group, upsert

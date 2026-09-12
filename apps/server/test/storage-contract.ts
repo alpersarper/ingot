@@ -392,6 +392,122 @@ export function describeStoreContract(name: string, createStore: () => Store | P
         // a group, so deleting the group does not silently discard the review.
         expect(await store.reviews.overrides(group.id)).toHaveLength(1)
       })
+
+      it('keeps where an accepted value came from, and clears it when the reviewer types one', async () => {
+        await store.reviews.setOverride(null, {
+          path: 'border.width',
+          value: '2px',
+          baseValue: '1px',
+          suggestedBy: 'assistant',
+        })
+        expect((await store.reviews.overrides(null))[0]?.suggestedBy).toBe('assistant')
+
+        // Absent means "the reviewer wrote it", so it must be cleared rather
+        // than kept: an attribution that outlived the value it described would
+        // credit the assistant with a string it never proposed.
+        await store.reviews.setOverride(null, { path: 'border.width', value: '3px', baseValue: '1px' })
+        expect((await store.reviews.overrides(null))[0]?.suggestedBy).toBeUndefined()
+      })
+    })
+
+    describe('proposals', () => {
+      const proposal = {
+        capability: 'derive',
+        promptVersion: 'assistant-prompts@1',
+        model: 'claude-sonnet-5',
+        path: 'typography.families.mono',
+        value: 'ui-monospace, monospace',
+        baseValue: 'monospace',
+        title: 'Give the mono stack a real fallback chain',
+        rationale: 'The sans stack names four faces; the mono stack names one.',
+      }
+
+      it('stores a proposal open, mints an id, and lists in a total order', async () => {
+        const first = await store.proposals.create('group-1', proposal)
+        const second = await store.proposals.create('group-1', { ...proposal, path: 'radius.steps.md', value: '10px' })
+
+        expect(first.status).toBe('open')
+        expect(first.id).not.toBe(second.id)
+        expect(first.engineNotes).toEqual([])
+        const listed = await store.proposals.list('group-1')
+        expect(listed.map((entry) => entry.id)).toEqual([first.id, second.id])
+        expect(listed[0]).toMatchObject({ capability: 'derive', model: 'claude-sonnet-5', path: proposal.path })
+      })
+
+      it('keeps the engine notes it was given, in order', async () => {
+        const stored = await store.proposals.create(null, {
+          ...proposal,
+          engineNotes: ['the engine writes this as 8px rather than 9px', 'contrast adjusted'],
+        })
+        expect((await store.proposals.get(null, stored.id))?.engineNotes).toEqual([
+          'the engine writes this as 8px rather than 9px',
+          'contrast adjusted',
+        ])
+      })
+
+      it('keeps the library scope and a group scope apart', async () => {
+        const mine = await store.proposals.create(null, proposal)
+        await store.proposals.create('group-1', proposal)
+
+        expect((await store.proposals.list(null)).map((entry) => entry.id)).toEqual([mine.id])
+        // A scope cannot reach another scope's proposal even by id, so a stale
+        // panel cannot accept a suggestion made about a different kit.
+        expect(await store.proposals.get('group-1', mine.id)).toBeNull()
+      })
+
+      it('resolves a proposal once and reports a miss as null', async () => {
+        const stored = await store.proposals.create('group-1', proposal)
+        expect((await store.proposals.resolve('group-1', stored.id, 'accepted'))?.status).toBe('accepted')
+        expect(await store.proposals.resolve('group-1', 'no-such-id', 'dismissed')).toBeNull()
+        expect((await store.proposals.get('group-1', stored.id))?.status).toBe('accepted')
+      })
+
+      it('clears only the named capability\'s open proposals, so a decision is never forgotten', async () => {
+        const open = await store.proposals.create('group-1', proposal)
+        const otherOpen = await store.proposals.create('group-1', {
+          ...proposal,
+          capability: 'merge',
+          path: 'radius.steps.sm',
+        })
+        const accepted = await store.proposals.create('group-1', { ...proposal, path: 'radius.steps.md' })
+        const dismissed = await store.proposals.create('group-1', { ...proposal, path: 'radius.steps.lg' })
+        const otherAccepted = await store.proposals.create('group-1', {
+          ...proposal,
+          capability: 'merge',
+          path: 'spacing.steps.sm',
+        })
+        const otherDismissed = await store.proposals.create('group-1', {
+          ...proposal,
+          capability: 'merge',
+          path: 'spacing.steps.md',
+        })
+        await store.proposals.resolve('group-1', accepted.id, 'accepted')
+        await store.proposals.resolve('group-1', dismissed.id, 'dismissed')
+        await store.proposals.resolve('group-1', otherAccepted.id, 'accepted')
+        await store.proposals.resolve('group-1', otherDismissed.id, 'dismissed')
+
+        expect(await store.proposals.clearOpen('group-1', 'derive')).toBe(1)
+        const left = await store.proposals.list('group-1')
+        // The merge card survives a derive clear on purpose: the clear is
+        // capability-scoped like dismissal suppression, so re-running one
+        // capability never silently destroys another's unreviewed cards. The
+        // dismissed ones survive too: a kept dismissal is what suppresses the
+        // same suggestion while the engine's answer it recorded is unchanged,
+        // and what lets a return after the evidence moves be marked a re-offer.
+        expect(left.map((entry) => entry.id).sort()).toEqual(
+          [otherOpen.id, accepted.id, dismissed.id, otherAccepted.id, otherDismissed.id].sort(),
+        )
+        expect(await store.proposals.get('group-1', open.id)).toBeNull()
+      })
+
+      it('keeps the re-offer mark, and its absence', async () => {
+        const fresh = await store.proposals.create(null, proposal)
+        const returned = await store.proposals.create(null, { ...proposal, path: 'radius.steps.md', reoffered: true })
+
+        // Absent means "new", so it must read back absent rather than false.
+        expect((await store.proposals.get(null, fresh.id))?.reoffered).toBeUndefined()
+        expect((await store.proposals.get(null, returned.id))?.reoffered).toBe(true)
+      })
     })
 
     describe('settings', () => {

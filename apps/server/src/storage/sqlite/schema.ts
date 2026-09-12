@@ -157,6 +157,54 @@ const MIGRATIONS: string[][] = [
     // column, which reads as "the engine moved" rather than naming a value.
     `ALTER TABLE token_overrides ADD COLUMN resolved_engine TEXT`,
   ],
+  [
+    // Where an accepted value came from, when the reviewer did not think of it
+    // themselves. NULL is the ordinary case and means exactly that -- the
+    // reviewer typed it -- rather than "unknown"; the only other value is
+    // 'assistant', an override the assistant proposed and a person accepted.
+    // The decision is still the reviewer's, so nothing about how the row is
+    // applied depends on this: it is what the kit is able to say about itself.
+    `ALTER TABLE token_overrides ADD COLUMN suggested_by TEXT`,
+    // The assistant's standing proposals. Review state, not kit state: nothing
+    // in this table reaches an export, and an accepted proposal becomes an
+    // ordinary token_overrides row through the same write path a reviewer's own
+    // edit takes. There is deliberately no path from here into a kit that does
+    // not go through that table.
+    //
+    // Keyed on scope_key like the rest of the review state, with the same
+    // durability and the same limits -- see the note on token_overrides.
+    // Dismissed rows are kept rather than deleted: a kept dismissal suppresses
+    // the same suggestion -- same path, same capability -- while the engine's
+    // answer it recorded in base_value still stands, and when the evidence
+    // moves the suggestion may return, marked as a re-offer rather than new.
+    `CREATE TABLE assistant_proposals (
+       id             TEXT PRIMARY KEY,
+       scope_key      TEXT NOT NULL,
+       -- Which capability produced it: derive, merge.
+       capability     TEXT NOT NULL,
+       -- The prompt template version and the model that answered, so a card
+       -- that turns out to be bad can be traced to the words that produced it.
+       prompt_version TEXT NOT NULL,
+       model          TEXT NOT NULL,
+       path           TEXT NOT NULL,
+       value          TEXT NOT NULL,
+       -- The engine's own answer at that path when the proposal was checked.
+       base_value     TEXT NOT NULL,
+       title          TEXT NOT NULL,
+       rationale      TEXT NOT NULL,
+       -- JSON array: what the engine said applying it would also do. Recorded
+       -- at check time, because it is a statement about the kit the reviewer
+       -- was shown rather than about whatever the kit is when it is next read.
+       engine_notes   TEXT NOT NULL,
+       status         TEXT NOT NULL CHECK (status IN ('open', 'accepted', 'dismissed')),
+       -- 1 when a dismissed proposal stood at this path and the engine's
+       -- answer has moved since: the card returns marked, never as new.
+       reoffered      INTEGER NOT NULL DEFAULT 0,
+       created_at     TEXT NOT NULL,
+       updated_at     TEXT NOT NULL
+     )`,
+    `CREATE INDEX assistant_proposals_scope ON assistant_proposals (scope_key, created_at, id)`,
+  ],
 ]
 
 /** The schema version this build of the server expects. */

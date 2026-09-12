@@ -32,6 +32,10 @@ Environment (all optional; see `apps/server/src/config.ts`):
 | `INGOT_PANEL_ORIGIN` | `http://localhost:5173` | Comma-separated CORS allowlist. |
 | `INGOT_PAIRING_TOKEN` | minted on first run | Pin to skip the first-run screen. |
 | `INGOT_LLM_API_KEY` | unset | Pin the key instead of typing it into the panel. |
+| `INGOT_LLM_MODEL` | `claude-sonnet-5` | Pin the assistant's model; otherwise it is a panel setting. |
+| `INGOT_LLM_BASE_URL` | unset | Provider endpoint, for a hosted proxy. |
+| `INGOT_ASSISTANT_RATE_LIMIT` | `20` | Assistant calls allowed per window. |
+| `INGOT_ASSISTANT_RATE_WINDOW_MS` | `60000` | Length of that window. |
 
 ## The two guards
 
@@ -56,12 +60,16 @@ same-origin with it.
 
 ## The LLM key
 
-Goes in, never comes out. `PUT /api/settings` stores it server-side;
-`GET /api/settings` reports `{ configured, source }` and no endpoint returns the
-value. It is server-side precisely because the browser is where it must not be.
+Goes in, never comes out. `PUT /api/settings` stores or replaces it server-side,
+`DELETE /api/settings/llm-key` removes it, and `GET /api/settings` reports
+`{ configured, source, model }` -- no endpoint returns the value, and none ever
+will. It is server-side precisely because the browser is where it must not be:
+an extension, a bookmarklet or a stray script in the panel's own origin can read
+anything the page holds.
 
-**No LLM call is made anywhere in this build.** The field exists so the key is
-already in place for the assistant that follows.
+It is also redacted from every log line and every error message the assistant
+path produces, including provider-SDK errors built from a request that carried
+it in a header. See [The assistant](#the-assistant) for the rest.
 
 ## Determinism through the server
 
@@ -112,6 +120,11 @@ Everything except `/api/health` and `/api/pairing*` requires the token.
 | `GET /api/reviews` | The overrides and accepted decisions for a scope. Answers before a kit exists. |
 | `PUT/DELETE /api/reviews/overrides` | Set or clear one token override. Answers with the whole effective kit. |
 | `PUT /api/reviews/decisions` | Accept or reopen one decision card. |
+| `GET /api/assistant` | Assistant status and this scope's proposals. Reaches no provider; never rate-limited. |
+| `POST /api/assistant/suggest` | Run `derive` or `merge`. Stores what the engine would accept as proposals. Rate-limited. |
+| `POST /api/assistant/ask`, `/name`, `/rationale` | Content, not kit changes. Rate-limited. |
+| `POST /api/assistant/proposals/:id/{accept,dismiss}` | Accept writes an override through the ordinary boundary; dismiss writes nothing to the kit. |
+| `DELETE /api/settings/llm-key` | Remove the stored key. There is no endpoint that returns it. |
 
 ## The workbench
 
@@ -122,7 +135,7 @@ capture".
 
 ### The review loop
 
-The right column is the product, not a settings page. It has three tabs:
+The right column is the product, not a settings page. It has four tabs:
 
 - **Review** is the queue. Cards come from three places -- a conflict between a
   standing override and fresh evidence, a diagnostic the engine raised, and a
@@ -135,7 +148,12 @@ The right column is the product, not a settings page. It has three tabs:
   provenance on demand: contributing captures, every raw value observed, the
   dominant-choice record, any adjustment, and, for an overridden token, the
   engine's own answer it replaced.
-- **Export** is the four artefacts, plus the seam where the LLM assistant lands.
+- **Export** is the four artefacts, and says how many of their values came from
+  an assistant suggestion you accepted.
+- **Assistant** is the advisory layer, and the only tab that can be absent: with
+  no API key it shows how to get one and nothing else in this column changes.
+  Its *suggestions* do not live there -- they are cards in the Review queue,
+  drawn as suggestions. [The assistant](#the-assistant) is the long form.
 
 Overrides are stored per **scope** (a group, or the library) rather than per kit
 version, which is what makes regenerating carry them forward. A write answers
@@ -177,8 +195,131 @@ the brand roles kept, every guaranteed pair re-enforced with the engine's own
 walker. It is labelled *derived, not exported* wherever it appears, and the kit
 ships in the mode it was distilled in.
 
+## The assistant
+
+The advisory layer in the right column. It proposes; the engine checks; a person
+decides. `apps/server/src/assistant/` is where it lives, and the engine imports
+none of it -- `packages/engine/test/purity.test.ts` would fail if it did.
+
+### The division of labour
+
+**The engine's deterministic core is never the LLM's job.** Colour maths,
+contrast enforcement, scale snapping, conflict determination: the engine is
+exact about all of those and a language model is not. The LLM does the parts
+that are language -- what should this be called, do these two greys have a
+reason to be two things, what would you write in the reason field, why is the
+radius 8 -- and every value it proposes is checked by the engine before anybody
+is shown it.
+
+Five capabilities, each a typed operation with its own versioned prompt template
+in `assistant/prompts.ts`:
+
+| | | |
+| --- | --- | --- |
+| **derive** | proposal cards | Fills tokens the captures were silent about, where the engine had to state a `sanctioned-default`. |
+| **merge** | proposal cards | Finds near-duplicates -- two greys a hair apart, two paddings a pixel apart -- and proposes collapsing one onto the other. |
+| **name** | content | A brand-meaningful vocabulary for the palette. Content rather than cards *because the token model has no writable name*: Ingot's role names are a fixed, stack-agnostic set every export depends on, so a rename card would be one whose accept button could not do anything. |
+| **rationale** | content | Drafts the reason behind an override that has none. Offered in the Tokens tab only where the reason field is empty; it fills the box and the reviewer still presses Override. |
+| **qa** | content | Answers a question from the kit's provenance, citing token paths. The server resolves every citation against the kit and names any that does not resolve. |
+
+### The proposal pipeline
+
+```
+model answer -> engine guardrail check -> proposal row -> card in Review
+                                                              |
+                                    accept ------------------>+------> planOverrideWrite -> override row
+                                    dismiss ----------------->+------> nothing in the kit
+```
+
+The guardrail check (`assistant/proposals.ts`) is not a sanity check on the
+text. The candidate is written into a throwaway copy of the kit and the whole of
+`applyOverrides` runs: the value is parsed in the slot's own notation, the
+interaction shades are re-derived, the control heights recomputed, the contrast
+floor enforced. A candidate the engine refuses never becomes a card. One that
+lands but moves something else -- a snapped length, a shade pinned to a gamut
+pole -- becomes a card that says so, because that is a consequence the reviewer
+is agreeing to.
+
+A dismissal is a standing answer, not a deleted row, and it follows the same
+law overrides and conflicts do: a human decision is respected until the world
+changes, and nothing resurfaces or retires silently. A kept dismissed proposal
+suppresses the same suggestion -- same path, same capability -- for as long as
+the engine's answer it was judged against is unchanged. When the evidence
+moves, the suggestion may return, and its card is marked "previously dismissed
+-- evidence has since changed" rather than rendered as new.
+
+**The assistant never writes a token, and there is no bypass.** Accepting goes
+through `planOverrideWrite` and `store.reviews.setOverride`, the same two calls
+the Tokens editor makes, with `suggestedBy: 'assistant'` set. That is a
+provenance fact, not a different kind of value: the strategy stays
+`user-override` because a person chose it, and where the candidate came from is
+recorded beside it and stated in `design.md`.
+
+Proposal cards render in the Review queue alongside the engine's own findings,
+with their own icon, tone, left rule and an "Assistant suggestion" label, and
+they sort *after* every open engine finding. The engine looked at the evidence;
+the assistant looked at the engine.
+
+### The provider seam
+
+`assistant/llm.ts` is a narrow interface -- messages plus a response schema in,
+validated structured output out -- and `assistant/anthropic.ts` is its only
+implementation. Capability code depends on the interface alone, so a hosted
+proxy or a second provider is a sibling file rather than a change to any
+capability. Key, model and endpoint all come from configuration.
+
+The shared half of a client (`structuredClient`) does the parsing, the reader,
+and the redaction; an implementation supplies only a transport and its own
+status-to-kind classification. That split is deliberate: redaction living inside
+one implementation is a promise the next one has to remember to keep.
+
+### Security
+
+Five properties, each with a test in `apps/server/test/assistant.test.ts`:
+
+- **The key never comes out.** No endpoint returns it. The test scans every
+  response body *and* every response header across the whole API surface.
+- **The key is redacted from all logs and error messages**, including
+  provider-SDK errors that echo auth headers -- and from truncated fragments of
+  it, because half a key is still a key. The test forces an auth failure with a
+  key-bearing error and asserts the log carries `[redacted]` and not the key.
+- **Assistant endpoints are rate-limited server-side.** One budget shared by
+  every caller, configurable, defaulting to 20 calls a minute. The guard is
+  against a *copied pairing token*: these are the only routes where that costs
+  money rather than privacy, and a client-side limit would protect nothing,
+  since the client is the part that was copied.
+- **Key management is write-only.** `PUT /api/settings` sets or replaces,
+  `DELETE /api/settings/llm-key` removes, `GET` reports presence only.
+- **The existing guards still apply**: pairing token and CORS lock, both before
+  a request reaches an assistant route.
+
+Accepting and dismissing a proposal are deliberately *not* rate-limited: they
+reach no provider, and a reviewer working through their queue must never be told
+to come back later.
+
+### What leaves the machine
+
+One payload, built in `assistant/context.ts`: the kit's tokens and their
+provenance, the contrast pairs, the diagnostics, the standing overrides, and the
+user's question. Never the key, never the pairing token, never capture records,
+never screenshots, never any other server state. The full list is in the
+[README's privacy note](../README.md#what-leaves-your-machine).
+
+### Absence
+
+With no key configured, the Assistant tab shows a setup path -- including the
+fact that a Claude subscription does not include API usage, which is the step
+nearly everyone is surprised by -- and every other panel feature is fully
+functional. A provider error is a notice in that column and nothing else.
+
+### Determinism
+
+Untouched. The assistant writes nothing, and an accepted suggestion is an
+ordinary override, so `pnpm skeleton` and every export are byte-identical with
+the assistant present or absent as long as no proposal has been accepted.
+
 ## Deliberately not built yet
 
-No LLM assistant and no browser extension. The seams are left where they go: the
-key the assistant needs is already stored server-side, and the review queue the
-right column produces is exactly what it will be asked to reason about.
+No browser extension. Within the assistant, deliberately absent in v1: chat
+history persisted beyond the session, multi-provider support, and autonomous
+batch operations -- there is no "fix everything", only single-suggestion cards.

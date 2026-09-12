@@ -6,9 +6,10 @@
  * their panel. Saying that plainly here matters: a screen that looks like a
  * login without being one invites the user to type a password into it.
  *
- * The key step is deliberately skippable. Nothing in this build calls an LLM;
- * the field exists so the key is already in place, server-side, for the
- * assistant that follows.
+ * The key step is deliberately skippable. The key powers the assistant -- the
+ * panel's advisory layer -- and the Assistant tab carries the full guided
+ * setup (subscription-vs-API, Console steps, cost) for anyone who skips it
+ * here. That walkthrough lives there on purpose; this screen only points.
  */
 import { useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
@@ -108,8 +109,9 @@ export function FirstRun({ onPaired }: { onPaired: () => void }): ReactNode {
               <div>
                 <h2 className="text-sm font-semibold">LLM API key (optional)</h2>
                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  Stored on the server, never in this browser, and never returned by any endpoint. Nothing in this
-                  build calls an LLM yet -- the assistant that will is the next piece of work.
+                  Stored on the server, never in this browser, and never returned by any endpoint. The key powers the
+                  assistant&apos;s suggestions; everything else works without one, and the Assistant tab will walk you
+                  through getting a key whenever you want it.
                 </p>
               </div>
             </div>

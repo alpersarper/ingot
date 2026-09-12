@@ -11,10 +11,17 @@
  * Editing is inline and the value is sent as typed. The engine parses and
  * normalises it and refuses what it cannot read, so the panel does not carry a
  * second, quietly different, idea of what "10px" means.
+ *
+ * The one place the assistant appears here is the reason field, and only on an
+ * override that has none. That reason is what `design.md` prints as the whole
+ * explanation for a value disagreeing with the evidence, so an empty one is a
+ * real gap -- and drafting prose from the evidence is exactly the judgement a
+ * language model is good at. It fills the box; it never sends it. The reviewer
+ * still has to press Override, which is the same click it always was.
  */
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { ChevronRight, RotateCcw } from 'lucide-react'
+import { ChevronRight, Loader2, RotateCcw, Sparkles } from 'lucide-react'
 import type { TokenOrigin, TokenSlot } from '@ingot/engine'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -33,16 +40,36 @@ export interface TokenRowProps {
   origin: TokenOrigin
   /** The reviewer's note, when this token carries an override. */
   note?: string
+  /** True when this value was one the assistant proposed and the reviewer took. */
+  suggested?: boolean
   busy: boolean
   onOverride: (path: string, value: string, note?: string) => void
   onClear: (path: string) => void
+  /**
+   * Draft a reason for this override, or `undefined` when the assistant is not
+   * available. Absent means the button simply is not offered -- a disabled
+   * control explaining that a key is missing would be a second setup screen in
+   * the middle of the token list.
+   */
+  onDraftReason?: (path: string) => Promise<string>
 }
 
-export function TokenRow({ slot, origin, note, busy, onOverride, onClear }: TokenRowProps): ReactNode {
+export function TokenRow({
+  slot,
+  origin,
+  note,
+  suggested = false,
+  busy,
+  onOverride,
+  onClear,
+  onDraftReason,
+}: TokenRowProps): ReactNode {
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(slot.value)
   const [reason, setReason] = useState(note ?? '')
+  const [drafting, setDrafting] = useState(false)
+  const [draftError, setDraftError] = useState<string | null>(null)
 
   // A regeneration or another edit can move the value under the editor; the
   // draft follows it rather than holding a value nobody chose. The reason
@@ -103,7 +130,9 @@ export function TokenRow({ slot, origin, note, busy, onOverride, onClear }: Toke
             />
           ) : null}
           <span className="min-w-0 flex-1 truncate text-xs">{slot.label}</span>
-          <span className={`shrink-0 text-[10px] uppercase tracking-wide ${style.className}`}>{style.label}</span>
+          <span className={`shrink-0 text-[10px] uppercase tracking-wide ${style.className}`}>
+            {origin === 'overridden' && suggested ? 'yours · suggested' : style.label}
+          </span>
         </button>
 
         <button
@@ -140,6 +169,39 @@ export function TokenRow({ slot, origin, note, busy, onOverride, onClear }: Toke
             aria-label={`Reason for overriding ${slot.path}`}
             onChange={(event) => setReason(event.target.value)}
           />
+          {/*
+            Offered only where there is a gap to fill: an override that already
+            carries a reason does not need one drafted, and a token nobody has
+            overridden has no decision to explain.
+          */}
+          {onDraftReason === undefined || origin !== 'overridden' || reason.trim() !== '' ? null : (
+            <div className="flex items-center gap-1.5">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-[11px]"
+                disabled={busy || drafting}
+                onClick={() => {
+                  setDrafting(true)
+                  setDraftError(null)
+                  void onDraftReason(slot.path)
+                    .then((drafted) => setReason(drafted))
+                    .catch((error: unknown) =>
+                      setDraftError(error instanceof Error ? error.message : 'The assistant could not draft one.'),
+                    )
+                    .finally(() => setDrafting(false))
+                }}
+              >
+                {drafting ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />}
+                Draft a reason
+              </Button>
+              {draftError === null ? null : (
+                <span className="text-[10px] text-amber-600 dark:text-amber-500" role="alert">
+                  {draftError}
+                </span>
+              )}
+            </div>
+          )}
           <div className="flex gap-1.5">
             <Button size="sm" className="h-7" disabled={busy} onClick={commit}>
               Override
@@ -187,6 +249,12 @@ export function TokenRow({ slot, origin, note, busy, onOverride, onClear }: Toke
             </p>
           )}
           {decision.note === undefined ? null : <p className="italic">“{decision.note}”</p>}
+          {decision.suggestedBy === undefined ? null : (
+            <p className="text-violet-600 dark:text-violet-400">
+              The assistant proposed this value and you accepted it. The decision is yours; where the candidate came
+              from is recorded beside it, and <span className="font-mono">design.md</span> says so too.
+            </p>
+          )}
           {decision.derivation === undefined ? null : (
             <p>
               {decision.derivation.method}: {decision.derivation.detail}

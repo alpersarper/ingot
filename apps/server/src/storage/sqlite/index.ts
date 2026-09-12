@@ -29,11 +29,14 @@ import type {
   KitRepository,
   KitSummary,
   OverrideInput,
+  ProposalInput,
+  ProposalRepository,
   ReviewRepository,
   ReviewScope,
   SettingsRepository,
   StoredDecision,
   StoredOverride,
+  StoredProposal,
   Store,
 } from '../store'
 
@@ -86,6 +89,24 @@ interface OverrideRow {
   resolved_value: string | null
   resolved_base: string | null
   resolved_engine: string | null
+  suggested_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+interface ProposalRow {
+  id: string
+  capability: string
+  prompt_version: string
+  model: string
+  path: string
+  value: string
+  base_value: string
+  title: string
+  rationale: string
+  engine_notes: string
+  status: string
+  reoffered: number
   created_at: string
   updated_at: string
 }
@@ -498,11 +519,17 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
     },
   }
 
+  const OVERRIDE_COLUMNS =
+    'path, value, base_value, note, resolved_value, resolved_base, resolved_engine, suggested_by, created_at, updated_at'
+
+  const PROPOSAL_COLUMNS =
+    'id, capability, prompt_version, model, path, value, base_value, title, rationale, engine_notes, status, reoffered, created_at, updated_at'
+
   const reviews: ReviewRepository = {
     async overrides(scope) {
       return db
         .prepare<[string], OverrideRow>(
-          'SELECT path, value, base_value, note, resolved_value, resolved_base, resolved_engine, created_at, updated_at FROM token_overrides WHERE scope_key = ? ORDER BY path',
+          `SELECT ${OVERRIDE_COLUMNS} FROM token_overrides WHERE scope_key = ? ORDER BY path`,
         )
         .all(scopeKey(scope))
         .map(hydrateOverride)
@@ -514,8 +541,8 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
       // set is the same decision revised, not a new one.
       db.prepare(
         `INSERT INTO token_overrides
-           (scope_key, path, value, base_value, note, resolved_value, resolved_base, resolved_engine, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           (scope_key, path, value, base_value, note, resolved_value, resolved_base, resolved_engine, suggested_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (scope_key, path) DO UPDATE SET
            value = excluded.value,
            base_value = excluded.base_value,
@@ -523,6 +550,7 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
            resolved_value = excluded.resolved_value,
            resolved_base = excluded.resolved_base,
            resolved_engine = excluded.resolved_engine,
+           suggested_by = excluded.suggested_by,
            updated_at = excluded.updated_at`,
       ).run(
         scopeKey(scope),
@@ -533,12 +561,13 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
         input.resolvedConflict?.value ?? null,
         input.resolvedConflict?.baseValue ?? null,
         input.resolvedConflict?.engineValue ?? null,
+        input.suggestedBy ?? null,
         now,
         now,
       )
       const row = db
         .prepare<[string, string], OverrideRow>(
-          'SELECT path, value, base_value, note, resolved_value, resolved_base, resolved_engine, created_at, updated_at FROM token_overrides WHERE scope_key = ? AND path = ?',
+          `SELECT ${OVERRIDE_COLUMNS} FROM token_overrides WHERE scope_key = ? AND path = ?`,
         )
         .get(scopeKey(scope), input.path)
       if (!row) throw new Error(`override ${input.path} vanished during write`)
@@ -585,6 +614,73 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
     },
   }
 
+  const proposals: ProposalRepository = {
+    async list(scope) {
+      return db
+        .prepare<[string], ProposalRow>(
+          `SELECT ${PROPOSAL_COLUMNS} FROM assistant_proposals WHERE scope_key = ? ORDER BY created_at, id`,
+        )
+        .all(scopeKey(scope))
+        .map(hydrateProposal)
+    },
+
+    async get(scope, id) {
+      const row = db
+        .prepare<[string, string], ProposalRow>(
+          `SELECT ${PROPOSAL_COLUMNS} FROM assistant_proposals WHERE scope_key = ? AND id = ?`,
+        )
+        .get(scopeKey(scope), id)
+      return row ? hydrateProposal(row) : null
+    },
+
+    async create(scope, input: ProposalInput) {
+      const id = idFactory()
+      const now = clock()
+      db.prepare(
+        `INSERT INTO assistant_proposals
+           (id, scope_key, capability, prompt_version, model, path, value, base_value, title, rationale, engine_notes, status, reoffered, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)`,
+      ).run(
+        id,
+        scopeKey(scope),
+        input.capability,
+        input.promptVersion,
+        input.model,
+        input.path,
+        input.value,
+        input.baseValue,
+        input.title,
+        input.rationale,
+        JSON.stringify(input.engineNotes ?? []),
+        input.reoffered === true ? 1 : 0,
+        now,
+        now,
+      )
+      const row = db
+        .prepare<[string], ProposalRow>(`SELECT ${PROPOSAL_COLUMNS} FROM assistant_proposals WHERE id = ?`)
+        .get(id)
+      if (!row) throw new Error(`proposal ${id} vanished during create`)
+      return hydrateProposal(row)
+    },
+
+    async resolve(scope, id, status) {
+      const changed = db
+        .prepare('UPDATE assistant_proposals SET status = ?, updated_at = ? WHERE scope_key = ? AND id = ?')
+        .run(status, clock(), scopeKey(scope), id).changes
+      if (changed === 0) return null
+      const row = db
+        .prepare<[string], ProposalRow>(`SELECT ${PROPOSAL_COLUMNS} FROM assistant_proposals WHERE id = ?`)
+        .get(id)
+      return row ? hydrateProposal(row) : null
+    },
+
+    async clearOpen(scope, capability) {
+      return db
+        .prepare(`DELETE FROM assistant_proposals WHERE scope_key = ? AND capability = ? AND status = 'open'`)
+        .run(scopeKey(scope), capability).changes
+    },
+  }
+
   const settings: SettingsRepository = {
     async get(key) {
       return db.prepare<[string], { value: string }>('SELECT value FROM settings WHERE key = ?').get(key)?.value ?? null
@@ -605,6 +701,7 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
     groups,
     kits,
     reviews,
+    proposals,
     settings,
 
     async importCaptureSet(input: CaptureSetImport): Promise<ImportResult> {
@@ -670,7 +767,30 @@ function hydrateOverride(row: OverrideRow): StoredOverride {
       ...(row.resolved_engine === null ? {} : { engineValue: row.resolved_engine }),
     }
   }
+  // NULL is "the reviewer wrote it", not "unknown", so anything else is read
+  // strictly: a value this build does not know is dropped rather than passed
+  // upward as a provenance claim nothing can explain.
+  if (row.suggested_by === 'assistant') stored.suggestedBy = 'assistant'
   return stored
+}
+
+function hydrateProposal(row: ProposalRow): StoredProposal {
+  return {
+    id: row.id,
+    capability: row.capability,
+    promptVersion: row.prompt_version,
+    model: row.model,
+    path: row.path,
+    value: row.value,
+    baseValue: row.base_value,
+    title: row.title,
+    rationale: row.rationale,
+    engineNotes: JSON.parse(row.engine_notes) as string[],
+    status: row.status as StoredProposal['status'],
+    ...(row.reoffered === 0 ? {} : { reoffered: true }),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
 }
 
 function hydrateDecision(row: DecisionRow): StoredDecision {
