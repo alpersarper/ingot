@@ -606,6 +606,15 @@ later capture set supplies a red, the engine's answer moves to `color` while the
 acknowledgment does not, which the standing conflict machinery reports as an
 `override.conflict` rather than either side being quietly taken.
 
+Being an override is also what answers *who, when and what*. **What** is the
+path, the value and the reviewer's reason, all on the token's own decision, with
+the engine's answer at the time in `supersedes`. **When** is the override row's
+`createdAt`/`updatedAt` in the panel's store -- deliberately not in the exports,
+because a timestamp in `design.md` would break determinism. **Who** is the
+reviewer: the panel is a single-user local workbench with no accounts, so
+`user-override` names the only person there is. A hosted, multi-user Ingot would
+have to put an identity on the row; the seam for it is `OverrideInput`.
+
 The other exit is `color.roles.destructive`, which is offered as an overridable
 slot **even when the kit has none** (its value is then the literal `none`). The
 engine still will not invent a brand colour; a reviewer may supply one, and the
