@@ -49,6 +49,33 @@ export type ColorRoleName =
   | 'disabledSurface'
   | 'disabledForeground'
 
+/**
+ * The order roles are emitted in, and the order a reader meets them.
+ *
+ * Fixed rather than alphabetical so the document reads structurally -- page,
+ * then surfaces, then text, then brand. It lives here rather than in the
+ * distiller because the distiller is not the only writer: a reviewer may
+ * nominate the error colour, and a role appended to the end of the object would
+ * put one kit's `destructive` in a different place from every other kit's.
+ */
+export const COLOR_ROLE_ORDER: readonly ColorRoleName[] = [
+  'background',
+  'surface',
+  'surfaceHover',
+  'selectedSurface',
+  'border',
+  'text',
+  'textMuted',
+  'primary',
+  'primaryHover',
+  'primaryActive',
+  'primaryForeground',
+  'destructive',
+  'destructiveForeground',
+  'disabledSurface',
+  'disabledForeground',
+]
+
 export interface ColorValue {
   /** `oklch(L C H)`, the canonical form. */
   oklch: string

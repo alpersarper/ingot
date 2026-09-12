@@ -44,6 +44,7 @@ import { derive, userOverride } from '../provenance'
 import type { BaselineTokens, EffectiveTokens, PristineTokens } from './documents'
 import type { DominantChoice, Provenance, ResolvedConflict } from '../provenance'
 import type { ContrastAdjustment } from '../color/contrast'
+import { COLOR_ROLE_ORDER } from './types'
 import type {
   ColorRoleName,
   ColorToken,
@@ -1538,6 +1539,16 @@ function completeDestructive(tokens: TokensDocument): void {
   addPair('color.roles.destructive', 'color.roles.background')
   addPair('color.roles.destructive', 'color.roles.surface')
   addPair('color.roles.destructiveForeground', 'color.roles.destructive')
+
+  // A role appended to the end of the object would put this kit's `destructive`
+  // somewhere no distilled kit has it, in `tokens.json` and in the panel's own
+  // colour list. Rebuilt in the model's order instead.
+  const ordered: Partial<Record<ColorRoleName, ColorToken>> = {}
+  for (const role of COLOR_ROLE_ORDER) {
+    const token = tokens.color.roles[role]
+    if (token !== undefined) ordered[role] = token
+  }
+  tokens.color.roles = ordered
 
   const recipes = tokens.components.recipes
   const primary = recipes.find((recipe) => recipe.name === 'button.primary')

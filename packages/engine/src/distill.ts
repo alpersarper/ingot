@@ -41,7 +41,7 @@ import { distillComponents } from './components/components'
 import { ENGINE_NAME, ENGINE_VERSION } from './version'
 import { asPristine } from './tokens/documents'
 import type { PristineTokens } from './tokens/documents'
-import { TOKENS_SCHEMA_VERSION } from './tokens/types'
+import { COLOR_ROLE_ORDER, TOKENS_SCHEMA_VERSION } from './tokens/types'
 import { round } from './util/num'
 import type {
   ColorRoleName,
@@ -51,27 +51,8 @@ import type {
   TokensDocument,
 } from './tokens/types'
 
-/**
- * Order roles are emitted in. Fixed rather than alphabetical so the document
- * reads structurally -- page, then surfaces, then text, then brand.
- */
-const ROLE_ORDER: ColorRoleName[] = [
-  'background',
-  'surface',
-  'surfaceHover',
-  'selectedSurface',
-  'border',
-  'text',
-  'textMuted',
-  'primary',
-  'primaryHover',
-  'primaryActive',
-  'primaryForeground',
-  'destructive',
-  'destructiveForeground',
-  'disabledSurface',
-  'disabledForeground',
-]
+/** Order roles are emitted in. Owned by the token model; see {@link COLOR_ROLE_ORDER}. */
+const ROLE_ORDER = COLOR_ROLE_ORDER
 
 /** One pairing the engine guarantees, and which side yields when it fails. */
 interface GuaranteedPair {
