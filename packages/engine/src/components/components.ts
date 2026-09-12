@@ -26,7 +26,8 @@ import { round } from '../util/num'
 import { snapSpacing } from '../spacing/spacing'
 import type { CaptureRecord } from '../capture/types'
 import { parsePx } from '../capture/read'
-import { parseColor } from '../color/space'
+import { parseColor, renderedDistance } from '../color/space'
+import { AMBIENT_SEPARATION_MIN } from '../color/roles'
 import { DISABLED_CONTRAST_FLOOR } from '../color/contrast'
 import { decide, derive, provenance, sanction, tally } from '../provenance'
 import type { Contribution, DominantChoice } from '../provenance'
@@ -50,6 +51,7 @@ import type {
 
 /** Emission order. Fixed so the document's key order never depends on input. */
 const RECIPE_ORDER: ComponentRecipeName[] = [
+  'card',
   'button.primary',
   'button.secondary',
   'button.ghost',
@@ -213,6 +215,57 @@ export function distillComponents(
   const hasRole = (role: ColorRoleName): boolean => color.roles[role] !== undefined
   const path = (role: ColorRoleName): string => `color.roles.${role}`
 
+  /**
+   * The badge's fill.
+   *
+   * A badge is the only control in this kit that sits on another control's
+   * *interactive* surface: a status pill lives inside a table row, and that row
+   * changes colour under the pointer. The obvious quiet fill -- and what this
+   * was -- is `surfaceHover`, which is also the row's own hover fill, so on a
+   * hovered row the pill and the row became one colour and the pill was left to
+   * be read off a 1.2:1 border. Both sides were prescribed here, so a consumer
+   * following the kit could not fix it without leaving the system.
+   *
+   * So the fill is chosen rather than fixed: the first candidate that is
+   * perceptibly distinct from the row at rest *and* from the row under the
+   * pointer. `background` leads because it is the one neutral the row layer
+   * never uses -- a recessed pill on a light kit, a sunken one on a dark kit --
+   * and it clears the floor against both on every fixture set. The others are
+   * there so a palette with no page/panel separation still gets a badge rather
+   * than nothing, and the diagnostic says when that happened.
+   */
+  const badgeFill = (): { role: ColorRoleName; collides: boolean } => {
+    const against: ColorRoleName[] = ['surface', 'surfaceHover']
+    const colorOf = (role: ColorRoleName) => {
+      const hex = color.roles[role]?.value.hex
+      return hex === undefined ? undefined : parseColor(hex)?.oklch
+    }
+    const distinct = (role: ColorRoleName): boolean => {
+      const fill = colorOf(role)
+      if (fill === undefined) return false
+      return against.every((other) => {
+        const layer = colorOf(other)
+        return layer === undefined || renderedDistance(fill, layer) >= AMBIENT_SEPARATION_MIN
+      })
+    }
+    const candidates: ColorRoleName[] = ['background', 'surfaceHover', 'surface']
+    const chosen = candidates.find(distinct)
+    if (chosen !== undefined) return { role: chosen, collides: false }
+    return { role: hasRole('surfaceHover') ? 'surfaceHover' : 'surface', collides: true }
+  }
+  const badgeSurface = badgeFill()
+  if (badgeSurface.collides) {
+    diagnostics.push({
+      level: 'warning',
+      code: 'components.badge-collides',
+      path: 'components.recipes.badge',
+      message:
+        `No neutral in this palette is far enough from both \`surface\` and \`surfaceHover\` to fill a badge, ` +
+        `so the pill takes \`${badgeSurface.role}\` and will disappear into a table row in at least one of its ` +
+        'states. Give the badge its own fill, or draw it as an outline rather than a pill.',
+    })
+  }
+
   // --- scale lookups --------------------------------------------------------
   const stepPx = spacing.steps.map((step) => step.value.px).sort(byNumber)
   const smallestPositiveStep = stepPx.find((px) => px > 0) ?? spacing.baseUnit
@@ -272,6 +325,7 @@ export function distillComponents(
 
   // --- capture pools --------------------------------------------------------
   const buttons = captures.filter((capture) => capture.componentType === 'button')
+  const cards = captures.filter((capture) => capture.componentType === 'card')
   const inputsCaptured = captures.filter((capture) => capture.componentType === 'input')
   const primaryButtons = buttons.filter(
     (capture) => backgroundRoleByCapture.get(capture.id) === 'primary',
@@ -295,6 +349,11 @@ export function distillComponents(
      * field; a destructive button is a primary button in another colour.
      */
     like?: ComponentRecipeName
+    /**
+     * True for a box that wraps content rather than a control that wraps one
+     * line of text. A container emits no `height`: see {@link ComponentRecipe}.
+     */
+    container?: boolean
     /**
      * Values this recipe states for itself. They beat `like` -- a table cell is
      * an input's padding but never an input's corner radius -- and observation
@@ -477,7 +536,7 @@ export function distillComponents(
       name: draft.name,
       purpose: draft.purpose,
       colors: draft.colors,
-      height: heightToken,
+      ...(draft.container === true ? {} : { height: heightToken }),
       paddingY,
       paddingX,
       radius: radiusToken,
@@ -496,6 +555,24 @@ export function distillComponents(
   const buttonDefaults = { radius: controlRadius, typeStep: baseStepName, fontWeight: emphasisWeight }
 
   const drafts: Draft[] = [
+    {
+      // The box every other recipe is drawn inside, and the one that sets a
+      // page's density. Every fixture set captures cards, so its padding and
+      // radius are measured rather than invented -- the third of the card a
+      // consumer used to have to guess, and the one a `design.md` reader felt
+      // first.
+      name: 'card',
+      purpose: 'Panels, cards and any titled box that holds other components.',
+      colors: {
+        surface: path('surface'),
+        foreground: path('text'),
+        border: path('border'),
+        hoverSurface: null,
+      },
+      captures: cards,
+      container: true,
+      fixed: { radius: preferredRadius('lg', 'md', 'sm'), typeStep: baseStepName, fontWeight: bodyWeight },
+    },
     {
       name: 'button.primary',
       purpose: 'The one call to action on a screen.',
@@ -608,7 +685,7 @@ export function distillComponents(
       name: 'badge',
       purpose: 'Status pills inside tables and cards.',
       colors: {
-        surface: hasRole('surfaceHover') ? path('surfaceHover') : path('surface'),
+        surface: path(badgeSurface.role),
         foreground: path('text'),
         border: path('border'),
         hoverSurface: null,

@@ -14,7 +14,8 @@ import { finish, plural, table } from './markdown'
 import { overriddenSlots } from '../tokens/overrides'
 import type { OverrideResult, RetiredConflict } from '../tokens/overrides'
 import type { PristineTokens } from '../tokens/documents'
-import { SHADE_RELATIONS } from '../color/roles'
+import { collapsedShades, collapsedShadesSentence } from '../color/roles'
+import { parseColor } from '../color/space'
 import { round } from '../util/num'
 import type {
   ColorRoleName,
@@ -199,9 +200,10 @@ export function renderDesignMarkdown(kit: PristineTokens | OverrideResult): stri
   // colour layer. Reading it and comparing the document's own hexes keeps this a
   // pure function of the tokens document, and keeps the diagnostic's sentence a
   // convenience rather than a parsing contract.
-  const collapsedStates = SHADE_RELATIONS.filter(
-    ([shade, base]) => role(shade) !== undefined && role(base) !== undefined && hexOf(shade) === hexOf(base),
-  )
+  const collapsedStates = collapsedShades((name) => {
+    const token = role(name)
+    return token === undefined ? undefined : parseColor(token.value.hex)?.oklch
+  })
 
   push(
     '### Colour rules',
@@ -220,7 +222,7 @@ export function renderDesignMarkdown(kit: PristineTokens | OverrideResult): stri
 
   if (collapsedStates.length > 0) {
     push(
-      `> **These states render identically:** ${collapsedStates.map(([shade, base]) => `\`${shade}\` and \`${base}\``).join(', ')}. Holding the label at the contrast floor consumed the whole offset, so the fill cannot carry the distinction on this palette. Signal the state with the focus ring, a border, or a transform — not with the fill.`,
+      `> **These states are not distinguishable on screen:** ${collapsedShadesSentence(collapsedStates)}. Holding the label at the contrast floor consumed the offset and the palette had no chroma left to buy it back, so the fill cannot carry the distinction here. Signal the state with the focus ring, a border, or a transform — not with the fill.`,
       '',
     )
   }
@@ -404,7 +406,7 @@ export function renderDesignMarkdown(kit: PristineTokens | OverrideResult): stri
    */
   const recipeSource = (recipe: ComponentRecipe): string => {
     const decisions = [
-      recipe.height,
+      ...(recipe.height === undefined ? [] : [recipe.height]),
       recipe.paddingY,
       recipe.paddingX,
       recipe.radius,
@@ -439,7 +441,7 @@ export function renderDesignMarkdown(kit: PristineTokens | OverrideResult): stri
       ['Component', 'Height', 'Padding (y, x)', 'Radius', 'Type', 'Weight', 'From'],
       components.recipes.map((recipe) => [
         `\`${recipe.name}\``,
-        `${recipe.height.value}px`,
+        recipe.height === undefined ? '— (container)' : `${recipe.height.value}px`,
         `${recipe.paddingY.value}px, ${recipe.paddingX.value}px`,
         `\`${recipe.radius.value}\` (${radius.steps[recipe.radius.value]?.value ?? 0}px)`,
         `\`${recipe.typeStep.value}\` (${stepFontSize(recipe.typeStep.value)})`,

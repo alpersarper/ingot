@@ -34,7 +34,7 @@
 import { contrastRatio, formatOklch, oklchToHex, parseColor, roundOklch } from '../color/space'
 import type { Oklch } from '../color/space'
 import { enforceContrastByChroma, enforceContrastOnBackground } from '../color/contrast'
-import { SHADE_RELATIONS, deriveInteractionShades } from '../color/roles'
+import { collapsedShades, collapsedShadesSentence, deriveInteractionShades } from '../color/roles'
 import type { RoleAssignment } from '../color/roles'
 import { parseShadow } from '../shadow/shadow'
 import { round } from '../util/num'
@@ -370,7 +370,11 @@ export function tokenSlots(tokens: TokensDocument): TokenSlot[] {
   for (const recipe of tokens.components.recipes) {
     const base = `components.recipes.${recipe.name}`
     slots.push(
-      recipeSlot(base, recipe.name, 'height', 'length', `${recipe.height.value}px`, recipe.height),
+      // A container has no height slot, because it has no height: offering one
+      // would be an edit box the engine cannot write into.
+      ...(recipe.height === undefined
+        ? []
+        : [recipeSlot(base, recipe.name, 'height', 'length', `${recipe.height.value}px`, recipe.height)]),
       recipeSlot(base, recipe.name, 'paddingY', 'length', `${recipe.paddingY.value}px`, recipe.paddingY),
       recipeSlot(base, recipe.name, 'paddingX', 'length', `${recipe.paddingX.value}px`, recipe.paddingX),
       recipeSlot(base, recipe.name, 'radius', 'radius-step', recipe.radius.value, recipe.radius),
@@ -1192,6 +1196,7 @@ function write(
     if (recipe === undefined) return
     switch (field) {
       case 'height':
+        if (recipe.height === undefined) return
         recipe.height.value = pixels(value)
         stamp(recipe.height)
         return
@@ -1400,10 +1405,9 @@ function enforceShades(tokens: TokensDocument, shades: readonly ColorRoleName[])
 function restateCollapsedStates(tokens: TokensDocument): void {
   tokens.diagnostics = tokens.diagnostics.filter((diagnostic) => diagnostic.code !== 'color.state-collapsed')
 
-  const collapsed = SHADE_RELATIONS.filter(([shade, role]) => {
-    const a = tokens.color.roles[shade]?.value.hex
-    const b = tokens.color.roles[role]?.value.hex
-    return a !== undefined && b !== undefined && a === b
+  const collapsed = collapsedShades((role) => {
+    const hex = tokens.color.roles[role]?.value.hex
+    return hex === undefined ? undefined : parseColor(hex)?.oklch
   })
   if (collapsed.length === 0) return
 
@@ -1412,9 +1416,9 @@ function restateCollapsedStates(tokens: TokensDocument): void {
     code: 'color.state-collapsed',
     path: 'color.roles',
     message:
-      `${collapsed.map(([shade, role]) => `${shade} and ${role}`).join('; ')} render as the same colour: ` +
-      'holding the foreground at the contrast floor consumed the whole offset. The state exists in the ' +
-      'token set but cannot be seen; distinguish it with something other than fill.',
+      `${collapsedShadesSentence(collapsed)}. Holding the foreground at the contrast floor consumed the ` +
+      'offset, and the palette had no chroma left to buy it back. The state exists in the token set but ' +
+      'cannot be seen; distinguish it with something other than fill.',
   })
 }
 
@@ -1470,6 +1474,7 @@ function recomputeHeights(tokens: TokensDocument, touched: ReadonlySet<string>):
   const yielded: string[] = []
   for (const recipe of tokens.components.recipes) {
     if (!touched.has('*') && !touched.has(recipe.name)) continue
+    if (recipe.height === undefined) continue
     const step = tokens.typography.steps.find((entry) => entry.value.name === recipe.typeStep.value)
     if (step === undefined) continue
     const borderPx = recipe.colors.border === null ? 0 : tokens.border.width.value

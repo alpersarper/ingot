@@ -38,7 +38,7 @@ Paste this into your global stylesheet. Values are OKLCH, matching the shadcn/ui
   --ingot-surface-hover: oklch(0.9318 0.0086 84.57); /* #ebe8e2 — raw hover surface */
   --ingot-primary-hover: oklch(0.4757 0.1030 166.11); /* #006d50 — primary hover fill */
   --ingot-primary-active: oklch(0.4357 0.1030 166.11); /* #006146 — primary pressed fill */
-  --ingot-selected-surface: oklch(0.9418 0.0500 166.11); /* #cdf7e4 — selected row and active nav item fill */
+  --ingot-selected-surface: oklch(0.9418 0.0350 166.11); /* #d7f4e6 — selected row and active nav item fill */
   --ingot-disabled-surface: oklch(0.9018 0.0086 84.57); /* #e1ded8 — disabled control fill */
   --ingot-disabled-foreground: oklch(0.5930 0.0152 82.38); /* #837d74 — disabled label and icon colour */
   --radius: 6px;
@@ -79,7 +79,7 @@ Every colour in the UI must come from this table. There are no other colours in 
 | `background`            | #faf9f6 | oklch(0.9820 0.0041 91.45)  | page background                                |
 | `surface`               | #f5f2ec | oklch(0.9618 0.0086 84.57)  | panel/card background; also --popover          |
 | `surfaceHover`          | #ebe8e2 | oklch(0.9318 0.0086 84.57)  | hover fill for rows, menu items, ghost buttons |
-| `selectedSurface`       | #cdf7e4 | oklch(0.9418 0.0500 166.11) | selected row and active nav item fill          |
+| `selectedSurface`       | #d7f4e6 | oklch(0.9418 0.0350 166.11) | selected row and active nav item fill          |
 | `border`                | #e5e0d6 | oklch(0.9079 0.0145 84.58)  | all 1px separators and control outlines        |
 | `text`                  | #1a1917 | oklch(0.2138 0.0042 84.59)  | default text on --background                   |
 | `textMuted`             | #6b665d | oklch(0.5121 0.0152 82.38)  | de-emphasised text, placeholders, captions     |
@@ -97,7 +97,7 @@ Every colour in the UI must come from this table. There are no other colours in 
 - Text on `background` or `surface` is `text`. De-emphasised text is `textMuted`. There is no third text colour.
 - `primary` is a fill, not a text colour. Use `primaryForeground` for anything drawn on top of it.
 - Hover on an interactive surface goes to `surfaceHover`; hover on a primary fill goes to `primaryHover`; the pressed state is `primaryActive`.
-- A selected row, tab or nav item is filled with `selectedSurface` (#cdf7e4) and keeps `text` on top. Selection reads by hue, hover reads by lightness; do not swap them.
+- A selected row, tab or nav item is filled with `selectedSurface` (#d7f4e6) and keeps `text` on top. Selection reads by hue, hover reads by lightness; do not swap them.
 - A disabled control is filled with `disabledSurface` (#e1ded8) and labelled `disabledForeground` (#837d74). Never build a disabled state out of `opacity`.
 - Borders are 1px `border`. Do not use shadows in place of borders for separation, and do not use `text` at reduced opacity as a border.
 - `destructive` is reserved for irreversible actions and error states. Never use it for emphasis. It is contrast-checked as a text colour as well as a fill, so error copy may be set in it.
@@ -119,9 +119,9 @@ This table is exhaustive: every pair the kit puts on screen is measured here, in
 | `primaryForeground`     | `primaryHover`    | 6.36:1  | 4.5:1 | pass   |
 | `primaryForeground`     | `primaryActive`   | 7.5:1   | 4.5:1 | pass   |
 | `text`                  | `surfaceHover`    | 14.37:1 | 4.5:1 | pass   |
-| `text`                  | `selectedSurface` | 15.08:1 | 4.5:1 | pass   |
+| `text`                  | `selectedSurface` | 15.04:1 | 4.5:1 | pass   |
 | `textMuted`             | `surfaceHover`    | 4.66:1  | 4.5:1 | pass   |
-| `textMuted`             | `selectedSurface` | 4.89:1  | 4.5:1 | pass   |
+| `textMuted`             | `selectedSurface` | 4.88:1  | 4.5:1 | pass   |
 | `disabledForeground`    | `disabledSurface` | 3.04:1  | 3:1   | pass   |
 
 The following roles were moved away from the value they started at to reach their floor — a captured colour for an observed role, the offset the engine computed for a derived one. Use the adjusted values; the originals fail accessibility.
@@ -206,31 +206,33 @@ The scale has two bands. **Component** steps sit at or below the largest observe
 
 Each control below is fully specified. These are not defaults to adjust — a screen built with a 32px button and a screen built with a 40px button are two different products, and the whole point of this section is that both of you get the same one. Use these numbers.
 
-| Component            | Height | Padding (y, x) | Radius       | Type                | Weight | From                   |
-| -------------------- | ------ | -------------- | ------------ | ------------------- | ------ | ---------------------- |
-| `button.primary`     | 36px   | 8px, 16px      | `md` (6px)   | `base` (15px/1.333) | 500    | captured               |
-| `button.secondary`   | 38px   | 8px, 16px      | `md` (6px)   | `base` (15px/1.333) | 500    | captured               |
-| `button.ghost`       | 36px   | 8px, 16px      | `md` (6px)   | `base` (15px/1.333) | 500    | captured               |
-| `button.destructive` | 36px   | 8px, 16px      | `md` (6px)   | `base` (15px/1.333) | 500    | like `button.primary`  |
-| `input`              | 38px   | 8px, 12px      | `md` (6px)   | `base` (15px/1.333) | 400    | captured               |
-| `select`             | 38px   | 8px, 12px      | `md` (6px)   | `base` (15px/1.333) | 400    | like `input`           |
-| `table.header`       | 38px   | 8px, 12px      | `none` (0px) | `sm` (13px/1.538)   | 600    | like `input` + default |
-| `table.row`          | 38px   | 8px, 12px      | `none` (0px) | `base` (15px/1.333) | 400    | like `input` + default |
-| `badge`              | 30px   | 4px, 8px       | `sm` (4px)   | `sm` (13px/1.538)   | 600    | default                |
+| Component            | Height        | Padding (y, x) | Radius       | Type                | Weight | From                   |
+| -------------------- | ------------- | -------------- | ------------ | ------------------- | ------ | ---------------------- |
+| `card`               | — (container) | 16px, 20px     | `lg` (12px)  | `lg` (17px/1.588)   | 400    | captured               |
+| `button.primary`     | 36px          | 8px, 16px      | `md` (6px)   | `base` (15px/1.333) | 500    | captured               |
+| `button.secondary`   | 38px          | 8px, 16px      | `md` (6px)   | `base` (15px/1.333) | 500    | captured               |
+| `button.ghost`       | 36px          | 8px, 16px      | `md` (6px)   | `base` (15px/1.333) | 500    | captured               |
+| `button.destructive` | 36px          | 8px, 16px      | `md` (6px)   | `base` (15px/1.333) | 500    | like `button.primary`  |
+| `input`              | 38px          | 8px, 12px      | `md` (6px)   | `base` (15px/1.333) | 400    | captured               |
+| `select`             | 38px          | 8px, 12px      | `md` (6px)   | `base` (15px/1.333) | 400    | like `input`           |
+| `table.header`       | 38px          | 8px, 12px      | `none` (0px) | `sm` (13px/1.538)   | 600    | like `input` + default |
+| `table.row`          | 38px          | 8px, 12px      | `none` (0px) | `base` (15px/1.333) | 400    | like `input` + default |
+| `badge`              | 30px          | 4px, 8px       | `sm` (4px)   | `sm` (13px/1.538)   | 600    | default                |
 
 Colours for the same controls:
 
-| Component            | Fill           | Text                    | Border   | Hover fill     | What it is for                                             |
-| -------------------- | -------------- | ----------------------- | -------- | -------------- | ---------------------------------------------------------- |
-| `button.primary`     | `primary`      | `primaryForeground`     | —        | `primaryHover` | The one call to action on a screen.                        |
-| `button.secondary`   | `surface`      | `text`                  | `border` | `surfaceHover` | Every other action that is not destructive.                |
-| `button.ghost`       | —              | `text`                  | —        | `surfaceHover` | Toolbar and icon actions; transparent until hovered.       |
-| `button.destructive` | `destructive`  | `destructiveForeground` | —        | —              | Irreversible actions only. Never for emphasis.             |
-| `input`              | `background`   | `text`                  | `border` | —              | Text fields and textareas.                                 |
-| `select`             | `background`   | `text`                  | `border` | —              | Native and custom selects. A text field with a chevron.    |
-| `table.header`       | `surface`      | `textMuted`             | `border` | —              | Column headings. One rule underneath, never a filled band. |
-| `table.row`          | `surface`      | `text`                  | `border` | `surfaceHover` | Data rows. Separated by a rule, highlighted on hover.      |
-| `badge`              | `surfaceHover` | `text`                  | `border` | —              | Status pills inside tables and cards.                      |
+| Component            | Fill          | Text                    | Border   | Hover fill     | What it is for                                                |
+| -------------------- | ------------- | ----------------------- | -------- | -------------- | ------------------------------------------------------------- |
+| `card`               | `surface`     | `text`                  | `border` | —              | Panels, cards and any titled box that holds other components. |
+| `button.primary`     | `primary`     | `primaryForeground`     | —        | `primaryHover` | The one call to action on a screen.                           |
+| `button.secondary`   | `surface`     | `text`                  | `border` | `surfaceHover` | Every other action that is not destructive.                   |
+| `button.ghost`       | —             | `text`                  | —        | `surfaceHover` | Toolbar and icon actions; transparent until hovered.          |
+| `button.destructive` | `destructive` | `destructiveForeground` | —        | —              | Irreversible actions only. Never for emphasis.                |
+| `input`              | `background`  | `text`                  | `border` | —              | Text fields and textareas.                                    |
+| `select`             | `background`  | `text`                  | `border` | —              | Native and custom selects. A text field with a chevron.       |
+| `table.header`       | `surface`     | `textMuted`             | `border` | —              | Column headings. One rule underneath, never a filled band.    |
+| `table.row`          | `surface`     | `text`                  | `border` | `surfaceHover` | Data rows. Separated by a rule, highlighted on hover.         |
+| `badge`              | `background`  | `text`                  | `border` | —              | Status pills inside tables and cards.                         |
 
 ### Component rules
 
@@ -247,7 +249,7 @@ Colours for the same controls:
 | hover    | The recipe's hover fill above. On a primary fill that is `primaryHover` (#006d50).                                                    |
 | pressed  | `primaryActive` (#006146) on a primary fill; otherwise keep the hover fill.                                                           |
 | focus    | `2px solid var(--ring)` at `outline-offset: 2px`, on every focusable control. Never remove it.                                        |
-| selected | Fill `selectedSurface` (#cdf7e4), text `text`.                                                                                        |
+| selected | Fill `selectedSurface` (#d7f4e6), text `text`.                                                                                        |
 | disabled | Fill `disabledSurface` (#e1ded8), text `disabledForeground` (#837d74), measured at 3.04:1. Keep the border. Do **not** use `opacity`. |
 
 `opacity` is not a disabled state: on a light kit a 50% label over a 50% fill measures 1:1 and disappears. The two colours above are real, and they are checked (§2).

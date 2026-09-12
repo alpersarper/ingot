@@ -27,6 +27,7 @@ import {
   tokenSlots,
 } from '../src/tokens/overrides'
 import type { OverrideWrite, OverrideWriteReport, TokenOverride } from '../src/tokens/overrides'
+import { asPristine } from '../src/tokens/documents'
 import type { PristineTokens } from '../src/tokens/documents'
 import type { CaptureSet } from '../src/capture/types'
 
@@ -335,8 +336,8 @@ describe('what an override invalidates', () => {
       { path: 'components.recipes.button.primary.paddingY', value: `${paddingY + 4}px` },
     ])
     const after = next.components.recipes.find((entry) => entry.name === 'button.primary')
-    expect(after?.height.value).toBe((recipe?.height.value ?? 0) + 8)
-    expect(after?.height.provenance.decision.derivation?.detail).toContain('recomputed after an override')
+    expect(after?.height?.value).toBe((recipe?.height?.value ?? 0) + 8)
+    expect(after?.height?.provenance.decision.derivation?.detail).toContain('recomputed after an override')
   })
 
   it('re-derives the shades computed from a colour a person replaced', () => {
@@ -392,9 +393,14 @@ describe('what an override invalidates', () => {
   })
 
   it('restates a collapse the engine reported against the palette now on screen', () => {
-    // linear-dark distils with a collapsed state, so the stale statement is
-    // really there to be replaced rather than merely absent.
-    const tokens = kit('linear-dark')
+    // No fixture distils with a collapse any more -- the chroma rescue is why --
+    // so the stale statement is manufactured the only honest way there is: a
+    // black primary really does collapse, and the document it produces is the
+    // stored distillation a later reviewer would be overriding.
+    const collapsedKit = applyOverrides(kit('linear-dark'), [
+      { path: 'color.roles.primary', value: '#000000' },
+    ]).tokens
+    const tokens = asPristine(collapsedKit)
     const stale = tokens.diagnostics.filter((entry) => entry.code === 'color.state-collapsed')
     expect(stale).toHaveLength(1)
 
@@ -520,8 +526,8 @@ describe('what an override invalidates', () => {
       { path: 'components.recipes.button.primary.paddingY', value: `${(recipe?.paddingY.value ?? 0) + 4}px` },
     ])
     const after = next.components.recipes.find((entry) => entry.name === 'button.primary')
-    expect(after?.height.value).toBe(44)
-    expect(after?.height.provenance.decision.strategy).toBe('user-override')
+    expect(after?.height?.value).toBe(44)
+    expect(after?.height?.provenance.decision.strategy).toBe('user-override')
   })
 })
 

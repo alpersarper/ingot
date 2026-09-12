@@ -54,7 +54,9 @@ describe.each(setIds)('%s', (setId) => {
       for (const field of GEOMETRY) {
         expect(recipe[field].value, `${recipe.name}.${field} is empty`).toBeDefined()
       }
-      expect(recipe.height.value, `${recipe.name} has no height`).toBeGreaterThan(0)
+      // A container is as tall as its content; every control states a height.
+      if (recipe.height === undefined) expect(recipe.name).toBe('card')
+      else expect(recipe.height.value, `${recipe.name} has no height`).toBeGreaterThan(0)
       expect(recipe.paddingX.value).toBeGreaterThanOrEqual(0)
       expect(recipe.paddingY.value).toBeGreaterThanOrEqual(0)
       expect(recipe.fontWeight.value).toBeGreaterThanOrEqual(100)
@@ -93,6 +95,7 @@ describe.each(setIds)('%s', (setId) => {
     for (const recipe of tokens.components.recipes) {
       const step = tokens.typography.steps.find((entry) => entry.value.name === recipe.typeStep.value)
       expect(step, `${recipe.name} names a type step that does not exist`).toBeDefined()
+      if (recipe.height === undefined) continue
       const lineBox = Math.round((step as NonNullable<typeof step>).value.fontSize * (step as NonNullable<typeof step>).value.lineHeight)
       const borderPx = recipe.colors.border === null ? 0 : tokens.border.width.value
       expect(recipe.height.value, `${recipe.name} height does not match its own parts`).toBe(
@@ -106,13 +109,15 @@ describe.each(setIds)('%s', (setId) => {
     const kinds = new Set(['dominant-value', 'snapped-scale', 'derived', 'sanctioned-default'])
     for (const recipe of components.recipes) {
       for (const field of [...GEOMETRY, 'height'] as const) {
-        const decision = recipe[field].provenance.decision
+        const token = recipe[field]
+        if (token === undefined) continue
+        const decision = token.provenance.decision
         expect(kinds, `${recipe.name}.${field} has an unexpected strategy`).toContain(decision.strategy)
         if (decision.strategy === 'derived' || decision.strategy === 'sanctioned-default') {
           expect(decision.derivation, `${recipe.name}.${field} is derived with no derivation`).toBeDefined()
         } else {
           expect(
-            recipe[field].provenance.captureIds.length,
+            token.provenance.captureIds.length,
             `${recipe.name}.${field} claims observation but names no capture`,
           ).toBeGreaterThan(0)
         }
@@ -147,7 +152,7 @@ describe.each(setIds)('%s', (setId) => {
     for (const recipe of tokens.components.recipes) {
       expect(markdown, `${recipe.name} is missing from design.md`).toContain(`\`${recipe.name}\``)
       expect(markdown, `${recipe.name}'s height is missing from design.md`).toContain(
-        `| ${recipe.height.value}px `,
+        recipe.height === undefined ? '— (container)' : `| ${recipe.height.value}px `,
       )
       expect(markdown, `${recipe.name}'s padding is missing from design.md`).toContain(
         `${recipe.paddingY.value}px, ${recipe.paddingX.value}px`,

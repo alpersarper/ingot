@@ -287,7 +287,7 @@
   border: var(--kit-border-width) solid var(--kit-color-border);
   border-radius: var(--kit-radius-card);
   box-shadow: var(--kit-shadow-card);
-  padding: var(--kit-space-comfy);
+  padding: var(--kit-card-pad-y) var(--kit-card-pad-x);
   min-width: 0;
 }
 

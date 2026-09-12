@@ -339,10 +339,10 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["name", "purpose", "colors", "height", "paddingY", "paddingX", "radius", "typeStep", "fontWeight"],
+            "required": ["name", "purpose", "colors", "paddingY", "paddingX", "radius", "typeStep", "fontWeight"],
             "properties": {
               "name": {
-                "enum": ["button.primary", "button.secondary", "button.ghost", "button.destructive", "input", "select", "table.header", "table.row", "badge"]
+                "enum": ["card", "button.primary", "button.secondary", "button.ghost", "button.destructive", "input", "select", "table.header", "table.row", "badge"]
               },
               "purpose": { "type": "string", "description": "One line on what the recipe is for, written for the consumer." },
               "colors": {
@@ -357,7 +357,7 @@
                   "hoverSurface": { "type": ["string", "null"] }
                 }
               },
-              "height": { "$ref": "#/definitions/numberToken", "description": "Total border-box height in px: paddingY x 2 + line box + border x 2." },
+              "height": { "$ref": "#/definitions/numberToken", "description": "Total border-box height in px: paddingY x 2 + line box + border x 2. Absent on a container, which is as tall as its content." },
               "paddingY": { "$ref": "#/definitions/numberToken" },
               "paddingX": { "$ref": "#/definitions/numberToken" },
               "radius": { "$ref": "#/definitions/stringToken", "description": "Name of the radius step, so the value tracks radius.steps." },

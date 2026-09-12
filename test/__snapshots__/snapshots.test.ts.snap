@@ -5,6 +5,7 @@ exports[`ghost-warm > distils to the expected decisions 1`] = `
   "borderWidth": "1px",
   "components": {
     "recipes": [
+      "card: container, pad 16/20, radius lg, type lg@400 [snapped-scale,snapped-scale,dominant-value,dominant-value,dominant-value]",
       "button.primary: 36px, pad 8/16, radius md, type base@500 [snapped-scale,snapped-scale,dominant-value,dominant-value,dominant-value]",
       "button.secondary: 38px, pad 8/16, radius md, type base@500 [snapped-scale,snapped-scale,dominant-value,dominant-value,dominant-value]",
       "button.ghost: 36px, pad 8/16, radius md, type base@500 [snapped-scale,snapped-scale,dominant-value,dominant-value,dominant-value]",
@@ -32,9 +33,9 @@ exports[`ghost-warm > distils to the expected decisions 1`] = `
     "primaryForeground on primaryHover = 6.36:1 (floor 4.5) pass",
     "primaryForeground on primaryActive = 7.5:1 (floor 4.5) pass",
     "text on surfaceHover = 14.37:1 (floor 4.5) pass",
-    "text on selectedSurface = 15.08:1 (floor 4.5) pass",
+    "text on selectedSurface = 15.04:1 (floor 4.5) pass",
     "textMuted on surfaceHover = 4.66:1 (floor 4.5) pass",
-    "textMuted on selectedSurface = 4.89:1 (floor 4.5) pass",
+    "textMuted on selectedSurface = 4.88:1 (floor 4.5) pass",
     "disabledForeground on disabledSurface = 3.04:1 (floor 3) pass",
   ],
   "diagnostics": [
@@ -136,8 +137,8 @@ exports[`ghost-warm > distils to the expected decisions 1`] = `
     "selectedSurface": {
       "decision": "derived",
       "from": [],
-      "hex": "#cdf7e4",
-      "oklch": "oklch(0.9418 0.0500 166.11)",
+      "hex": "#d7f4e6",
+      "oklch": "oklch(0.9418 0.0350 166.11)",
     },
     "surface": {
       "decision": "role-assignment",
@@ -230,6 +231,7 @@ exports[`linear-dark > distils to the expected decisions 1`] = `
   "borderWidth": "1px",
   "components": {
     "recipes": [
+      "card: container, pad 12/12, radius lg, type base@400 [snapped-scale,snapped-scale,dominant-value,dominant-value,dominant-value]",
       "button.primary: 36px, pad 8/12, radius md, type base@500 [snapped-scale,snapped-scale,dominant-value,dominant-value,dominant-value]",
       "button.secondary: 38px, pad 8/12, radius md, type base@500 [snapped-scale,snapped-scale,dominant-value,dominant-value,dominant-value]",
       "button.ghost: 36px, pad 8/8, radius sm, type base@500 [snapped-scale,snapped-scale,dominant-value,dominant-value,dominant-value]",
@@ -250,19 +252,18 @@ exports[`linear-dark > distils to the expected decisions 1`] = `
     "textMuted on background = 6.13:1 (floor 4.5) pass",
     "textMuted on surface = 5.63:1 (floor 4.5) pass",
     "primaryForeground on primary = 4.7:1 (floor 4.5) pass",
-    "primaryForeground on primaryHover = 4.51:1 (floor 4.5) pass",
-    "primaryForeground on primaryActive = 4.51:1 (floor 4.5) pass",
+    "primaryForeground on primaryHover = 4.59:1 (floor 4.5) pass",
+    "primaryForeground on primaryActive = 4.69:1 (floor 4.5) pass",
     "text on surfaceHover = 16.04:1 (floor 4.5) pass",
-    "text on selectedSurface = 16.55:1 (floor 4.5) pass",
+    "text on selectedSurface = 16.51:1 (floor 4.5) pass",
     "textMuted on surfaceHover = 5.25:1 (floor 4.5) pass",
-    "textMuted on selectedSurface = 5.42:1 (floor 4.5) pass",
+    "textMuted on selectedSurface = 5.41:1 (floor 4.5) pass",
     "disabledForeground on disabledSurface = 3.07:1 (floor 3) pass",
   ],
   "diagnostics": [
     "info color.contrast-adjusted",
     "info color.contrast-adjusted",
     "info color.contrast-adjusted",
-    "info color.state-collapsed",
     "info color.unassigned",
     "info components.defaulted",
     "info spacing.snapped",
@@ -320,13 +321,13 @@ exports[`linear-dark > distils to the expected decisions 1`] = `
       "oklch": "oklch(0.5674 0.1585 275.21)",
     },
     "primaryActive": {
-      "adjusted": "#7483ed -> #616dd5",
+      "adjusted": "#7483ed -> #5a5eff",
       "decision": "derived",
       "from": [],
-      "hex": "#616dd5",
+      "hex": "#5a5eff",
       "met": true,
-      "oklch": "oklch(0.5774 0.1585 275.21)",
-      "ratio": "3.38 -> 4.51",
+      "oklch": "oklch(0.5774 0.2335 275.21)",
+      "ratio": "3.38 -> 4.69",
     },
     "primaryForeground": {
       "decision": "role-assignment",
@@ -337,19 +338,19 @@ exports[`linear-dark > distils to the expected decisions 1`] = `
       "oklch": "oklch(1.0000 0.0000 0.00)",
     },
     "primaryHover": {
-      "adjusted": "#6976e0 -> #616dd5",
+      "adjusted": "#6976e0 -> #5d66ec",
       "decision": "derived",
       "from": [],
-      "hex": "#616dd5",
+      "hex": "#5d66ec",
       "met": true,
-      "oklch": "oklch(0.5774 0.1585 275.21)",
-      "ratio": "3.99 -> 4.51",
+      "oklch": "oklch(0.5774 0.1985 275.21)",
+      "ratio": "3.99 -> 4.59",
     },
     "selectedSurface": {
       "decision": "derived",
       "from": [],
-      "hex": "#131730",
-      "oklch": "oklch(0.2150 0.0500 275.21)",
+      "hex": "#14182b",
+      "oklch": "oklch(0.2150 0.0375 275.21)",
     },
     "surface": {
       "decision": "role-assignment",
@@ -441,6 +442,7 @@ exports[`messy-mixed > distils to the expected decisions 1`] = `
   "borderWidth": "1px",
   "components": {
     "recipes": [
+      "card: container, pad 20/20, radius md, type base@400 [snapped-scale,snapped-scale,dominant-value,dominant-value,dominant-value]",
       "button.primary: 48px, pad 12/24, radius lg, type xl@600 [snapped-scale,snapped-scale,dominant-value,dominant-value,dominant-value]",
       "button.secondary: 38px, pad 8/16, radius sm, type base@500 [snapped-scale,snapped-scale,dominant-value,dominant-value,dominant-value]",
       "button.ghost: 36px, pad 8/16, radius sm, type base@500 [snapped-scale,snapped-scale,dominant-value,dominant-value,dominant-value]",
@@ -468,9 +470,9 @@ exports[`messy-mixed > distils to the expected decisions 1`] = `
     "primaryForeground on primaryHover = 5.36:1 (floor 4.5) pass",
     "primaryForeground on primaryActive = 6.3:1 (floor 4.5) pass",
     "text on surfaceHover = 11.44:1 (floor 4.5) pass",
-    "text on selectedSurface = 11.77:1 (floor 4.5) pass",
+    "text on selectedSurface = 11.31:1 (floor 4.5) pass",
     "textMuted on surfaceHover = 4.56:1 (floor 4.5) pass",
-    "textMuted on selectedSurface = 4.68:1 (floor 4.5) pass",
+    "textMuted on selectedSurface = 4.5:1 (floor 4.5) pass",
     "disabledForeground on disabledSurface = 3:1 (floor 3) pass",
   ],
   "diagnostics": [
@@ -605,8 +607,8 @@ exports[`messy-mixed > distils to the expected decisions 1`] = `
     "selectedSurface": {
       "decision": "derived",
       "from": [],
-      "hex": "#e8f1ff",
-      "oklch": "oklch(0.9564 0.0500 256.95)",
+      "hex": "#e2edfb",
+      "oklch": "oklch(0.9414 0.0225 256.95)",
     },
     "surface": {
       "decision": "role-assignment",
@@ -641,7 +643,7 @@ exports[`messy-mixed > distils to the expected decisions 1`] = `
       "hex": "#6b6b6b",
       "met": true,
       "oklch": "oklch(0.5280 0.0000 0.00)",
-      "ratio": "2.66 -> 4.56",
+      "ratio": "2.66 -> 4.5",
     },
   },
   "shadow": {
@@ -699,6 +701,7 @@ exports[`stripe-light > distils to the expected decisions 1`] = `
   "borderWidth": "1px",
   "components": {
     "recipes": [
+      "card: container, pad 16/16, radius lg, type base@400 [snapped-scale,snapped-scale,dominant-value,dominant-value,dominant-value]",
       "button.primary: 36px, pad 8/16, radius md, type base@500 [snapped-scale,snapped-scale,dominant-value,dominant-value,dominant-value]",
       "button.secondary: 38px, pad 8/16, radius md, type base@500 [snapped-scale,snapped-scale,dominant-value,dominant-value,dominant-value]",
       "button.ghost: 36px, pad 8/16, radius md, type base@500 [snapped-scale,snapped-scale,dominant-value,dominant-value,dominant-value]",
@@ -717,8 +720,8 @@ exports[`stripe-light > distils to the expected decisions 1`] = `
   "contrast": [
     "text on background = 16.24:1 (floor 4.5) pass",
     "text on surface = 15.37:1 (floor 4.5) pass",
-    "textMuted on background = 5.21:1 (floor 4.5) pass",
-    "textMuted on surface = 4.93:1 (floor 4.5) pass",
+    "textMuted on background = 5.45:1 (floor 4.5) pass",
+    "textMuted on surface = 5.16:1 (floor 4.5) pass",
     "primaryForeground on primary = 4.7:1 (floor 4.5) pass",
     "destructive on background = 4.8:1 (floor 4.5) pass",
     "destructive on surface = 4.55:1 (floor 4.5) pass",
@@ -726,9 +729,9 @@ exports[`stripe-light > distils to the expected decisions 1`] = `
     "primaryForeground on primaryHover = 5.59:1 (floor 4.5) pass",
     "primaryForeground on primaryActive = 6.64:1 (floor 4.5) pass",
     "text on surfaceHover = 14.07:1 (floor 4.5) pass",
-    "text on selectedSurface = 14.46:1 (floor 4.5) pass",
-    "textMuted on surfaceHover = 4.52:1 (floor 4.5) pass",
-    "textMuted on selectedSurface = 4.64:1 (floor 4.5) pass",
+    "text on selectedSurface = 13.71:1 (floor 4.5) pass",
+    "textMuted on surfaceHover = 4.72:1 (floor 4.5) pass",
+    "textMuted on selectedSurface = 4.6:1 (floor 4.5) pass",
     "disabledForeground on disabledSurface = 3.06:1 (floor 3) pass",
   ],
   "diagnostics": [
@@ -833,8 +836,8 @@ exports[`stripe-light > distils to the expected decisions 1`] = `
     "selectedSurface": {
       "decision": "derived",
       "from": [],
-      "hex": "#eff1ff",
-      "oklch": "oklch(0.9607 0.0500 278.29)",
+      "hex": "#e9ebfa",
+      "oklch": "oklch(0.9432 0.0200 278.29)",
     },
     "surface": {
       "decision": "role-assignment",
@@ -864,17 +867,17 @@ exports[`stripe-light > distils to the expected decisions 1`] = `
       "oklch": "oklch(0.2467 0.0444 273.42)",
     },
     "textMuted": {
-      "adjusted": "#697386 -> #636d80",
+      "adjusted": "#697386 -> #606a7d",
       "decision": "role-assignment",
       "from": [
         "stripe-card-panel",
         "stripe-type-body",
         "stripe-type-code",
       ],
-      "hex": "#636d80",
+      "hex": "#606a7d",
       "met": true,
-      "oklch": "oklch(0.5340 0.0320 263.30)",
-      "ratio": "4.14 -> 4.52",
+      "oklch": "oklch(0.5240 0.0320 263.30)",
+      "ratio": "4.03 -> 4.6",
     },
   },
   "shadow": {

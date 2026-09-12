@@ -88,7 +88,7 @@ function summarise(tokens: TokensDocument): unknown {
       // regression this snapshot exists to surface.
       recipes: tokens.components.recipes.map(
         (recipe) =>
-          `${recipe.name}: ${recipe.height.value}px, pad ${recipe.paddingY.value}/${recipe.paddingX.value}, ` +
+          `${recipe.name}: ${recipe.height === undefined ? 'container' : `${recipe.height.value}px`}, pad ${recipe.paddingY.value}/${recipe.paddingX.value}, ` +
           `radius ${recipe.radius.value}, type ${recipe.typeStep.value}@${recipe.fontWeight.value} ` +
           `[${[recipe.paddingY, recipe.paddingX, recipe.radius, recipe.typeStep, recipe.fontWeight]
             .map((token) => token.provenance.decision.strategy)

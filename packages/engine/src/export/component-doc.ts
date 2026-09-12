@@ -422,15 +422,22 @@ function cardDoc(ctx: Context): ComponentDoc {
     if (resolved !== undefined) row.resolved = resolved
     rows.push(row)
   }
-  const largestRadius = (['lg', 'md', 'sm', 'none'] as const).find(
-    (step) => tokens.radius.steps[step] !== undefined,
-  )
-  const padStep = [...tokens.spacing.steps]
-    .filter((step) => step.value.band === 'component')
-    .sort((a, b) => b.value.px - a.value.px)[0]
-
-  if (largestRadius !== undefined) push('radius', `radius.steps.${largestRadius}`)
-  if (padStep !== undefined) push('padding', `spacing.steps.${padStep.value.name}`)
+  // The card is measured now: every capture set records cards, so its padding
+  // and radius are evidence. The composed fallback below is what this page said
+  // in full before that, and it stays for a kit whose captures carry no card.
+  const recipe = ctx.recipe('card')
+  if (recipe === undefined) {
+    const largestRadius = (['lg', 'md', 'sm', 'none'] as const).find(
+      (step) => tokens.radius.steps[step] !== undefined,
+    )
+    const padStep = [...tokens.spacing.steps]
+      .filter((step) => step.value.band === 'component')
+      .sort((a, b) => b.value.px - a.value.px)[0]
+    if (largestRadius !== undefined) push('radius', `radius.steps.${largestRadius}`)
+    if (padStep !== undefined) push('padding', `spacing.steps.${padStep.value.name}`)
+  } else {
+    rows.push(...recipeRows(ctx, 'card'))
+  }
   push('border width', 'border.width')
   if (tokens.shadow.steps.sm !== undefined) push('shadow', 'shadow.steps.sm')
 
@@ -438,7 +445,9 @@ function cardDoc(ctx: Context): ComponentDoc {
     id: 'card',
     title: 'Card',
     summary:
-      'A card is a surface, a border and a radius. The engine emits no card recipe, because no capture measures "a card" — so this one is composed from the scales, and the table below says which steps it uses rather than pretending they were measured.',
+      recipe === undefined
+        ? 'A card is a surface, a border and a radius. Nothing in this kit\'s captures measures a card, so this one is composed from the scales, and the table below says which steps it uses rather than pretending they were measured.'
+        : 'A card is a surface, a border, a radius and a padding — and the padding is the number that sets a page\'s density, so it is stated rather than left to the reader. Captured cards supply it; the table below says so for each value.',
     variants: [
       { id: 'default', label: 'Card', note: 'A titled panel with body copy.' },
       { id: 'actions', label: 'With actions', note: 'Buttons in a row at the foot of the card.' },
@@ -454,7 +463,9 @@ function cardDoc(ctx: Context): ComponentDoc {
     usage: [
       `A card is \`surface\` (${ctx.hex('surface') ?? 'n/a'}) on \`background\` (${ctx.hex('background') ?? 'n/a'}), separated by a ${tokens.border.width.value}px \`border\`.`,
       'Nest smaller radii inside the card, never larger ones. The card is the outer box.',
-      'Pad a card with a component step and separate cards with a layout step. Using one number for both is what makes a page read flat.',
+      recipe === undefined
+        ? 'Pad a card with a component step and separate cards with a layout step. Using one number for both is what makes a page read flat.'
+        : `Pad a card with ${recipe.paddingY.value}px vertically and ${recipe.paddingX.value}px horizontally, and separate cards with a layout step. Using one number for both is what makes a page read flat.`,
     ],
     doNot: [
       'Do not use a shadow in place of the border for separation.',

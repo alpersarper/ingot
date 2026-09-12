@@ -200,6 +200,7 @@ export interface TypographyTokens {
  * scales above.
  */
 export type ComponentRecipeName =
+  | 'card'
   | 'button.primary'
   | 'button.secondary'
   | 'button.ghost'
@@ -234,8 +235,14 @@ export interface ComponentRecipe {
   /** One line on what the recipe is for, written for the consumer. */
   purpose: string
   colors: ComponentColors
-  /** Total border-box height in px: `paddingY x 2 + line box + border x 2`. */
-  height: Token<number>
+  /**
+   * Total border-box height in px: `paddingY x 2 + line box + border x 2`.
+   *
+   * Absent on a container. A card is as tall as what a consumer puts in it, and
+   * a number here would be a measurement of nothing -- the one value in a recipe
+   * that only makes sense for a control wrapped around a single line of text.
+   */
+  height?: Token<number>
   paddingY: Token<number>
   paddingX: Token<number>
   /** Name of the radius step, so the value tracks `radius.steps`. */
