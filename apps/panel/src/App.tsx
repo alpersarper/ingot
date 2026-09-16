@@ -32,10 +32,25 @@ import type {
   CaptureSummary,
   GroupSummary,
   KitPayload,
+  KitSummary,
   PanelSettings,
 } from './lib/api'
 
 type Phase = 'checking' | 'unpaired' | 'ready'
+
+/**
+ * The review scope a kit belongs to.
+ *
+ * Mirrors the server's `reviewScopeOf` (apps/server/src/kit.ts), which wins if
+ * the two ever disagree: a group kit reviews under its group, a library or
+ * selection kit under the library (`null`), and an orphaned group kit -- one
+ * whose group was deleted -- has no review scope at all. `undefined` says
+ * exactly that, rather than quietly filing its decisions under the library.
+ */
+function reviewScopeOfKit(kit: KitSummary): string | null | undefined {
+  if (kit.scope !== 'group') return null
+  return kit.groupId ?? undefined
+}
 
 export function App(): ReactNode {
   const [phase, setPhase] = useState<Phase>('checking')
@@ -98,12 +113,32 @@ export function App(): ReactNode {
    * kit: a slow answer for a scope the user has since left must not land.
    */
   const refreshAssistant = useCallback(
-    async (groupId: string | null, stillWanted: () => boolean = () => true): Promise<void> => {
-      const next = await api.assistant(groupId).catch(() => null)
+    async (scope: string | null | undefined, stillWanted: () => boolean = () => true): Promise<void> => {
+      if (scope === undefined) return
+      const next = await api.assistant(scope).catch(() => null)
       if (stillWanted()) setAssistant(next)
     },
     [],
   )
+
+  /**
+   * The scope every review and assistant write is made against: the kit on
+   * screen, never the browsing scope. A one-off generated from a selection can
+   * sit on screen while a group is still open on the left, and its notice
+   * promises that overrides made on it stand for the library -- so the write
+   * has to land there, not under the group the user happens to be browsing.
+   * Resetting the browsing scope to make the two agree would instead yank the
+   * user out of the group they were looking at, which is its own small
+   * dishonesty. Before a kit exists, the browsing scope is the only scope
+   * there is.
+   */
+  const reviewScope = kit === null ? selectedGroupId : reviewScopeOfKit(kit.kit)
+
+  /** A write with no scope to land in is refused loudly rather than misfiled. */
+  function requireReviewScope(): string | null {
+    if (reviewScope !== undefined) return reviewScope
+    throw new Error("This kit's group was deleted, so it has no review scope for this decision to land in.")
+  }
 
   /**
    * The library list: the count behind "Whole library", the groups, and how many
@@ -225,8 +260,13 @@ export function App(): ReactNode {
     setGenerating(true)
     setKitError(null)
     try {
-      setKit(await run())
+      const payload = await run()
+      setKit(payload)
       await refreshLibrary()
+      // The kit that just landed decides which scope the assistant tab is
+      // about: a one-off's proposals are the library's, whatever group is
+      // open on the left.
+      await refreshAssistant(reviewScopeOfKit(payload.kit))
     } catch (error) {
       setKitError(handle(error))
     } finally {
@@ -239,17 +279,34 @@ export function App(): ReactNode {
    *
    * Every one of these moves rows the three columns are drawn from, so they all
    * end the same way: ask the server again rather than patch a local copy. The
-   * panel is never the authority on what the library contains.
+   * panel is never the authority on what the library contains. The action
+   * answers with the scope it left the panel in: when it moved the selection,
+   * the scope-change effect owns the reload, and re-reading the old scope here
+   * would race it -- whichever response landed last would win. The reload runs
+   * on failure too, because a half-finished action has already changed the
+   * library, and the ticked ids are pruned to the rows that still exist for
+   * the same reason: the column reports what actually survived.
    */
-  async function runCuration(action: () => Promise<void>): Promise<void> {
+  async function runCuration(action: () => Promise<string | null>): Promise<void> {
     setCurating(true)
     setCurationError(null)
+    let scope = selectedGroupId
+    let failed = false
     try {
-      await action()
-      await refreshLibrary()
-      setCaptures(await api.captures(selectedGroupId ?? undefined))
+      scope = await action()
     } catch (error) {
+      failed = true
       setCurationError(handle(error))
+    }
+    try {
+      await refreshLibrary()
+      if (scope === selectedGroupId) {
+        const survivors = await api.captures(scope ?? undefined)
+        setCaptures(survivors)
+        setSelectedIds((current) => current.filter((id) => survivors.some((capture) => capture.id === id)))
+      }
+    } catch (error) {
+      if (!failed) setCurationError(handle(error))
     } finally {
       setCurating(false)
     }
@@ -276,6 +333,7 @@ export function App(): ReactNode {
       await api.addToGroup(groupId, ids)
       // Land in what was just curated: it is the thing the user made.
       setSelectedGroupId(groupId)
+      return groupId
     })
   }
 
@@ -285,31 +343,38 @@ export function App(): ReactNode {
    * There is no bulk endpoint on purpose: `DELETE /api/captures/:id` is the
    * contract the extension is being built against, and a second way to remove a
    * capture would be a second place for the screenshot cleanup to be forgotten.
-   * A partial failure stops at the first one and says so -- with the rest still
-   * there, which is recoverable, rather than continuing blind.
+   * A partial failure stops at the first bad request and says so -- and the
+   * lists are re-read either way, because the deletes before it have already
+   * landed: the column has to report what survived, not what it remembered.
    */
   async function onDeleteCaptures(captureIds: readonly string[]): Promise<void> {
     await runCuration(async () => {
-      for (const id of captureIds) await api.deleteCapture(id)
-      setSelectedIds((current) => current.filter((id) => !captureIds.includes(id)))
-      // The kit on screen was distilled from evidence that has just changed.
-      // Re-reading the scope's latest is how the panel avoids claiming a kit
-      // covers captures that are gone.
-      setKit(await api.latestKit(selectedGroupId))
+      try {
+        for (const id of captureIds) await api.deleteCapture(id)
+      } finally {
+        // The kit on screen was distilled from evidence that has just changed,
+        // on the failure path too. Re-reading the scope's latest is how the
+        // panel avoids claiming a kit covers captures that are gone.
+        setKit(await api.latestKit(selectedGroupId))
+      }
+      return selectedGroupId
     })
   }
 
   async function onRenameGroup(groupId: string, name: string): Promise<void> {
     await runCuration(async () => {
       await api.renameGroup(groupId, name)
+      return selectedGroupId
     })
   }
 
   async function onDeleteGroup(groupId: string): Promise<void> {
     await runCuration(async () => {
       await api.deleteGroup(groupId)
+      if (selectedGroupId !== groupId) return selectedGroupId
       // The scope the user was in no longer exists; the library always does.
-      if (selectedGroupId === groupId) setSelectedGroupId(null)
+      setSelectedGroupId(null)
+      return null
     })
   }
 
@@ -322,6 +387,7 @@ export function App(): ReactNode {
       setAssistant(null)
       setSelectedGroupId(null)
       setCaptures([])
+      return null
     })
   }
 
@@ -389,8 +455,9 @@ export function App(): ReactNode {
    * because a suggestion is not a value.
    */
   async function onSuggest(capability: 'derive' | 'merge'): Promise<void> {
-    await api.suggest(selectedGroupId, capability)
-    await refreshAssistant(selectedGroupId)
+    const scope = requireReviewScope()
+    await api.suggest(scope, capability)
+    await refreshAssistant(scope)
   }
 
   /**
@@ -403,8 +470,9 @@ export function App(): ReactNode {
    */
   async function onAcceptProposal(id: string): Promise<void> {
     await runReview(async () => {
-      const result = await api.acceptProposal(selectedGroupId, id)
-      await refreshAssistant(selectedGroupId)
+      const scope = requireReviewScope()
+      const result = await api.acceptProposal(scope, id)
+      await refreshAssistant(scope)
       return result
     })
   }
@@ -412,8 +480,9 @@ export function App(): ReactNode {
   async function onDismissProposal(id: string): Promise<void> {
     setReviewing(true)
     try {
-      await api.dismissProposal(selectedGroupId, id)
-      await refreshAssistant(selectedGroupId)
+      const scope = requireReviewScope()
+      await api.dismissProposal(scope, id)
+      await refreshAssistant(scope)
     } catch (error) {
       setKitError(handle(error))
     } finally {
@@ -450,7 +519,7 @@ export function App(): ReactNode {
           try {
             await api.saveLlmKey(key)
             setSettings(await api.settings())
-            await refreshAssistant(selectedGroupId)
+            await refreshAssistant(reviewScope)
           } catch (error) {
             // handle() routes a 401 back to pairing; the message goes to the
             // topbar so the failure is visible where the user typed the key.
@@ -526,26 +595,26 @@ export function App(): ReactNode {
             onDownloadComponent={(component) => void onDownloadComponent(component)}
             onDownloadDocs={() => void onDownloadDocs()}
             onOverride={(path, value, note) =>
-              void runReview(() => api.setOverride(selectedGroupId, path, value, note))
+              void runReview(() => api.setOverride(requireReviewScope(), path, value, note))
             }
-            onClearOverride={(path) => void runReview(() => api.clearOverride(selectedGroupId, path))}
-            onDecide={(cardId, state) => void runReview(() => api.setDecision(selectedGroupId, cardId, state))}
+            onClearOverride={(path) => void runReview(() => api.clearOverride(requireReviewScope(), path))}
+            onDecide={(cardId, state) => void runReview(() => api.setDecision(requireReviewScope(), cardId, state))}
             assistant={assistant}
             onSuggest={onSuggest}
             onAcceptProposal={(id) => void onAcceptProposal(id)}
             onDismissProposal={(id) => void onDismissProposal(id)}
-            onAsk={(question: string): Promise<AssistantAnswer> => api.ask(selectedGroupId, question)}
-            onName={(): Promise<AssistantNaming> => api.nameKit(selectedGroupId)}
-            onDraftReason={(path: string): Promise<string> => api.draftRationale(selectedGroupId, path)}
+            onAsk={async (question: string): Promise<AssistantAnswer> => api.ask(requireReviewScope(), question)}
+            onName={async (): Promise<AssistantNaming> => api.nameKit(requireReviewScope())}
+            onDraftReason={async (path: string): Promise<string> => api.draftRationale(requireReviewScope(), path)}
             onSaveLlmKey={async (key) => {
               await api.saveLlmKey(key)
               setSettings(await api.settings().catch(() => null))
-              await refreshAssistant(selectedGroupId)
+              await refreshAssistant(reviewScope)
             }}
             onSaveLlmModel={async (model) => {
               await api.saveLlmModel(model)
               setSettings(await api.settings().catch(() => null))
-              await refreshAssistant(selectedGroupId)
+              await refreshAssistant(reviewScope)
             }}
           />
         </aside>

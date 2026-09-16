@@ -183,6 +183,42 @@ describe('generating from a selection', () => {
     expect(kit.captureIds).toEqual(['ghost-btn-primary', 'ghost-input-email', 'ghost-card-post', 'ghost-type-page-title'])
   })
 
+  it('files an override made on a one-off under the library, even while a group is still open', async () => {
+    const user = userEvent.setup()
+    await reachTheLibrary(user)
+
+    // The group scope has a kit of its own, so a misfiled write would have a
+    // real document to land on rather than failing loudly.
+    const system = screen.getByRole('complementary', { name: 'System' })
+    await user.click(within(system).getByRole('button', { name: /Generate kit/ }))
+    await waitFor(() => expect(screen.getByLabelText('Live preview').querySelector('.kit-surface')).toBeTruthy())
+
+    await select(user, 'ghost-btn-primary', 'ghost-card-post', 'ghost-input-email', 'ghost-type-page-title')
+    await user.click(screen.getByRole('button', { name: 'Generate from selection' }))
+    expect(await within(system).findByText(/One-off kit/)).toBeTruthy()
+
+    await user.click(within(system).getByRole('tab', { name: 'Tokens' }))
+    await user.click(within(system).getByTitle('Override radius.steps.md'))
+    fireEvent.change(within(system).getByLabelText('New value for radius.steps.md'), { target: { value: '10px' } })
+    await user.click(within(system).getByRole('button', { name: 'Override' }))
+
+    // The write lands where the one-off's notice says it does: on the
+    // library's review state, not on the group still open on the left.
+    await waitFor(async () =>
+      expect(await harness.store.reviews.overrides(null)).toEqual([
+        expect.objectContaining({ path: 'radius.steps.md', value: '10px' }),
+      ]),
+    )
+    const { groups } = await harness.json<{ groups: Array<{ id: string }> }>('/api/groups')
+    const groupId = groups[0]?.id
+    if (groupId === undefined) throw new Error('the imported group is missing')
+    expect(await harness.store.reviews.overrides(groupId)).toEqual([])
+
+    // ...and the kit on screen is still the one-off, not the group's kit
+    // quietly swapped in by the write's response.
+    expect(within(system).getByText(/One-off kit/)).toBeTruthy()
+  })
+
   it('offers the generate button in the empty middle column, where the user is looking', async () => {
     const user = userEvent.setup()
     await reachTheLibrary(user)
