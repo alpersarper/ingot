@@ -56,7 +56,16 @@ export function App(): ReactNode {
   const [phase, setPhase] = useState<Phase>('checking')
   const [settings, setSettings] = useState<PanelSettings | null>(null)
   const [groups, setGroups] = useState<GroupSummary[]>([])
-  const [libraryCount, setLibraryCount] = useState(0)
+  /**
+   * Every capture id the library currently holds, whatever scope is open.
+   *
+   * The ids rather than a count, because the kit on screen may have been
+   * distilled from evidence that has since been deleted, and saying so takes
+   * comparing its own captureIds against what actually still exists -- the
+   * whole pool, not the open scope's filtered list, which would report
+   * deletions that never happened whenever a group is open.
+   */
+  const [libraryCaptureIds, setLibraryCaptureIds] = useState<ReadonlySet<string>>(new Set())
   const [captures, setCaptures] = useState<CaptureSummary[]>([])
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
   /**
@@ -148,7 +157,7 @@ export function App(): ReactNode {
   const refreshLibrary = useCallback(async (): Promise<void> => {
     const [nextGroups, allCaptures, allKits] = await Promise.all([api.groups(), api.captures(), api.kits()])
     setGroups(nextGroups)
-    setLibraryCount(allCaptures.length)
+    setLibraryCaptureIds(new Set(allCaptures.map((capture) => capture.id)))
     const counts: Record<string, number> = {}
     for (const kit of allKits) {
       if (kit.groupId !== null) counts[kit.groupId] = (counts[kit.groupId] ?? 0) + 1
@@ -349,14 +358,14 @@ export function App(): ReactNode {
    */
   async function onDeleteCaptures(captureIds: readonly string[]): Promise<void> {
     await runCuration(async () => {
-      try {
-        for (const id of captureIds) await api.deleteCapture(id)
-      } finally {
-        // The kit on screen was distilled from evidence that has just changed,
-        // on the failure path too. Re-reading the scope's latest is how the
-        // panel avoids claiming a kit covers captures that are gone.
-        setKit(await api.latestKit(selectedGroupId))
-      }
+      for (const id of captureIds) await api.deleteCapture(id)
+      // The kit on screen stays exactly as it is. A kit is a snapshot of the
+      // evidence at the moment it was distilled and kit history is append-only,
+      // so it legitimately outlives the captures that fed it -- and re-reading
+      // the browsing scope's latest to decide what to display is how a one-off
+      // silently vanished, swapped for that scope's kit or for the empty state
+      // when it had none. Deleted contributing captures are stated instead: the
+      // System panel notes them, from the kit's own ids against the library's.
       return selectedGroupId
     })
   }
@@ -511,6 +520,11 @@ export function App(): ReactNode {
 
   const scopeLabel = selectedGroupId === null ? 'the whole library' : (groupName(groups, selectedGroupId) ?? 'this group')
 
+  // How many of the on-screen kit's contributing captures no longer exist.
+  // Judged against the whole library, never the open scope's filtered list.
+  const deletedCaptureCount =
+    kit === null ? 0 : kit.kit.captureIds.filter((id) => !libraryCaptureIds.has(id)).length
+
   return (
     <div className="flex h-full flex-col">
       <Topbar
@@ -535,7 +549,7 @@ export function App(): ReactNode {
             groups={groups}
             captures={captures}
             selectedGroupId={selectedGroupId}
-            libraryCaptureCount={libraryCount}
+            libraryCaptureCount={libraryCaptureIds.size}
             kitsByGroup={kitsByGroup}
             importing={importing}
             importError={importError}
@@ -587,6 +601,7 @@ export function App(): ReactNode {
             review={kit?.review ?? null}
             scopeLabel={scopeLabel}
             captureCount={captures.length}
+            deletedCaptureCount={deletedCaptureCount}
             generating={generating}
             busy={reviewing}
             error={kitError}

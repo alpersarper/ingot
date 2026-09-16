@@ -82,6 +82,13 @@ export interface SystemPanelProps {
   review: ReviewState | null
   scopeLabel: string
   captureCount: number
+  /**
+   * How many of the on-screen kit's contributing captures have since been
+   * deleted from the library. Part of the kit's identity, not a warning: the
+   * kit is an append-only snapshot and stays valid and downloadable -- the
+   * note only keeps its provenance honest.
+   */
+  deletedCaptureCount: number
   generating: boolean
   busy: boolean
   error: string | null
@@ -117,7 +124,8 @@ export interface SystemPanelProps {
 }
 
 export function SystemPanel(props: SystemPanelProps): ReactNode {
-  const { kit, tokens, review, assistant, scopeLabel, captureCount, generating, error, onGenerate } = props
+  const { kit, tokens, review, assistant, scopeLabel, captureCount, deletedCaptureCount, generating, error, onGenerate } =
+    props
   const [tab, setTab] = useState<Tab>('review')
 
   const cards = useMemo(() => {
@@ -145,6 +153,16 @@ export function SystemPanel(props: SystemPanelProps): ReactNode {
       </header>
 
       {kit?.scope === 'selection' ? <SelectionKitNotice kit={kit} /> : null}
+
+      {kit !== null && deletedCaptureCount > 0 ? (
+        <p className="border-b border-border bg-muted/40 px-4 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
+          {deletedCaptureCount === 1
+            ? 'One contributing capture was'
+            : `${deletedCaptureCount} contributing captures were`}{' '}
+          deleted since this kit was generated. The kit keeps its evidence; regenerate for one without{' '}
+          {deletedCaptureCount === 1 ? 'it' : 'them'}.
+        </p>
+      ) : null}
 
       {error === null ? null : (
         <p className="border-b border-border px-4 py-3 text-xs text-destructive" role="alert">

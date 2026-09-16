@@ -484,6 +484,13 @@ describe('kit generation from a selection', () => {
 
     const both = await harness.call('/api/kits', body({ captureIds: ids, groupId: groups[0]?.id }))
     expect(both.status).toBe(400)
+
+    // The library aliases are still a groupId: naming the scope next to a
+    // selection is refused before the alias is folded into "no group".
+    for (const alias of ['library', '']) {
+      const aliased = await harness.call('/api/kits', body({ captureIds: ids, groupId: alias }))
+      expect(aliased.status, JSON.stringify(alias)).toBe(400)
+    }
   })
 })
 

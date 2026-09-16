@@ -75,9 +75,12 @@ async function runGeneration(context: AppContext, target: KitTarget): Promise<Ki
  */
 function targetFrom(body: Record<string, unknown>): KitTarget {
   const captureIds = optionalStringArray(body, 'captureIds')
-  const groupId = scopeFrom(optionalNullableString(body, 'groupId'))
-  if (captureIds === undefined) return targetFor(groupId)
-  if (groupId !== null) {
+  const groupId = optionalNullableString(body, 'groupId')
+  if (captureIds === undefined) return targetFor(scopeFrom(groupId))
+  // The refusal is about the key being sent at all, before `scopeFrom` folds
+  // the library aliases into null: `groupId: "library"` alongside a selection
+  // is still two answers to what the kit is.
+  if (groupId !== undefined) {
     throw ApiError.badRequest('send captureIds or groupId, not both; a selection is already a set of captures')
   }
   return { kind: 'selection', captureIds }

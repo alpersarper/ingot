@@ -175,6 +175,14 @@ stay and its kits are kept as orphans; deleting captures says the kits already
 generated keep their evidence; "Start over" makes the user type the word the API
 itself insists on, and is the only path in the product that destroys a kit.
 
+Deleting captures also never touches the kit on display. A kit is an append-only
+snapshot of the evidence at the moment it was distilled, so it legitimately
+outlives the captures that fed it; re-reading the browsing scope's latest to
+decide what to show is how a one-off would silently vanish. When a displayed
+kit's contributing captures have since been deleted, the System column says so
+in one quiet line -- a note about provenance, not a warning: the kit stays
+valid and downloadable, and regenerating is how a reader gets one without them.
+
 ### The review loop
 
 The right column is the product, not a settings page. It has four tabs:

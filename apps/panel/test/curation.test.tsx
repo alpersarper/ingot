@@ -251,6 +251,39 @@ describe('deleting', () => {
     expect(await harness.store.captures.get('ghost-card-callout')).toBeNull()
   })
 
+  it('keeps the on-screen kit through a delete, and quietly notes deleted evidence', async () => {
+    const user = userEvent.setup()
+    await reachTheLibrary(user)
+
+    // A one-off on screen while the imported group is still open on the left:
+    // the exact shape in which the old re-read swapped or blanked the kit.
+    await select(user, 'ghost-btn-primary', 'ghost-card-post', 'ghost-input-email', 'ghost-type-page-title')
+    await user.click(screen.getByRole('button', { name: 'Generate from selection' }))
+    const system = screen.getByRole('complementary', { name: 'System' })
+    expect(await within(system).findByText(/One-off kit/)).toBeTruthy()
+
+    // Deleting a capture that did not feed the kit changes nothing about it.
+    await user.click(screen.getByLabelText('Delete ghost-card-callout'))
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete capture' }))
+    await waitFor(() => expect(screen.queryByText('ghost-card-callout')).toBeNull())
+    expect(within(system).getByText(/One-off kit/)).toBeTruthy()
+    expect(screen.getByLabelText('Live preview').querySelector('.kit-surface')).toBeTruthy()
+    expect(within(system).queryByText(/deleted since this kit was generated/)).toBeNull()
+
+    // Deleting a contributing capture leaves the kit exactly as it is -- the
+    // group scope has no kit of its own, so the old behaviour blanked the
+    // middle column here -- and the kit says what is gone.
+    await user.click(screen.getByLabelText('Delete ghost-btn-primary'))
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete capture' }))
+    await waitFor(() => expect(screen.queryByText('ghost-btn-primary')).toBeNull())
+    expect(within(system).getByText(/One-off kit/)).toBeTruthy()
+    expect(within(system).getByText(/4 selected captures/)).toBeTruthy()
+    expect(screen.getByLabelText('Live preview').querySelector('.kit-surface')).toBeTruthy()
+    await waitFor(() =>
+      expect(within(system).getByText(/One contributing capture was deleted since this kit was generated/)).toBeTruthy(),
+    )
+  })
+
   it('deletes a whole selection behind one confirmation', async () => {
     const user = userEvent.setup()
     await reachTheLibrary(user)
