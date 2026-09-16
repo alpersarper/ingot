@@ -25,6 +25,10 @@ history owns the chronology.
 
 - **Capture is reference-grade** — screenshot, computed styles, URL — never
   reproduction-grade. Forbids DOM cloning or anything aiming at pixel replay.
+  The extension reads `getComputedStyle` on the one picked element and nothing
+  else: no markup, no text, no stylesheets, no attributes beyond `role` and an
+  input's `type`. Even the capture id's input — tag names and sibling positions
+  — is hashed before it travels.
 - **Deterministic engine first; LLM only for judgment** (naming, suggestions,
   rationale, Q&A). The engine stays pure and byte-identical; see AGENTS.md.
 - **Four component types** (button, card, input, typography) until v1 ships. A
@@ -70,14 +74,26 @@ history owns the chronology.
 
 - **pnpm monorepo:** `packages/engine` (pure core), `apps/server` (Node/TS,
   SQLite behind a storage interface, images on disk), `apps/panel` (React + Vite
-  + Tailwind + shadcn). One container, one port (4310), one volume.
+  + Tailwind + shadcn), `apps/extension` (MV3, esbuild, no framework). One
+  container, one port (4310), one volume; the extension is not in the image.
 - **Storage is an interface, not SQLite.** Postgres later must be an adapter
   swap plus contract-suite cases — never a call-site change. See
   [docs/storage.md](docs/storage.md).
-- **The extension (phase 3, unbuilt) pairs over a configurable server address
-  with a pairing token** and buffers captures in-extension while the panel is
-  down. Forbids assuming co-location or a fixed origin.
+- **The extension pairs over a configurable server address with a pairing
+  token** and buffers captures in-extension while the panel is down. Forbids
+  assuming co-location or a fixed origin. Built in `apps/extension` as an app
+  rather than a package: it ships to a browser and nothing imports it.
 - **Build order: core → panel → extension last.**
+- **The extension's own origin is on the CORS allowlist, pinned by name.**
+  Chrome sends `Origin: chrome-extension://<id>` on every request an MV3 service
+  worker makes — measured, not assumed — so the extension is a cross-origin
+  caller and the lock would otherwise refuse it. The id is fixed by a public key
+  pinned in the manifest and named as one constant in `apps/server/src/cors.ts`.
+  Refusing it would protect nothing: a page cannot forge an extension origin,
+  and an extension could rewrite its own header, so the pairing token is the
+  guard there as it is for `curl`. Forbids allowing `chrome-extension://` as a
+  class, and forbids the constant and the manifest drifting apart — a test
+  derives one from the other.
 
 ## Security & keys
 

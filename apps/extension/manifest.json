@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "Ingot capture",
+  "version": "0.1.0",
+  "description": "Pick a UI component while browsing and send it to your Ingot panel as a capture record.",
+  "minimum_chrome_version": "116",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAweeMQ92sG+nFDDDs2BQ6o4Qjbp6xSmjKXsCUGvg6RfsBK5T+/66UB7rl0VSvfNHnD/HM3vNqXE49KY8mTg+JA1PHHqoy7cgYNHrZqGNxn+AUf+2IYe4rrqoDMprXUmB9jQ97NWFt1FnPDSw8fC6H1sotJwlIZ7/4dpaanQHKtK/w+eWwllTsJ3nPnj53HrvWJTIHPZ50EXtmxoVPhhnNZv1R9JAT5vDbd4Sg4E9tFysz7+gRt9uOAiduhzcc8aDtJpe+q+0TQhowQIdat/Zg0JOpEkBXM8qRu77wYkEy14YGJe0NhvOiVlcX2/PL3p4EcigLfL9hDktbg5lGGKwsDQIDAQAB",
+  "action": {
+    "default_title": "Ingot: pick a component (click to toggle)",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "options_page": "options.html",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "http://localhost:4310/*"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ]
+}

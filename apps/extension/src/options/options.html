@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ingot capture -- settings</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Ingot capture</h1>
+        <p class="lede">
+          Pick a component while browsing; it is sent to your panel as a capture record. Nothing else on the page is
+          read, and nothing goes anywhere but the address below.
+        </p>
+      </header>
+
+      <section>
+        <h2>Panel</h2>
+        <form id="settings">
+          <label for="panelUrl">Panel address</label>
+          <input id="panelUrl" name="panelUrl" type="url" spellcheck="false" placeholder="http://localhost:4310" />
+          <p class="help">
+            Where your panel server is listening. Anything other than the default needs one permission grant, which
+            Chrome asks for when you save.
+          </p>
+
+          <label for="token">Pairing token</label>
+          <input id="token" name="token" type="password" spellcheck="false" autocomplete="off" />
+          <p class="help">
+            Printed by the server on first start, and in <code>pairing-token.txt</code> on the panel's data volume. It
+            is stored on this machine only -- never in your Chrome profile sync.
+          </p>
+
+          <div class="row">
+            <button type="submit" class="primary">Save</button>
+            <button type="button" id="test">Test connection</button>
+            <span id="settingsStatus" class="status" role="status"></span>
+          </div>
+        </form>
+      </section>
+
+      <section>
+        <h2>Buffer</h2>
+        <p class="help">
+          Captures are queued here first and sent in the order they were taken. When the panel is unreachable they wait
+          -- across a browser restart -- and the toolbar badge shows how many.
+        </p>
+        <p class="counts"><strong id="pending">0</strong> waiting</p>
+        <p id="queueError" class="error" hidden></p>
+        <div class="row">
+          <button type="button" id="sync" class="primary">Sync now</button>
+          <span id="syncStatus" class="status" role="status"></span>
+        </div>
+      </section>
+
+      <section id="rejectedSection" hidden>
+        <h2>Refused by the panel</h2>
+        <p class="help">
+          These captures were answered with an error the panel will give again, so they were set aside rather than left
+          to block everything behind them.
+        </p>
+        <ul id="rejected"></ul>
+        <div class="row"><button type="button" id="clearRejected">Discard these</button></div>
+      </section>
+
+      <section>
+        <h2>What this extension reads and sends</h2>
+        <ul class="plain">
+          <li>
+            <strong>Reads</strong> the computed style values of the one element you click, its size and position, and
+            the page URL. Never the page's markup, text, stylesheets, cookies or storage.
+          </li>
+          <li>
+            <strong>Captures</strong> a screenshot of that element's box, cropped from the visible tab, in the extension
+            itself -- the page never sees the image.
+          </li>
+          <li><strong>Sends</strong> both to the panel address above, and to nothing else. There is no telemetry.</li>
+          <li>
+            <strong>Stores</strong> the panel address, the pairing token and captures still waiting to be sent, all in
+            this browser's local extension storage.
+          </li>
+          <li>
+            <strong>Runs</strong> only on the tab where you clicked the toolbar button, and only from that click
+            onwards.
+          </li>
+        </ul>
+      </section>
+    </main>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

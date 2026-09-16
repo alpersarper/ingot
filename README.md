@@ -15,14 +15,15 @@ the workbench that stands on it: a local web app in Docker where you import
 captures, generate a kit, review every decision the engine made, override the
 ones you disagree with, and watch the preview, the docs and every export turn
 together -- with an LLM assistant in the right column that proposes names, fills
-gaps and spots duplicates, and can never write a token. The browser extension is
-**not** here yet -- see
-[docs/panel.md](docs/panel.md#deliberately-not-built-yet).
+gaps and spots duplicates, and can never write a token. And in front of it, the
+Chrome extension that fills the library: pick a component on any page and it
+arrives in the panel with its screenshot.
 
 ```
 packages/engine/   the distillation core -- pure, no DOM, no I/O, no network
 apps/server/       panel server: storage behind an interface, API, engine host
 apps/panel/        the workbench UI -- React, Vite, Tailwind, shadcn conventions
+apps/extension/    the Chrome capture extension -- MV3, no framework, loads unpacked
 fixtures/          four hand-authored capture sets standing in for real captures
 examples/          generated tokens.json + design.md, committed as evidence
 schemas/           normative JSON Schema for both formats
@@ -56,6 +57,25 @@ what you changed and what the engine had chosen.
 
 One container, one port, one volume (`/data`: the database, screenshots and the
 pairing token).
+
+### The extension
+
+```bash
+pnpm build:extension
+```
+
+Then **chrome://extensions** -> **Developer mode** -> **Load unpacked** ->
+`apps/extension/dist`. Put the panel address and the pairing token into the
+extension's options page, click the toolbar button on any page, and pick
+components: hover outlines one, click confirms the type, save sends it to the
+panel with a screenshot of its box. With the panel down they queue in the
+browser -- across a restart -- and drain in order when it comes back.
+
+It reads the computed styles of the one element you click and nothing else:
+never the page's markup, text or stylesheets. Capture is reference-grade by
+decision, and the full posture, the permission-by-permission justification and
+the load instructions are in
+[apps/extension/README.md](apps/extension/README.md).
 
 ### The assistant (optional)
 
@@ -103,6 +123,11 @@ one payload goes to the Anthropic API, built in
 - your question, for Q&A;
 - the prompt template for the capability, which is in code and versioned.
 
+The extension is the other part of Ingot that talks to the network, and it talks
+to one address: the panel you configured. What it reads off a page and what it
+sends is written out in
+[apps/extension/README.md](apps/extension/README.md#what-it-reads-and-what-it-sends).
+
 **Never sent:**
 
 - **the API key** -- it is an HTTP header handled by the SDK, and it is not in
@@ -126,7 +151,7 @@ is not a trade you want to make.
 ```bash
 pnpm install
 pnpm dev         # server on :4310, panel on :5173 with /api proxied
-pnpm test        # unit, schema, determinism, storage, API and panel suites
+pnpm test        # unit, schema, determinism, storage, API, panel and extension suites
 pnpm skeleton    # regenerate examples/ from fixtures/
 ```
 
@@ -134,8 +159,9 @@ Requires Node 20+ and pnpm 10.
 
 | Command | What it does |
 | ------- | ------------ |
-| `pnpm dev` | The server and the panel, outside Docker. |
+| `pnpm dev` | The server, the panel, and the extension's watch build, outside Docker. |
 | `pnpm build` | Build the panel, bundle the server. |
+| `pnpm build:extension` | Build the unpacked Chrome extension into `apps/extension/dist`. |
 | `pnpm test` | The whole suite, across engine, server and panel. |
 | `pnpm typecheck` | `tsc --noEmit` across the workspace. |
 | `pnpm skeleton` | Distil every fixture set into `examples/<set>/`. |

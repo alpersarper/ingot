@@ -16,13 +16,18 @@ Two halves: `packages/engine` decides, and the panel (`apps/server` +
 which is the experience rather than an escape hatch. The panel is an ordinary
 web app that currently runs locally in Docker -- [docs/panel.md](docs/panel.md).
 The LLM assistant is a third thing beside those two: it advises, and it is the
-only part of the product that is allowed to be wrong on purpose.
+only part of the product that is allowed to be wrong on purpose. In front of all
+of it, `apps/extension` fills the library: a Chrome MV3 extension that picks one
+component off a page and posts it to the panel's captures API --
+[apps/extension/README.md](apps/extension/README.md).
 
 ## Commands
 
 `pnpm install` (Node 20+, pnpm 10), then `pnpm test`, `pnpm typecheck`,
 `pnpm skeleton`, `pnpm skeleton --check`, `pnpm dev`, `pnpm build`. See the
 table in the README. `docker compose up` runs the whole panel on one port.
+`pnpm build:extension` writes the unpacked extension to `apps/extension/dist`;
+it is deliberately outside `pnpm build`, which builds what goes in the container.
 
 ## Non-negotiables
 
@@ -84,10 +89,28 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
   `apps/server/test/storage-contract.ts` -- the contract suite is written against
   the interface, so adding a `Store` method means adding its cases there in the
   same commit. Rationale: [docs/storage.md](docs/storage.md).
+- **The extension reads one element and sends to one address.** It emits a
+  `CaptureRecord` per `schemas/capture-record.schema.json` and nothing else: no
+  markup, no stylesheets, no text, no attributes beyond `role` and an input's
+  `type`. Its `chrome.storage.local` buffer is what makes a capture survive a
+  panel that is down, and the drain is strictly FIFO --
+  `apps/extension/test/queue.test.ts` walks the whole lifecycle, service-worker
+  eviction included, and `test/record.test.ts` puts the emitted record through
+  both the engine's validator and the published JSON Schema. The four
+  normalisations the browser forces -- percentage radii, variable-font weights,
+  `gap`, phantom border colours -- are in `src/shared/styles.ts` with the
+  reasoning. Everything worth testing is pure by construction: extraction takes
+  a property reader, the type guess takes a flat descriptor, the buffer takes a
+  key-value store, so the suite runs in Node against the values a real browser
+  returns rather than the ones jsdom can fake.
 - **The two guards on the API are the pairing token and the CORS lock.** Every
   route except `/api/health` and `/api/pairing*` requires `x-ingot-token`, and
   the open list in `apps/server/src/routes/pairing.ts` is an allowlist rather
-  than a matter of route registration order. The LLM API key goes in and never
+  than a matter of route registration order. The lock also allows exactly one
+  `chrome-extension://` origin, the extension's, pinned by the public key in its
+  manifest: Chrome sends an `Origin` on every MV3 service-worker request, so
+  without it the extension could not reach the API at all
+  ([DECISIONS.md](DECISIONS.md#architecture)). The LLM API key goes in and never
   comes out: no endpoint returns it, and `apps/server/test/api.test.ts` asserts
   that on the response bodies.
 - **The preview and the docs have no hardcoded values.** Every visual property in
