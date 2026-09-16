@@ -37,6 +37,17 @@
 import { applyOverrides, planOverrideWrite, readTokenValue, tokenSlots } from '@ingot/engine'
 import type { Diagnostic, PristineTokens, TokenOverride, TokensDocument } from '@ingot/engine'
 
+/**
+ * Slots no capability may propose a value for, whatever the engine would do
+ * with it.
+ *
+ * Every other guardrail in this file asks the engine "can this be drawn?".
+ * This one asks a different question -- "is this the assistant's to decide?" --
+ * and the answer is fixed rather than computed, because a consent decision that
+ * arrived as a card a reviewer clicked through is not consent.
+ */
+const NEVER_PROPOSED = new Set(['components.states.error.mode'])
+
 /** A value the model proposed, before the engine has seen it. */
 export interface Candidate {
   path: string
@@ -153,6 +164,20 @@ export function checkProposals(
 
     if (!paths.has(path)) {
       refused.push({ path, value, reason: 'this kit has no such token, so there is nothing to override' })
+      continue
+    }
+
+    // The one slot the assistant may never write. Shipping a kit that cannot
+    // signal an error in colour is an informed-consent decision: it is answered
+    // by a person who was shown the consequence, and a card offering to make it
+    // on their behalf would be exactly the consent this slot exists to obtain.
+    // The prompt says so too; this is the part that is a guarantee.
+    if (NEVER_PROPOSED.has(path)) {
+      refused.push({
+        path,
+        value,
+        reason: 'this is a decision only a person may make; the assistant may propose the error colour itself, never the choice to ship without one',
+      })
       continue
     }
 

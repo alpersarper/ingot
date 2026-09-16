@@ -1,4 +1,4 @@
-# Tokens document schema (version 3)
+# Tokens document schema (version 4)
 
 `tokens.json` is the distilled design system for one capture set. It is
 **stack-agnostic**: nothing in it names Tailwind, shadcn or CSS variables. That
@@ -9,6 +9,13 @@ export target never means changing this shape.
 - Normative machine-readable schema: [`schemas/tokens.schema.json`](../schemas/tokens.schema.json)
 - TypeScript types: [`packages/engine/src/tokens/types.ts`](../packages/engine/src/tokens/types.ts)
 - Worked examples: [`examples/*/tokens.json`](../examples)
+
+Version 4 (engine 0.4.0) added `components.states.error`, which carries the one
+answer the engine may not supply on its own -- how a form signals an invalid
+field -- so a palette with no error colour is a stated question rather than a
+silent omission; the `card` recipe, measured because every capture set records
+cards; and, because a container is as tall as what a consumer puts in it,
+`height` became optional on a recipe.
 
 Version 3 (engine 0.3.0) added the `user-override` provenance strategy and the
 two fields that carry it -- `supersedes` and `note` -- so a value a human set in
@@ -152,8 +159,11 @@ Applying one does three things beyond writing the value:
 - **Re-derives what depended on the value.** Overriding a base colour re-derives
   the interaction shades computed from it -- `primaryHover`, `primaryActive`,
   `selectedSurface` and the disabled pair -- through the engine's own derivation
-  path, holds them to the floors in `color.contrast`, and restates
-  `color.state-collapsed` for the palette that results. A shade the reviewer set
+  path, holds them to the floors in `color.contrast`, respends the state budget
+  on chroma where a floor flattened a shade -- the same rescue the distiller
+  runs, so a palette gets one answer whether it arrived by capture or by
+  override -- and restates `color.state-collapsed` for the palette that
+  results. A shade the reviewer set
   by hand is pinned: it is neither recomputed nor bypassed by the shades below
   it. Without this a kit would ship a blue `primary` whose hover was still the
   old green, under a derivation naming a colour the document no longer holds.
@@ -178,6 +188,14 @@ Applying one does three things beyond writing the value:
 - **Says so out loud.** Every applied override is named in an `override.applied`
   info diagnostic, and `design.md` grows a `## 10. User overrides` section
   listing each value, the engine's own answer, and the reviewer's reason.
+- **Lets a reviewer supply the one thing the engine will not.** `color.roles.destructive`
+  is an overridable slot even where the kit has none, and nominating a colour
+  makes the engine derive `destructiveForeground`, add the contrast pairs it
+  guarantees around a red, and assemble the destructive button -- all through
+  the same functions `distill` uses. `components.states.error.mode` takes the
+  value `acknowledged` and nothing else, because the other two are the engine's
+  own reading of the palette. See [`states`](#states) for the lifecycle that
+  asymmetry produces.
 
 ### Which document answers which question
 
@@ -239,8 +257,8 @@ than the step's font size, which is what the shared record's own `chosen` names.
 
 ```jsonc
 {
-  "schemaVersion": 3,
-  "engine": { "name": "ingot-engine", "version": "0.3.0" },
+  "schemaVersion": 4,
+  "engine": { "name": "ingot-engine", "version": "0.4.0" },
   "source": { /* set id, name, description, capture ids, origins, component-type counts */ },
   "color":      { "mode", "roles", "contrast", "palette" },
   "spacing":    { "baseUnit", "unit", "snappingRule", "layoutRule", "fit", "largestObservedMultiple", "steps" },
@@ -317,9 +335,15 @@ claimed (`"role": null`), with the near-duplicates each cluster absorbed in
     - `surfaceHover` (+/-0.03), `primaryHover` (+/-0.04), `primaryActive`
       (+/-0.08) and `disabledSurface` (+/-0.06) move OKLCH lightness toward the
       viewer -- lighter on dark, darker on light.
-    - `selectedSurface` moves `surface` by 0.02 and carries the **primary hue**
-      at chroma capped to the neutral threshold, so selection reads by hue where
-      hover reads by lightness and the two stay distinguishable side by side.
+    - `selectedSurface` carries the **primary hue** over `surface` at a fixed
+      *rendered* perceptual distance of **0.040** -- the OKLab distance between
+      the two colours a screen actually draws, after the sRGB clamp. Spent on
+      hue first, so selection reads by hue where hover reads by lightness, and
+      on lightness only for a palette whose brand hue has no gamut left at
+      surface lightness to carry the distance on its own. The rule it replaced
+      asked for a fixed *chroma* and let the gamut decide what landed: the same
+      code produced 0.025 on stripe-light and 0.054 on ghost-warm, a whisper on
+      one kit and a highlighter mark on the other.
     - `disabledForeground` interpolates `textMuted` 40% toward `disabledSurface`
       so the control reads inactive, and the contrast floor stops it going
       further.
@@ -387,12 +411,31 @@ works, the adjustment records `"met": false` and a `color.contrast-unmet`
 warning is raised rather than the failure being hidden.
 
 Holding a shade at the floor can consume the whole offset it was derived with.
-When that leaves a shade rendering identically to its base -- linear-dark's
-`primaryHover` and `primaryActive` both land on the same hex, because a white
-label on that indigo has no room to move -- a `color.state-collapsed` diagnostic
-says so, and `design.md` tells the consumer to signal that state with something
-other than the fill. The alternative was two tokens with one value under prose
-claiming they differ.
+linear-dark's `primary` sits within 0.01 lightness of the highest lightness a
+white label clears AA on, so its `primaryHover` and `primaryActive` lifts were
+both walked straight back onto it.
+
+The derivation answers before the diagnostic does. When a state lands under its
+perceptibility floor, the state budget is respent on **chroma** at fixed
+lightness and hue: saturating a fill changes its luminance without touching the
+coordinate the contrast walk is fighting over, so the state becomes visible
+again without reopening a single guaranteed pair. The walk is bounded by every
+floor the shade already carries, and it aims for the separation the derivation
+originally asked for rather than merely clearing the floor.
+
+Perceptibility is measured, not assumed equal-or-not. The test is the rendered
+OKLab distance between the pair, against a floor that depends on the job:
+
+| Pairing | Floor | Why |
+| ------- | ----- | --- |
+| `primaryHover`/`primary`, `primaryActive`/`primary`, `primaryActive`/`primaryHover` | **0.025** | A control fill that does not visibly change under the pointer has no hover state. The three kits a reviewer could see sit at 0.038-0.085; the kit they could not sat at 0.000-0.010. |
+| `surfaceHover`/`surface`, `selectedSurface`/`surface`, `selectedSurface`/`surfaceHover` | **0.015** | A hovered or selected row marks a position rather than announcing a state, and is deliberately quieter. Judging it by the control floor would flood every kit with a note about a state that works. |
+
+`color.state-collapsed` is what remains when the palette really has no chroma
+left to spend, and `design.md` then tells the consumer to signal that state with
+something other than the fill. The alternative was two tokens with one value
+under prose claiming they differ -- and, before the floor replaced an equality
+test, two tokens 1.04:1 apart under prose that said nothing at all.
 
 Every change is recorded on the token as `contrastAdjustment` (before, after,
 both ratios, the delta, and a prose reason), and `color.contrast` reports the
@@ -499,11 +542,18 @@ independent consumers of one kit cannot ship two different control scales.
 
 #### `recipes`
 
-One entry per control, in a fixed order: `button.primary`, `button.secondary`,
-`button.ghost`, `button.destructive` (only when the kit has a destructive
-colour), `input`, `select`, `table.header`, `table.row`, `badge`.
+One entry per control, in a fixed order: `card`, `button.primary`,
+`button.secondary`, `button.ghost`, `button.destructive` (only when the kit has
+a destructive colour), `input`, `select`, `table.header`, `table.row`, `badge`.
 
-Each carries `height`, `paddingY`, `paddingX`, `radius` (a step **name**, so the
+`card` is a **container**, and a container carries no `height`: it is as tall as
+what a consumer puts in it. Its padding is the number that sets a page's
+density, and every capture set records cards, so it is measured rather than left
+for each consumer to invent. No `nav-item` or `field-label` recipe exists,
+because the capture taxonomy has no such type and nothing in a capture set
+implies one -- the page frame stays a stated gap rather than a guessed recipe.
+
+Each carries `height` (except a container), `paddingY`, `paddingX`, `radius` (a step **name**, so the
 value tracks `radius.steps`), `typeStep` (likewise, so size and line height stay
 together), `fontWeight`, and a `colors` object of token paths into
 `color.roles`. `height` is the border-box sum -- `paddingY x 2 + line box +
@@ -526,7 +576,17 @@ per recipe in a `From` column.
 Where derivation is impossible the engine emits a stated default rather than
 silence, because silence is what makes two consumers ship two products. The one
 exception is `button.destructive`, which is omitted when the kit has no
-destructive colour: geometry can be defaulted, a brand decision cannot.
+destructive colour: geometry can be defaulted, a brand decision cannot. That
+absence is no longer a silence either -- see `states.error` below.
+
+The `badge` fill is **chosen** rather than fixed, because a badge is the only
+control that sits on another control's interactive surface: a status pill lives
+in a table row, and that row changes colour under the pointer. The fill is the
+first neutral perceptibly distinct from the row at rest *and* from the row under
+the pointer, which is `background` on every fixture set. Filling it with
+`surfaceHover` -- the row's own hover fill, and what this was -- left every pill
+dissolving into a hovered row, separated only by a 1.2:1 border, with both sides
+prescribed so a consumer could not fix it without leaving the system.
 
 #### `states`
 
@@ -539,6 +599,47 @@ colour.
 also reports the final measured `ratio` and the `floor` it was held to, so the
 pair a consumer would otherwise have built from `opacity: 0.5` is a checked one.
 
+`error` says how a form signals an invalid field, and it is the one state whose
+answer the engine may not supply on its own. Its `mode` is:
+
+| `mode` | Means | Who wrote it |
+| ------ | ----- | ------------ |
+| `color` | The palette carries a `destructive` colour; the state is drawn in it. | the engine |
+| `unresolved` | It does not, and nobody has decided what to do about that. A `color.no-destructive` warning names the consequence: a form built from this kit cannot signal an error in colour. | the engine |
+| `acknowledged` | A reviewer was shown that consequence and chose to ship without a colour. | a person, only |
+
+The engine never writes `acknowledged` and a person may write nothing else, and
+that asymmetry is the whole lifecycle. The acknowledgment is an ordinary
+override on `components.states.error.mode`, so it is durable provenance, it
+survives regeneration, it retires only when the reviewer clears it -- and when a
+later capture set supplies a red, the engine's answer moves to `color` while the
+acknowledgment does not, which the standing conflict machinery reports as an
+`override.conflict` rather than either side being quietly taken.
+
+Being an override is also what answers *who, when and what*. **What** is the
+path, the value and the reviewer's reason, all on the token's own decision, with
+the engine's answer at the time in `supersedes`. **When** is the override row's
+`createdAt`/`updatedAt` in the panel's store -- deliberately not in the exports,
+because a timestamp in `design.md` would break determinism. **Who** is the
+reviewer: the panel is a single-user local workbench with no accounts, so
+`user-override` names the only person there is. A hosted, multi-user Ingot would
+have to put an identity on the row; the seam for it is `OverrideInput`.
+
+The other exit is `color.roles.destructive`, which is offered as an overridable
+slot **even when the kit has none** (its value is then the literal `none`). The
+engine still will not invent a brand colour; a reviewer may supply one, and the
+engine then finishes the job -- `destructiveForeground` by the same
+best-contrast-pole rule `assignRoles` uses, the two contrast pairs, and the
+destructive button assembled by the same function the distiller calls.
+
+`design.md` states whichever is true. `unresolved` keeps the prohibition and
+prescribes nothing, because prescribing a substitute would settle a question the
+reviewer has not. `acknowledged` prescribes the non-colour error language in
+full -- an icon, the kit's emphasis weight, and an explicit `Error: ` prefix --
+so a consuming LLM still renders a usable error state; the field's own
+per-component markdown carries the same. Export is never hard-blocked: the card
+and the kit status simply stay visibly unresolved.
+
 ### `diagnostics`
 
 Notes for the operator, sorted warnings-first then by code. `warning` means a
@@ -549,7 +650,8 @@ is worth knowing. Codes are stable identifiers:
 | ---- | ----- | ------- |
 | `color.contrast-adjusted` | info | A role's lightness or chroma moved to meet its floor. |
 | `color.contrast-unmet` | warning | A pair still fails its floor after every escape hatch. |
-| `color.state-collapsed` | info | Holding a pair at its floor left a derived shade rendering identically to the role it came from. |
+| `color.state-collapsed` | info | Holding a pair at its floor left a derived state too close to its base role to tell apart, and the palette had no chroma left to buy the separation back. |
+| `color.no-destructive` | warning (info once acknowledged) | The palette carries no error colour, so a form built from this kit cannot signal an error in colour. Set `color.roles.destructive`, or acknowledge shipping without one. |
 | `color.unassigned` | info | Captured colours that no role claimed. |
 | `components.defaulted` | info | Controls nothing in the captures or the rest of the kit described; each carries a sanctioned default. |
 | `spacing.low-fit` | warning | No base unit fit well; how much snapping rewrote. |

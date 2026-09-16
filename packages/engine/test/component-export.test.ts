@@ -78,7 +78,7 @@ describe('per-component markdown', () => {
   it('stands alone: geometry, colours, states, rules and a pasteable block', () => {
     const recipe = tokens.components.recipes.find((entry) => entry.name === 'button.primary')
     expect(markdown).toContain('# Button')
-    expect(markdown).toContain(`${recipe?.height.value}px`)
+    expect(markdown).toContain(`${recipe?.height?.value}px`)
     expect(markdown).toContain(`${recipe?.paddingX.value}px`)
     expect(markdown).toContain(tokens.color.roles.primary?.value.hex as string)
     expect(markdown).toContain(tokens.color.roles.primaryForeground?.value.hex as string)

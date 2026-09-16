@@ -1,5 +1,5 @@
 /**
- * The tokens document, version 3.
+ * The tokens document, version 4.
  *
  * Stack-agnostic on purpose: nothing in here mentions Tailwind, shadcn or CSS
  * variables. Target-specific naming lives entirely in the export layer
@@ -11,7 +11,7 @@
 import type { ContrastAdjustment, ContrastPair } from '../color/contrast'
 import type { Provenance } from '../provenance'
 
-export const TOKENS_SCHEMA_VERSION = 3
+export const TOKENS_SCHEMA_VERSION = 4
 
 /** Base shape shared by every token: a value plus why it has that value. */
 export interface Token<TValue> {
@@ -48,6 +48,33 @@ export type ColorRoleName =
   | 'destructiveForeground'
   | 'disabledSurface'
   | 'disabledForeground'
+
+/**
+ * The order roles are emitted in, and the order a reader meets them.
+ *
+ * Fixed rather than alphabetical so the document reads structurally -- page,
+ * then surfaces, then text, then brand. It lives here rather than in the
+ * distiller because the distiller is not the only writer: a reviewer may
+ * nominate the error colour, and a role appended to the end of the object would
+ * put one kit's `destructive` in a different place from every other kit's.
+ */
+export const COLOR_ROLE_ORDER: readonly ColorRoleName[] = [
+  'background',
+  'surface',
+  'surfaceHover',
+  'selectedSurface',
+  'border',
+  'text',
+  'textMuted',
+  'primary',
+  'primaryHover',
+  'primaryActive',
+  'primaryForeground',
+  'destructive',
+  'destructiveForeground',
+  'disabledSurface',
+  'disabledForeground',
+]
 
 export interface ColorValue {
   /** `oklch(L C H)`, the canonical form. */
@@ -200,6 +227,7 @@ export interface TypographyTokens {
  * scales above.
  */
 export type ComponentRecipeName =
+  | 'card'
   | 'button.primary'
   | 'button.secondary'
   | 'button.ghost'
@@ -234,8 +262,14 @@ export interface ComponentRecipe {
   /** One line on what the recipe is for, written for the consumer. */
   purpose: string
   colors: ComponentColors
-  /** Total border-box height in px: `paddingY x 2 + line box + border x 2`. */
-  height: Token<number>
+  /**
+   * Total border-box height in px: `paddingY x 2 + line box + border x 2`.
+   *
+   * Absent on a container. A card is as tall as what a consumer puts in it, and
+   * a number here would be a measurement of nothing -- the one value in a recipe
+   * that only makes sense for a control wrapped around a single line of text.
+   */
+  height?: Token<number>
   paddingY: Token<number>
   paddingX: Token<number>
   /** Name of the radius step, so the value tracks `radius.steps`. */
@@ -255,6 +289,34 @@ export interface FocusRingTokens {
   unit: 'px'
   width: Token<number>
   offset: Token<number>
+}
+
+/**
+ * How a form signals an invalid field in this kit.
+ *
+ * - `color` -- the palette carries a `destructive` colour and error states are
+ *   drawn in it.
+ * - `unresolved` -- it does not, and nobody has decided what to do about that.
+ *   The engine will not invent a brand colour, so the kit says the absence out
+ *   loud and a form built from it cannot signal an error in colour at all.
+ * - `acknowledged` -- a reviewer read that consequence and chose to ship
+ *   without one. Only a person can put the kit in this state; the engine's own
+ *   answer is always `color` or `unresolved`, which is exactly what makes a
+ *   later captured red a *conflict* with a standing acknowledgment rather than
+ *   something that quietly overrides it.
+ *
+ * The mode is a token rather than a fact derived at each surface because it is
+ * overridable, and an override is provenance: who decided, against what the
+ * engine said at the time, with their reason attached.
+ */
+export type ErrorSignalMode = 'color' | 'unresolved' | 'acknowledged'
+
+export interface ErrorStateTokens {
+  mode: Token<ErrorSignalMode>
+  /** Token path of the error colour, or `null` when the kit has none. */
+  color: string | null
+  /** Token path of the label drawn on that colour, or `null`. */
+  foreground: string | null
 }
 
 /** The interaction states a control can be in, beyond hover and pressed. */
@@ -281,6 +343,8 @@ export interface StateTokens {
     /** Token path of the label colour drawn on it. */
     foreground: string
   }
+  /** How a form signals an invalid field. See {@link ErrorStateTokens}. */
+  error: ErrorStateTokens
   focusRing: FocusRingTokens
 }
 

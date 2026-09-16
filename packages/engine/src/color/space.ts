@@ -95,6 +95,24 @@ export function colorDistance(a: Oklch, b: Oklch): number {
   return Math.sqrt((a.l - b.l) ** 2 + (aa - ba) ** 2 + (ab - bb) ** 2)
 }
 
+/**
+ * The colour a screen actually draws for `color`.
+ *
+ * OKLCH can name colours sRGB cannot show, and {@link oklchToHex} clamps them
+ * on the way out. Any question about whether two colours *look* different has
+ * to be asked of the clamped pair: a selected-row tint asked for at chroma 0.05
+ * lands at 0.019 on one palette and 0.050 on another, and a rule calibrated on
+ * the number that was asked for is calibrated on a colour nobody sees.
+ */
+export function renderedColor(color: Oklch): Oklch {
+  return parseColor(oklchToHex(color))?.oklch ?? color
+}
+
+/** {@link colorDistance} between the colours a screen actually draws. */
+export function renderedDistance(a: Oklch, b: Oklch): number {
+  return colorDistance(renderedColor(a), renderedColor(b))
+}
+
 function labAxes(color: Oklch): [number, number] {
   if (color.h === undefined || color.c === 0) return [0, 0]
   const radians = (color.h * Math.PI) / 180
@@ -140,4 +158,9 @@ export function meanColor(colors: ReadonlyArray<{ color: Oklch; weight: number }
 /** Shift lightness by `delta`, clamped to the valid range. */
 export function withLightness(color: Oklch, lightness: number): Oklch {
   return { ...color, l: clamp(lightness, 0, 1) }
+}
+
+/** Replace chroma, clamped to the non-negative range. Hue is untouched. */
+export function withChroma(color: Oklch, chroma: number): Oklch {
+  return { ...color, c: Math.max(chroma, 0) }
 }

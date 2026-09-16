@@ -174,7 +174,7 @@ function valuesTheKitCarries(tokens: TokensDocument): Set<string> {
   px(tokens.components.states.focusRing.width.value)
   px(tokens.components.states.focusRing.offset.value)
   for (const recipe of tokens.components.recipes) {
-    px(recipe.height.value)
+    if (recipe.height !== undefined) px(recipe.height.value)
     px(recipe.paddingY.value)
     px(recipe.paddingX.value)
     values.add(String(recipe.fontWeight.value))

@@ -314,7 +314,8 @@ function cssBlock(tokens: TokensDocument, doc: ComponentDoc): string[] {
   for (const recipe of recipes) {
     const key = recipe.name.replace(/\./g, '-')
     lines.push(
-      `  --kit-${key}-height: ${recipe.height.value}px;`,
+      // A container has no height; see `ComponentRecipe`.
+      ...(recipe.height === undefined ? [] : [`  --kit-${key}-height: ${recipe.height.value}px;`]),
       `  --kit-${key}-padding-y: ${recipe.paddingY.value}px;`,
       `  --kit-${key}-padding-x: ${recipe.paddingX.value}px;`,
       `  --kit-${key}-radius: var(--kit-radius-${recipe.radius.value});`,

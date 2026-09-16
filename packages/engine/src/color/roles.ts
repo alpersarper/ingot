@@ -18,7 +18,7 @@ import { byNumber, byString, chain } from '../util/sort'
 import { clamp, round } from '../util/num'
 import type { ColorCluster } from './cluster'
 import type { Oklch } from './space'
-import { contrastRatio, oklchToHex, withLightness } from './space'
+import { contrastRatio, oklchToHex, renderedDistance, withChroma, withLightness } from './space'
 import type { ColorRoleName } from '../tokens/types'
 
 /**
@@ -437,20 +437,30 @@ export function assignRoles(clusters: readonly ColorCluster[], mode: Mode): Role
       detail: `saturated red-hued colour (hue ${destructive.oklch.h}, chroma ${destructive.oklch.c}) observed ${destructive.count} time(s)`,
       derivedFrom: [],
     })
-    const white: Oklch = { l: 1, c: 0, h: undefined }
-    const black: Oklch = { l: 0, c: 0, h: undefined }
-    const color =
-      contrastRatio(white, destructive.oklch) >= contrastRatio(black, destructive.oklch) ? white : black
-    push({
-      role: 'destructiveForeground',
-      color,
-      rule: 'best-contrast-pole',
-      detail: `chose ${color.l === 1 ? 'white' : 'black'} for higher contrast on the destructive colour`,
-      derivedFrom: ['destructive'],
-    })
+    push({ ...bestContrastPole(destructive.oklch), role: 'destructiveForeground', derivedFrom: ['destructive'] })
   }
 
   return assignments
+}
+
+/**
+ * The label colour for a fill: whichever gamut pole reads better on it.
+ *
+ * Exported because the distiller is no longer the only caller. A reviewer may
+ * nominate the error colour the engine refused to invent, and the foreground
+ * that goes with it has to be decided the same way in both places -- one rule,
+ * two callers, rather than the override replay growing a second opinion about
+ * what "legible on red" means.
+ */
+export function bestContrastPole(on: Oklch): { color: Oklch; rule: string; detail: string } {
+  const white: Oklch = { l: 1, c: 0, h: undefined }
+  const black: Oklch = { l: 0, c: 0, h: undefined }
+  const color = contrastRatio(white, on) >= contrastRatio(black, on) ? white : black
+  return {
+    color,
+    rule: 'best-contrast-pole',
+    detail: `chose ${color.l === 1 ? 'white' : 'black'} for higher contrast on the destructive colour`,
+  }
 }
 
 /**
@@ -467,14 +477,122 @@ export function assignRoles(clusters: readonly ColorCluster[], mode: Mode): Role
  * warns the consumer) have to agree on which pairings are load-bearing. One
  * owner, two readers.
  */
-export const SHADE_RELATIONS: ReadonlyArray<[ColorRoleName, ColorRoleName]> = [
-  ['primaryHover', 'primary'],
-  ['primaryActive', 'primary'],
-  ['primaryActive', 'primaryHover'],
-  ['surfaceHover', 'surface'],
-  ['selectedSurface', 'surface'],
-  ['selectedSurface', 'surfaceHover'],
+export interface ShadeRelation {
+  shade: ColorRoleName
+  base: ColorRoleName
+  /**
+   * Smallest rendered perceptual distance ({@link renderedDistance}) at which
+   * this pairing still reads as two values rather than one.
+   *
+   * Measured, not guessed. Quality run #2 rendered the four fixture kits and
+   * compared each pair on screen:
+   *
+   * | pairing | stripe-light | ghost-warm | messy-mixed | linear-dark |
+   * | --- | --- | --- | --- | --- |
+   * | primaryHover vs primary   | 0.040 | 0.042 | 0.043 | **0.010** |
+   * | primaryActive vs primary  | 0.079 | 0.080 | 0.085 | **0.010** |
+   * | primaryActive vs hover    | 0.039 | 0.038 | 0.042 | **0.000** |
+   * | surfaceHover vs surface   | 0.030 | 0.030 | 0.030 | 0.031 |
+   * | selectedSurface vs surface| 0.025 | 0.054 | 0.029 | 0.051 |
+   *
+   * The three kits whose primary states a reviewer could see sit at 0.038 and
+   * above; linear-dark, whose default, hover and pressed buttons were
+   * indistinguishable on screen, sits at 0.010 and below. Anything in
+   * 0.02--0.03 separates them, so {@link CONTROL_STATE_SEPARATION_MIN} takes
+   * the middle of that window.
+   *
+   * The ambient surfaces are held to a lower bar on purpose: a hovered row that
+   * cleared the control floor would shout. They are quiet by design and only
+   * `0` is a failure -- {@link AMBIENT_SEPARATION_MIN} is the point below which
+   * a tint stops surviving a real screen.
+   */
+  floor: number
+  /**
+   * Separation the chroma rescue aims to restore when the contrast floor
+   * confiscated the lightness offset this shade was derived on.
+   *
+   * Present only on the pairings a contrast guarantee can actually flatten --
+   * the primary interaction shades, which `DERIVED_PAIRS` moves because their
+   * label is pinned at a gamut pole. The ambient surfaces are never moved by
+   * contrast enforcement (their foregrounds yield instead), so a collapse there
+   * is a fact about the palette rather than a confiscation, and the diagnostic
+   * is the whole answer.
+   */
+  restore?: number
+}
+
+/**
+ * Perceptibility floor for a control's own interaction fills.
+ *
+ * A button that does not visibly change under the pointer has no hover state,
+ * whatever its token set says.
+ */
+export const CONTROL_STATE_SEPARATION_MIN = 0.025
+
+/**
+ * Perceptibility floor for the ambient row and panel tints.
+ *
+ * A hovered or selected row is deliberately quieter than a control: it marks a
+ * position, it does not announce a state.
+ */
+export const AMBIENT_SEPARATION_MIN = 0.015
+
+export const SHADE_RELATIONS: ReadonlyArray<ShadeRelation> = [
+  { shade: 'primaryHover', base: 'primary', floor: CONTROL_STATE_SEPARATION_MIN, restore: 0.04 },
+  { shade: 'primaryActive', base: 'primary', floor: CONTROL_STATE_SEPARATION_MIN, restore: 0.08 },
+  { shade: 'primaryActive', base: 'primaryHover', floor: CONTROL_STATE_SEPARATION_MIN, restore: 0.04 },
+  { shade: 'surfaceHover', base: 'surface', floor: AMBIENT_SEPARATION_MIN },
+  { shade: 'selectedSurface', base: 'surface', floor: AMBIENT_SEPARATION_MIN },
+  { shade: 'selectedSurface', base: 'surfaceHover', floor: AMBIENT_SEPARATION_MIN },
 ]
+
+/**
+ * The pairings that render as one value, given a way to read each role.
+ *
+ * The single owner of the question "is this state visible?". It replaced an
+ * equality test on the two hex strings, which only ever fired on an exact
+ * collision: linear-dark's `primaryHover` (#616dd5) and `primary` (#5e6ad2)
+ * differ by one hex digit and 1.04:1, so the kit shipped a button with three
+ * identical states and said nothing. Perceptibility is the question the
+ * diagnostic was always asking; equality was a proxy that answered it wrong.
+ *
+ * `colorOf` returns `undefined` for a role the kit does not carry, and a
+ * pairing with a missing side is not a collapse.
+ */
+export function collapsedShades(
+  colorOf: (role: ColorRoleName) => Oklch | undefined,
+): CollapsedShade[] {
+  return SHADE_RELATIONS.flatMap((relation) => {
+    const shade = colorOf(relation.shade)
+    const base = colorOf(relation.base)
+    if (shade === undefined || base === undefined) return []
+    const distance = round(renderedDistance(shade, base), 4)
+    return distance < relation.floor ? [{ ...relation, distance }] : []
+  })
+}
+
+/** A pairing that failed its floor, with the distance it actually renders at. */
+export interface CollapsedShade extends ShadeRelation {
+  distance: number
+}
+
+/**
+ * The one sentence every surface says about a set of collapsed states.
+ *
+ * `design.md`, the distiller's diagnostic and the override replay's restatement
+ * all say it, so it is written once. It distinguishes "identical" from "too
+ * close to tell apart", because after the chroma rescue the second is the
+ * common case and a kit that called a 1.04:1 difference "the same colour" would
+ * be describing a screen nobody has.
+ */
+export function collapsedShadesSentence(collapsed: readonly CollapsedShade[]): string {
+  return collapsed
+    .map(
+      (entry) =>
+        `${entry.shade} and ${entry.base} ${entry.distance === 0 ? 'are the same colour' : `are ${entry.distance} apart, under the ${entry.floor} a reader can see`}`,
+    )
+    .join('; ')
+}
 
 /**
  * Fraction of the distance from `textMuted` to the disabled fill that the
@@ -485,6 +603,214 @@ export const SHADE_RELATIONS: ReadonlyArray<[ColorRoleName, ColorRoleName]> = [
  * the way toward its own background and is then held at the floor.
  */
 const DISABLED_FOREGROUND_FADE = 0.4
+
+/** Chroma step the state rescue walks in. Matches the contrast walk's own step. */
+const RESCUE_CHROMA_STEP = 0.005
+
+/** Chroma the rescue will not exceed: past this a brand colour stops being one. */
+const RESCUE_CHROMA_MAX = 0.4
+
+/** A contrast guarantee a rescued shade has to keep. */
+export interface SeparationGuard {
+  color: Oklch
+  floor: number
+}
+
+/** One shade the rescue moved, and what the move bought. */
+export interface SeparationRescue {
+  role: ColorRoleName
+  color: Oklch
+  /** Sentence for the assignment's own `detail`, in the same voice as the rest. */
+  detail: string
+}
+
+/**
+ * Buy back a state's visibility on the chroma axis when the contrast floor took
+ * the lightness offset it was derived on.
+ *
+ * This is the derivation half of the collapse fix, and it is preferred to the
+ * diagnostic: telling a consumer "your hover state is invisible, signal it some
+ * other way" is the right answer only once there is genuinely nothing left to
+ * spend. On linear-dark there was. `primary` #5e6ad2 sits within 0.01 lightness
+ * of the highest lightness a white label can clear AA on, so the +0.04 hover
+ * lift and the +0.08 pressed lift were both walked straight back to it -- but
+ * the same hue has room *outwards*, and saturating a fill changes its luminance
+ * without touching the lightness coordinate the contrast walk is fighting over.
+ * Hue never moves: that is the brand.
+ *
+ * The walk is bounded by every guarantee the shade already carries, so a rescue
+ * cannot reopen a contrast pair to close a perceptibility one. `relations` that
+ * remain under their floor afterwards are the palette's real answer, and
+ * `color.state-collapsed` says so.
+ *
+ * Roles are rescued in `SHADE_RELATIONS` order and each sees the moves made
+ * before it, which is what lets `primaryActive` separate from a `primaryHover`
+ * that has itself just moved.
+ *
+ * `pinned` roles are never moved: a shade a reviewer set by hand is theirs, and
+ * the rescue steps aside from it exactly as the shade derivation does.
+ */
+export function restoreStateSeparation(
+  colorOf: (role: ColorRoleName) => Oklch | undefined,
+  guardsOf: (role: ColorRoleName) => readonly SeparationGuard[],
+  pinned?: ReadonlySet<ColorRoleName>,
+): SeparationRescue[] {
+  const moved = new Map<ColorRoleName, Oklch>()
+  const current = (role: ColorRoleName): Oklch | undefined => moved.get(role) ?? colorOf(role)
+  const rescues: SeparationRescue[] = []
+
+  const order: ColorRoleName[] = []
+  for (const relation of SHADE_RELATIONS) {
+    if (relation.restore !== undefined && !order.includes(relation.shade)) order.push(relation.shade)
+  }
+
+  for (const role of order) {
+    if (pinned?.has(role)) continue
+    const start = current(role)
+    if (start === undefined || start.h === undefined) continue
+    const relations = SHADE_RELATIONS.filter(
+      (relation) => relation.shade === role && relation.restore !== undefined,
+    ).flatMap((relation) => {
+      const base = current(relation.base)
+      return base === undefined ? [] : [{ relation, base }]
+    })
+    if (relations.length === 0) continue
+    if (relations.every(({ relation, base }) => renderedDistance(start, base) >= relation.floor)) continue
+
+    const guards = guardsOf(role)
+    const meetsGuards = (color: Oklch): boolean =>
+      guards.every((guard) => contrastRatio(guard.color, color) >= guard.floor)
+    /** How close a candidate comes to every target it has, worst relation first. */
+    const satisfaction = (color: Oklch): number =>
+      Math.min(
+        ...relations.map(({ relation, base }) =>
+          Math.min(renderedDistance(color, base) / (relation.restore ?? relation.floor), 1),
+        ),
+      )
+
+    let best: { color: Oklch; chroma: number; score: number } | undefined
+    for (const direction of [1, -1] as const) {
+      let chroma = start.c
+      for (;;) {
+        const next = round(clamp(chroma + direction * RESCUE_CHROMA_STEP, 0, RESCUE_CHROMA_MAX), 4)
+        if (next === chroma) break
+        chroma = next
+        const color = withChroma(start, chroma)
+        if (!meetsGuards(color)) break
+        const score = satisfaction(color)
+        const better =
+          best === undefined ||
+          score > best.score ||
+          (score === best.score && Math.abs(chroma - start.c) < Math.abs(best.chroma - start.c))
+        if (better) best = { color, chroma, score }
+        if (score >= 1) break
+      }
+    }
+
+    if (best === undefined || best.score <= satisfaction(start)) continue
+    moved.set(role, best.color)
+    const delta = round(best.chroma - start.c, 4)
+    rescues.push({
+      role,
+      color: best.color,
+      detail:
+        `the contrast floor walked the lightness offset back onto ${relations[0]?.relation.base ?? 'its base role'},` +
+        ` so the state budget was spent on chroma instead: ${round(start.c, 4)} -> ${round(best.chroma, 4)}` +
+        ` (${delta > 0 ? '+' : ''}${delta}) at fixed lightness and hue, so the state is visible again`,
+    })
+  }
+
+  return rescues
+}
+
+/**
+ * Rendered perceptual distance the selected-row tint aims for, away from
+ * `surface`.
+ *
+ * The rule this replaced asked for a fixed *chroma* -- `min(primary.c, 0.05)`
+ * -- and let the sRGB gamut decide what actually landed. Quality run #2
+ * measured the result on screen: 0.025 on stripe-light, 0.029 on messy-mixed,
+ * 0.051 on linear-dark, 0.054 on ghost-warm. One rule, a 2.2x spread, and two
+ * opposite verdicts from the same reviewer -- ghost-warm's selected row was
+ * "the loudest thing on the page", stripe-light's was "near-invisible". A light
+ * blue at surface lightness has almost no chroma headroom in sRGB and a light
+ * green has plenty, so the number that was *asked for* was never the number
+ * anybody saw.
+ *
+ * 0.04 is the middle of that measured range, which is what "a sensible mid"
+ * means here: it quiets the two kits that shouted and lifts the two that
+ * whispered, and every kit now lands on it rather than near it.
+ */
+export const SELECTED_SURFACE_SEPARATION = 0.04
+
+/** Search step for the tint. Fine enough to hit the target, coarse enough to stay legible. */
+const TINT_STEP = 0.0025
+
+/**
+ * The selected-row tint: the primary hue over `surface`, at a fixed *rendered*
+ * distance rather than a fixed chroma.
+ *
+ * Two axes, spent in a fixed order, because they say different things. Hue is
+ * spent first -- selection reads by colour where hover reads by lightness, and
+ * that separation is what keeps the two states from becoming one. Lightness is
+ * the top-up, and only for a palette whose brand hue cannot survive far enough
+ * out of the gamut at this lightness to carry the whole distance on its own.
+ *
+ * Both walks stop at the first step that reaches the target, so the tint moves
+ * as little as it has to and the result is a pure function of the two inputs.
+ */
+function selectedTint(
+  surface: Oklch,
+  primary: Oklch,
+  forward: 1 | -1,
+): { color: Oklch; distance: number; spent: string } {
+  const ceiling = Math.min(primary.c, NEUTRAL_CHROMA_MAX)
+  const at = (lightness: number, chroma: number): Oklch => ({
+    l: round(clamp(lightness, 0, 1), 4),
+    c: round(chroma, 4),
+    h: primary.h,
+  })
+
+  const baseLightness = surface.l + forward * 0.02
+  let chroma = 0
+  let best = { color: at(baseLightness, 0), distance: renderedDistance(at(baseLightness, 0), surface) }
+  for (let candidate = TINT_STEP; candidate <= ceiling + 1e-9; candidate = round(candidate + TINT_STEP, 4)) {
+    const color = at(baseLightness, candidate)
+    const distance = renderedDistance(color, surface)
+    if (distance <= best.distance) continue
+    chroma = candidate
+    best = { color, distance }
+    if (distance >= SELECTED_SURFACE_SEPARATION) break
+  }
+
+  if (best.distance >= SELECTED_SURFACE_SEPARATION) {
+    return {
+      color: best.color,
+      distance: best.distance,
+      spent: `on hue alone at chroma ${round(chroma, 4)}`,
+    }
+  }
+
+  // The hue ran out of gamut before the target. Walk the lightness offset out
+  // from 0.02 until the pair reaches it, so a tint the screen cannot saturate
+  // is still a tint the reader can see.
+  let lightness = baseLightness
+  for (let extra = TINT_STEP; extra <= 0.2; extra = round(extra + TINT_STEP, 4)) {
+    const candidate = surface.l + forward * (0.02 + extra)
+    const color = at(candidate, chroma)
+    if (color.l === best.color.l) break
+    lightness = candidate
+    best = { color, distance: renderedDistance(color, surface) }
+    if (best.distance >= SELECTED_SURFACE_SEPARATION) break
+  }
+  return {
+    color: best.color,
+    distance: best.distance,
+    spent:
+      `on hue at chroma ${round(chroma, 4)} -- all this hue renders at surface lightness -- then on lightness` +
+      ` ${forward > 0 ? '+' : '-'}${round(Math.abs(lightness - surface.l), 4)}`,
+  }
+}
 
 /**
  * Interaction and state shades for the roles that need them.
@@ -549,17 +875,16 @@ export function deriveInteractionShades(
   const surface = find('surface')
   const primary = find('primary')
   if (surface && primary && !pinned.has('selectedSurface')) {
-    const lightness = clamp(surface.color.l + forward * 0.02, 0, 1)
-    const color: Oklch = {
-      l: lightness,
-      c: Math.min(primary.color.c, NEUTRAL_CHROMA_MAX),
-      h: primary.color.h,
-    }
+    const tint = selectedTint(surface.color, primary.color, forward)
     out.push({
       role: 'selectedSurface',
-      color,
+      color: tint.color,
       rule: 'brand-tinted-surface',
-      detail: `selected row fill: surface lightness ${forward > 0 ? '+' : '-'}0.02 carrying the primary hue (${round(primary.color.h ?? 0, 2)}) at chroma ${round(color.c, 4)}, so selection reads by hue where hover reads by lightness, yielding ${oklchToHex(color)}`,
+      detail:
+        `selected row fill: the primary hue (${round(primary.color.h ?? 0, 2)}) laid over surface at a rendered` +
+        ` perceptual distance of ${round(tint.distance, 4)} (target ${SELECTED_SURFACE_SEPARATION}), spent` +
+        ` ${tint.spent}, so selection reads at the same strength on every palette rather than at whatever` +
+        ` chroma this hue happens to survive the sRGB gamut with, yielding ${oklchToHex(tint.color)}`,
       derivedFrom: ['surface', 'primary'],
     })
   }

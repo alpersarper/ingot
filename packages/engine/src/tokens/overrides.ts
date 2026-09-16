@@ -33,19 +33,28 @@
  */
 import { contrastRatio, formatOklch, oklchToHex, parseColor, roundOklch } from '../color/space'
 import type { Oklch } from '../color/space'
-import { enforceContrastByChroma, enforceContrastOnBackground } from '../color/contrast'
-import { SHADE_RELATIONS, deriveInteractionShades } from '../color/roles'
-import type { RoleAssignment } from '../color/roles'
+import { CONTRAST_FLOOR, enforceContrastByChroma, enforceContrastOnBackground } from '../color/contrast'
+import {
+  bestContrastPole,
+  collapsedShades,
+  collapsedShadesSentence,
+  deriveInteractionShades,
+  restoreStateSeparation,
+} from '../color/roles'
+import { RECIPE_ORDER, destructiveButtonFrom, errorSignalDiagnostic } from '../components/components'
+import type { RoleAssignment, SeparationGuard } from '../color/roles'
 import { parseShadow } from '../shadow/shadow'
 import { round } from '../util/num'
-import { byString, chain } from '../util/sort'
+import { byNumber, byString, chain } from '../util/sort'
 import { derive, userOverride } from '../provenance'
 import type { BaselineTokens, EffectiveTokens, PristineTokens } from './documents'
 import type { DominantChoice, Provenance, ResolvedConflict } from '../provenance'
 import type { ContrastAdjustment } from '../color/contrast'
+import { COLOR_ROLE_ORDER } from './types'
 import type {
   ColorRoleName,
   ColorToken,
+  ErrorSignalMode,
   ComponentRecipe,
   Diagnostic,
   RadiusStepName,
@@ -58,6 +67,23 @@ import type {
 /** What a slot holds, which is what its replacement has to parse as. */
 export type OverrideKind =
   | 'color'
+  /**
+   * A colour the kit may legitimately not have: today only the error colour.
+   *
+   * Its own kind rather than a `color` with a special case, because the value
+   * domain really is different -- `none` is a statement the kit makes about
+   * itself, not a colour -- and because the panel has to offer a different
+   * editor for "nominate the red the engine refused to invent" than for
+   * "replace this red".
+   */
+  | 'color-or-none'
+  /**
+   * How the kit signals an error. The only value a person may write is
+   * `acknowledged`: the other two are the engine's own answers about the
+   * palette, and a reviewer typing one would be restating evidence rather than
+   * deciding anything.
+   */
+  | 'error-mode'
   | 'length'
   | 'ratio'
   | 'weight'
@@ -260,12 +286,41 @@ export function tokenSlots(tokens: TokensDocument): TokenSlot[] {
       path: `color.roles.${name}`,
       group: 'color',
       label: name,
-      kind: 'color',
+      // The error colour keeps one kind in both states of the kit, so the path
+      // a reviewer edits and the refusal they read are the same whether or not
+      // the captures happened to carry a red.
+      kind: name === 'destructive' ? 'color-or-none' : 'color',
       value: token.value.hex,
       provenance: token.provenance,
     }
     if (token.contrastAdjustment !== undefined) slot.contrastAdjustment = token.contrastAdjustment
     slots.push(slot)
+  }
+
+  // The one colour a kit is allowed not to have, offered even when it does not
+  // have it. The engine will not invent a brand colour, and that stands -- but
+  // a reviewer may supply one, and a slot is how they do it. Offering nothing
+  // is what left `linear-dark` with a form whose invalid field looked exactly
+  // like a valid one and no way inside the product to fix it.
+  if (tokens.color.roles.destructive === undefined) {
+    slots.push({
+      path: 'color.roles.destructive',
+      group: 'color',
+      label: 'destructive (not set)',
+      kind: 'color-or-none',
+      value: 'none',
+      provenance: {
+        captureIds: [],
+        observed: [],
+        decision: derive('none', {
+          method: 'no-captured-red',
+          from: ['color.palette'],
+          detail:
+            'no captured colour in this set reads as a red, and a brand decision is the one thing the engine ' +
+            'will not default; set one here to give this kit an error colour',
+        }),
+      },
+    })
   }
 
   for (const step of tokens.spacing.steps) {
@@ -370,7 +425,11 @@ export function tokenSlots(tokens: TokensDocument): TokenSlot[] {
   for (const recipe of tokens.components.recipes) {
     const base = `components.recipes.${recipe.name}`
     slots.push(
-      recipeSlot(base, recipe.name, 'height', 'length', `${recipe.height.value}px`, recipe.height),
+      // A container has no height slot, because it has no height: offering one
+      // would be an edit box the engine cannot write into.
+      ...(recipe.height === undefined
+        ? []
+        : [recipeSlot(base, recipe.name, 'height', 'length', `${recipe.height.value}px`, recipe.height)]),
       recipeSlot(base, recipe.name, 'paddingY', 'length', `${recipe.paddingY.value}px`, recipe.paddingY),
       recipeSlot(base, recipe.name, 'paddingX', 'length', `${recipe.paddingX.value}px`, recipe.paddingX),
       recipeSlot(base, recipe.name, 'radius', 'radius-step', recipe.radius.value, recipe.radius),
@@ -378,6 +437,15 @@ export function tokenSlots(tokens: TokensDocument): TokenSlot[] {
       recipeSlot(base, recipe.name, 'fontWeight', 'weight', String(recipe.fontWeight.value), recipe.fontWeight),
     )
   }
+
+  slots.push({
+    path: 'components.states.error.mode',
+    group: 'state',
+    label: 'error signal',
+    kind: 'error-mode',
+    value: tokens.components.states.error.mode.value,
+    provenance: tokens.components.states.error.mode.provenance,
+  })
 
   const ring = tokens.components.states.focusRing
   slots.push(
@@ -615,13 +683,20 @@ function replay(tokens: TokensDocument, ordered: readonly TokenOverride[]): Repl
 
   if (recipesTouched.size > 0) for (const path of recomputeHeights(next, recipesTouched)) yielded.add(path)
   if (colorTouched.size > 0) {
+    // A nominated error colour is not a replacement but an addition, so what it
+    // implies has to be built before anything reads the palette back.
+    if (colorTouched.has('destructive')) completeDestructive(next)
     const shades = rederiveShades(next, colorTouched)
     for (const path of shades.yielded) yielded.add(path)
-    enforceShades(next, shades.rewritten)
+    enforceShades(next, shades.rewritten, shades.colors)
+    rescueShades(next, shades.colors)
     recomputeContrast(next)
     restateCollapsedStates(next)
     restateContrastAdjustments(next)
   }
+  // Unconditional: acknowledging the absence touches no colour at all, and the
+  // statement the kit makes about its error signal still has to follow it.
+  restateErrorSignal(next)
 
   return { tokens: next, written, rejected, colorTouched, yielded }
 }
@@ -1030,6 +1105,24 @@ function parseFor(slot: TokenSlot, tokens: TokensDocument, raw: string): Parsed 
   switch (slot.kind) {
     case 'color':
       return parseHex(raw)
+    case 'color-or-none': {
+      // `none` is only ever an answer where the kit already has none. Where it
+      // has one, writing `none` would be an override the engine cannot apply --
+      // an edit that silently does nothing -- so it is refused with the action
+      // that actually works.
+      if (raw.trim().toLowerCase() === 'none') {
+        return tokens.color.roles.destructive === undefined
+          ? { canonical: 'none' }
+          : 'this kit already has a destructive colour; clear the override to take the engine\'s answer back rather than setting it to none'
+      }
+      return parseHex(raw)
+    }
+    case 'error-mode': {
+      const value = raw.trim().toLowerCase()
+      return value === 'acknowledged'
+        ? { canonical: 'acknowledged' }
+        : 'the only thing a person can say here is `acknowledged` -- that this kit ships without an error colour on purpose. `color` and `unresolved` are the engine\'s own reading of the palette; set `color.roles.destructive` to change it'
+    }
     case 'length':
       return parseLength(raw)
     case 'ratio':
@@ -1100,12 +1193,30 @@ function write(
 
   const path = slot.path
 
+  if (path === 'components.states.error.mode') {
+    // The reviewer read the consequence and chose to ship without an error
+    // colour. Nothing else in the document moves: the acknowledgment is a
+    // decision *about* the absence, not a value that fills it.
+    const mode = tokens.components.states.error.mode
+    mode.value = value as ErrorSignalMode
+    stamp(mode)
+    return
+  }
+
   if (path.startsWith('color.roles.')) {
     const role = path.slice('color.roles.'.length) as ColorRoleName
-    const token = tokens.color.roles[role]
-    if (token === undefined) return
     const color = readColor(value)
     if (color === undefined) return
+    let token = tokens.color.roles[role]
+    if (token === undefined) {
+      // The one role a reviewer may bring into existence: the error colour the
+      // engine refused to invent. Everything that follows from it --
+      // `destructiveForeground`, the contrast pairs, the destructive button --
+      // is the engine's own work and is done in `completeDestructive`.
+      if (role !== 'destructive') return
+      token = { value: { oklch: '', hex: '', lightness: 0, chroma: 0, hue: 0 }, provenance: slot.provenance }
+      tokens.color.roles[role] = token
+    }
     // Built exactly the way `distill` builds one, so an overridden colour and a
     // distilled one are the same shape down to the rounding.
     writeColorValue(token, color)
@@ -1192,6 +1303,7 @@ function write(
     if (recipe === undefined) return
     switch (field) {
       case 'height':
+        if (recipe.height === undefined) return
         recipe.height.value = pixels(value)
         stamp(recipe.height)
         return
@@ -1276,7 +1388,7 @@ function writeColorValue(token: ColorToken, color: Oklch): void {
 function rederiveShades(
   tokens: TokensDocument,
   touched: ReadonlySet<ColorRoleName>,
-): { rewritten: ColorRoleName[]; yielded: string[] } {
+): { rewritten: ColorRoleName[]; yielded: string[]; colors: Map<ColorRoleName, Oklch> } {
   const pinned = new Set<ColorRoleName>()
   const base: RoleAssignment[] = []
   for (const [name, token] of Object.entries(tokens.color.roles)) {
@@ -1298,6 +1410,11 @@ function rederiveShades(
   const stale = new Set<ColorRoleName>(touched)
   const rewritten: ColorRoleName[] = []
   const yielded: string[] = []
+  // The full-precision colours behind the hexes just written. The stored hex
+  // quantises to 8-bit sRGB, and the enforcement and rescue that follow walk
+  // from these instead so the replay lands on the same colours the distiller's
+  // own full-precision pipeline does.
+  const colors = new Map<ColorRoleName, Oklch>()
 
   for (const shape of deriveInteractionShades(base, tokens.color.mode)) {
     const moved = shape.derivedFrom.filter((from) => stale.has(from))
@@ -1325,9 +1442,10 @@ function rederiveShades(
     }
     stale.add(shade.role)
     rewritten.push(shade.role)
+    colors.set(shade.role, shade.color)
   }
 
-  return { rewritten, yielded }
+  return { rewritten, yielded, colors }
 }
 
 /**
@@ -1343,7 +1461,11 @@ function rederiveShades(
  * already guaranteed against. A shade exists to serve a role, so it gives way,
  * lightness first and then chroma, exactly as the derived-surface pass does.
  */
-function enforceShades(tokens: TokensDocument, shades: readonly ColorRoleName[]): void {
+function enforceShades(
+  tokens: TokensDocument,
+  shades: readonly ColorRoleName[],
+  colors: Map<ColorRoleName, Oklch>,
+): void {
   for (const role of shades) {
     const token = tokens.color.roles[role]
     if (token === undefined) continue
@@ -1353,7 +1475,7 @@ function enforceShades(tokens: TokensDocument, shades: readonly ColorRoleName[])
       .sort(chain((a, b) => byString(a.foreground, b.foreground)))
     if (pairs.length === 0) continue
 
-    let color = readColor(token.value.hex)
+    let color = colors.get(role) ?? readColor(token.value.hex)
     if (color === undefined) continue
     let moved = false
 
@@ -1375,6 +1497,7 @@ function enforceShades(tokens: TokensDocument, shades: readonly ColorRoleName[])
     }
 
     if (!moved) continue
+    colors.set(role, color)
     writeColorValue(token, color)
     const derivation = token.provenance.decision.derivation
     if (derivation === undefined) continue
@@ -1389,6 +1512,170 @@ function enforceShades(tokens: TokensDocument, shades: readonly ColorRoleName[])
 }
 
 /**
+ * Buy back the state visibility the contrast floor consumed, exactly as the
+ * distiller does.
+ *
+ * Holding a re-derived shade to its floors can walk the whole lightness offset
+ * back onto its base role, which is the collapse {@link restoreStateSeparation}
+ * exists to answer -- and it is one answer: the distiller and the replay call
+ * the same function, so a palette gets the same interaction shades whether its
+ * colours arrived by capture or by override. The guards come from
+ * `tokens.color.contrast`, the kit's own statement of what it guarantees, so
+ * a rescue can never reopen a pair the kit promises; a shade the reviewer set
+ * by hand is pinned out of the walk entirely, exactly as it is pinned out of
+ * re-derivation.
+ *
+ * `colors` carries the full-precision values behind the re-derived hexes, so
+ * the walk starts where the enforcement actually stopped rather than where the
+ * 8-bit hex says it did.
+ */
+function rescueShades(tokens: TokensDocument, colors: ReadonlyMap<ColorRoleName, Oklch>): void {
+  const pinned = new Set<ColorRoleName>()
+  for (const [name, token] of Object.entries(tokens.color.roles)) {
+    if (token?.provenance.decision.strategy === 'user-override') pinned.add(name as ColorRoleName)
+  }
+  const colorOf = (role: ColorRoleName): Oklch | undefined => {
+    const known = colors.get(role)
+    if (known !== undefined) return known
+    const hex = tokens.color.roles[role]?.value.hex
+    return hex === undefined ? undefined : readColor(hex)
+  }
+  const guardsOf = (role: ColorRoleName): SeparationGuard[] => {
+    const path = `color.roles.${role}`
+    const guards: SeparationGuard[] = []
+    for (const pair of tokens.color.contrast) {
+      if (pair.background !== path) continue
+      const foreground = colorOf(pair.foreground.replace('color.roles.', '') as ColorRoleName)
+      if (foreground !== undefined) guards.push({ color: foreground, floor: pair.floor })
+    }
+    return guards
+  }
+
+  for (const rescue of restoreStateSeparation(colorOf, guardsOf, pinned)) {
+    const token = tokens.color.roles[rescue.role]
+    if (token === undefined) continue
+    writeColorValue(token, rescue.color)
+    const derivation = token.provenance.decision.derivation
+    if (derivation === undefined) continue
+    token.provenance = {
+      ...token.provenance,
+      decision: derive(token.value.hex, {
+        ...derivation,
+        detail: `${derivation.detail}; ${rescue.detail}`,
+      }),
+    }
+  }
+}
+
+/**
+ * Build everything a nominated error colour implies.
+ *
+ * The engine will not invent a brand colour; it will absolutely finish the job
+ * once a person supplies one. `destructiveForeground` is chosen by the same
+ * rule `assignRoles` uses, the two pairs the kit guarantees around a red are
+ * added to the contrast table so `enforceShades` and `recomputeContrast` can
+ * see them, and the destructive button is assembled by the same function the
+ * distiller uses. Nothing here is a second opinion: every rule is imported.
+ *
+ * Idempotent, because the replay runs it on every write that touches the role.
+ */
+function completeDestructive(tokens: TokensDocument): void {
+  const destructive = tokens.color.roles.destructive
+  if (destructive === undefined) return
+  const color = readColor(destructive.value.hex)
+  if (color === undefined) return
+
+  if (tokens.color.roles.destructiveForeground === undefined) {
+    const pole = bestContrastPole(color)
+    const token: ColorToken = {
+      value: { oklch: '', hex: '', lightness: 0, chroma: 0, hue: 0 },
+      provenance: { captureIds: [], observed: [], decision: derive('', { method: pole.rule, from: [], detail: '' }) },
+    }
+    writeColorValue(token, pole.color)
+    token.provenance = {
+      captureIds: [],
+      observed: [],
+      decision: derive(token.value.hex, {
+        method: pole.rule,
+        from: ['color.roles.destructive'],
+        detail: `${pole.detail}, derived when a reviewer nominated the error colour this kit's captures never supplied`,
+      }),
+    }
+    tokens.color.roles.destructiveForeground = token
+  }
+
+  const addPair = (foreground: string, background: string): void => {
+    if (tokens.color.contrast.some((pair) => pair.foreground === foreground && pair.background === background)) {
+      return
+    }
+    tokens.color.contrast.push({ foreground, background, ratio: 0, floor: CONTRAST_FLOOR, passes: false })
+  }
+  addPair('color.roles.destructive', 'color.roles.background')
+  addPair('color.roles.destructive', 'color.roles.surface')
+  addPair('color.roles.destructiveForeground', 'color.roles.destructive')
+
+  // A role appended to the end of the object would put this kit's `destructive`
+  // somewhere no distilled kit has it, in `tokens.json` and in the panel's own
+  // colour list. Rebuilt in the model's order instead.
+  const ordered: Partial<Record<ColorRoleName, ColorToken>> = {}
+  for (const role of COLOR_ROLE_ORDER) {
+    const token = tokens.color.roles[role]
+    if (token !== undefined) ordered[role] = token
+  }
+  tokens.color.roles = ordered
+
+  const recipes = tokens.components.recipes
+  const primary = recipes.find((recipe) => recipe.name === 'button.primary')
+  if (primary !== undefined && !recipes.some((recipe) => recipe.name === 'button.destructive')) {
+    recipes.push(destructiveButtonFrom(primary))
+    recipes.sort((a, b) => byNumber(RECIPE_ORDER.indexOf(a.name), RECIPE_ORDER.indexOf(b.name)))
+  }
+}
+
+/**
+ * Restate what the kit says about its error signal, and warn while it is open.
+ *
+ * The mode is the engine's reading of the palette unless a person has written
+ * one, which is what makes the lifecycle work: a reviewer's `acknowledged`
+ * stands until they clear it, and if a later capture set supplies a red the
+ * engine's answer moves to `color` while the acknowledgment does not -- so the
+ * ordinary conflict machinery reports the disagreement instead of the kit
+ * quietly taking the new colour or quietly keeping the old decision.
+ */
+function restateErrorSignal(tokens: TokensDocument): void {
+  const error = tokens.components.states.error
+  const has = tokens.color.roles.destructive !== undefined
+  error.color = has ? 'color.roles.destructive' : null
+  error.foreground =
+    has && tokens.color.roles.destructiveForeground !== undefined ? 'color.roles.destructiveForeground' : null
+
+  if (error.mode.provenance.decision.strategy !== 'user-override') {
+    const engineMode: ErrorSignalMode = has ? 'color' : 'unresolved'
+    if (error.mode.value !== engineMode) {
+      error.mode.value = engineMode
+      error.mode.provenance = {
+        captureIds: [],
+        observed: [],
+        decision: derive(engineMode, {
+          method: has ? 'palette-has-destructive' : 'palette-has-no-destructive',
+          from: has ? ['color.roles.destructive'] : ['color.palette'],
+          detail: has
+            ? `this palette carries a destructive colour (${tokens.color.roles.destructive?.value.hex}), so an error state is drawn in it`
+            : 'no colour in this palette reads as a red, so how this kit signals an error is an open question a person has to answer',
+        }),
+      }
+    }
+  }
+
+  // The notice is about an absence, so it goes when the absence does -- even
+  // where an acknowledgment still stands, because that disagreement is reported
+  // as a conflict on this path and a kit must not call one thing both.
+  tokens.diagnostics = tokens.diagnostics.filter((diagnostic) => diagnostic.code !== 'color.no-destructive')
+  const notice = has ? undefined : errorSignalDiagnostic(error.mode.value)
+  if (notice !== undefined) tokens.diagnostics.push(notice)
+}
+
+/**
  * Restate `color.state-collapsed` for the palette as it now stands.
  *
  * Re-deriving a shade and then holding it at the floor can consume the whole
@@ -1400,10 +1687,9 @@ function enforceShades(tokens: TokensDocument, shades: readonly ColorRoleName[])
 function restateCollapsedStates(tokens: TokensDocument): void {
   tokens.diagnostics = tokens.diagnostics.filter((diagnostic) => diagnostic.code !== 'color.state-collapsed')
 
-  const collapsed = SHADE_RELATIONS.filter(([shade, role]) => {
-    const a = tokens.color.roles[shade]?.value.hex
-    const b = tokens.color.roles[role]?.value.hex
-    return a !== undefined && b !== undefined && a === b
+  const collapsed = collapsedShades((role) => {
+    const hex = tokens.color.roles[role]?.value.hex
+    return hex === undefined ? undefined : parseColor(hex)?.oklch
   })
   if (collapsed.length === 0) return
 
@@ -1412,9 +1698,9 @@ function restateCollapsedStates(tokens: TokensDocument): void {
     code: 'color.state-collapsed',
     path: 'color.roles',
     message:
-      `${collapsed.map(([shade, role]) => `${shade} and ${role}`).join('; ')} render as the same colour: ` +
-      'holding the foreground at the contrast floor consumed the whole offset. The state exists in the ' +
-      'token set but cannot be seen; distinguish it with something other than fill.',
+      `${collapsedShadesSentence(collapsed)}. Holding the foreground at the contrast floor consumed the ` +
+      'offset, and the palette had no chroma left to buy it back. The state exists in the token set but ' +
+      'cannot be seen; distinguish it with something other than fill.',
   })
 }
 
@@ -1470,6 +1756,7 @@ function recomputeHeights(tokens: TokensDocument, touched: ReadonlySet<string>):
   const yielded: string[] = []
   for (const recipe of tokens.components.recipes) {
     if (!touched.has('*') && !touched.has(recipe.name)) continue
+    if (recipe.height === undefined) continue
     const step = tokens.typography.steps.find((entry) => entry.value.name === recipe.typeStep.value)
     if (step === undefined) continue
     const borderPx = recipe.colors.border === null ? 0 : tokens.border.width.value

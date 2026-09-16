@@ -122,7 +122,9 @@ export function TokenRow({
             className={`size-3 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-90' : ''}`}
             aria-hidden
           />
-          {slot.kind === 'color' ? (
+          {/* `color-or-none` is a colour whenever the kit actually has one; the
+              error colour is the only slot that can be neither. */}
+          {slot.kind === 'color' || (slot.kind === 'color-or-none' && slot.value !== 'none') ? (
             <span
               className="size-3.5 shrink-0 rounded-sm border border-border"
               style={{ background: slot.value }}

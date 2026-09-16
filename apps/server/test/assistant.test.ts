@@ -24,6 +24,9 @@
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { distill } from '@ingot/engine'
+import type { CaptureSet, PristineTokens } from '@ingot/engine'
+import { checkProposals } from '../src/assistant/proposals'
 import { REDACTION_MARKER } from '../src/assistant/redact'
 import { LLM_API_KEY_SETTING, LLM_MODEL_SETTING } from '../src/assistant/settings-keys'
 import { createHarness, body } from './harness'
@@ -679,6 +682,73 @@ describe('the existing guards still cover it', () => {
       headers: { origin: 'https://evil.example' },
     })
     expect(refused.status).toBe(403)
+  })
+})
+
+/* --------------------------------------------------------------- consent -- */
+
+describe('the consent decision is never the assistant\'s to offer', () => {
+  /** The coherent set whose captures carry no red: the kit the consent card is about. */
+  async function kitWithoutRed(): Promise<PristineTokens> {
+    const set = JSON.parse(await readFile(`${ROOT}fixtures/linear-dark/set.json`, 'utf8')) as CaptureSet
+    return distill(set)
+  }
+
+  it('refuses a candidate at components.states.error.mode before the engine is consulted', async () => {
+    const pristine = await kitWithoutRed()
+    // Two values with opposite fates at the engine: `acknowledged` is the one
+    // value the engine would take at this path, `color` one it would refuse.
+    // Both must land in `refused` with the guardrail's own reason, which is
+    // what shows the refusal happens before the engine is asked and does not
+    // depend on what it would have said.
+    for (const value of ['acknowledged', 'color']) {
+      const result = checkProposals(
+        pristine,
+        [],
+        [
+          {
+            path: 'components.states.error.mode',
+            value,
+            title: 'Ship without an error colour',
+            rationale: 'The captures carry no red.',
+          },
+        ],
+        [],
+      )
+      expect(result.accepted, value).toEqual([])
+      expect(result.suppressed, value).toEqual([])
+      expect(result.refused, value).toEqual([
+        expect.objectContaining({
+          path: 'components.states.error.mode',
+          value,
+          reason: expect.stringContaining('only a person'),
+        }),
+      ])
+    }
+  })
+
+  it('still lets the assistant propose the error colour itself', async () => {
+    const pristine = await kitWithoutRed()
+    // The guardrail is about the decision, never the colour: a red nominated
+    // for the slot the kit offers even without one goes to the engine as any
+    // candidate does, and one that clears every floor becomes a card.
+    const result = checkProposals(
+      pristine,
+      [],
+      [
+        {
+          path: 'color.roles.destructive',
+          value: '#f97066',
+          title: 'A palette-consistent error red',
+          rationale: 'Light enough to clear the contrast floor on this dark surface.',
+        },
+      ],
+      [],
+    )
+    expect(result.refused).toEqual([])
+    expect(result.accepted).toEqual([
+      expect.objectContaining({ path: 'color.roles.destructive', value: '#f97066', baseValue: 'none' }),
+    ])
   })
 })
 

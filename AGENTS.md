@@ -115,7 +115,22 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
   with no evidence gets a stated default rather than no entry, and a state the
   palette cannot draw (see `color.state-collapsed`) says so out loud. The one
   thing the engine will not default is a brand decision: no captured red means
-  no `destructive` and no destructive button.
+  no `destructive` and no destructive button. That absence is not a silence
+  either -- `components.states.error.mode` carries it as `unresolved` with a
+  `color.no-destructive` warning naming the consequence, and the reviewer
+  answers it by nominating a colour on `color.roles.destructive` (a slot offered
+  even when the kit has none) or by writing `acknowledged`, which only a person
+  may write. Rules and the lifecycle that asymmetry produces:
+  [docs/tokens.md](docs/tokens.md#states).
+- **A state is collapsed when a reader cannot see it.** Perceptibility is
+  measured on the *rendered* colours against a floor that depends on the job
+  (`SHADE_RELATIONS` in `packages/engine/src/color/roles.ts`), never on hex
+  equality -- which shipped a kit whose default, hover and pressed buttons were
+  one colour on screen and said nothing. The derivation answers before the
+  diagnostic does: a state the contrast floor flattened respends its budget on
+  chroma at fixed lightness and hue, bounded by every guarantee the shade
+  already carries. Same rule for the selected-row tint, which targets a fixed
+  rendered distance rather than a chroma the sRGB gamut then reinterprets.
 - **The assistant advises; it never decides, and it has no write path.** The
   engine's deterministic core -- colour maths, contrast, scales, conflict
   determination -- is never the LLM's job; the LLM does the parts that are
@@ -129,7 +144,11 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
   `user-override` because a person chose it. A second route into a token, or a
   proposal shown without an engine check behind it, is the defect this seam
   exists to make impossible. `packages/engine` imports nothing of it, and
-  `purity.test.ts` would fail if it did.
+  `purity.test.ts` would fail if it did. One slot is closed to it outright:
+  `components.states.error.mode` is in `NEVER_PROPOSED`, because a consent
+  decision a reviewer clicked through on a suggestion is not consent. It may
+  propose the error *colour*; the choice to ship without one is not its to
+  offer.
 - **The provider is behind one narrow interface.** `assistant/llm.ts` takes
   messages plus a response schema and returns validated structured output;
   `assistant/anthropic.ts` is its only implementation and the only file in the
@@ -175,7 +194,10 @@ every example -- regenerate in the same commit.
 ## Fixture sets
 
 `fixtures/ghost-warm`, `fixtures/linear-dark` and `fixtures/stripe-light` are the
-coherent sets and are expected to distil with **zero warning diagnostics**;
+coherent sets and are expected to distil with **zero warning diagnostics** --
+with one named exception, `color.no-destructive`, which is a product question
+the engine is right to refuse and required to state, and which `linear-dark`
+therefore carries;
 `fixtures/messy-mixed` is deliberately incoherent and carries the interesting
 failure paths (contrast adjustment, near-duplicate merging, off-scale snapping).
 `test/snapshots.test.ts` asserts that split, so a change that makes a coherent

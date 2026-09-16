@@ -188,7 +188,8 @@ export function kitCssVariables(tokens: TokensDocument): KitCssVariables {
 
   for (const recipe of tokens.components.recipes) {
     const key = recipe.name.replace(/\./g, '-')
-    variables[`--kit-${key}-height`] = `${recipe.height.value}px`
+    // A container has no height; see the engine's `ComponentRecipe`.
+    if (recipe.height !== undefined) variables[`--kit-${key}-height`] = `${recipe.height.value}px`
     variables[`--kit-${key}-padding-y`] = `${recipe.paddingY.value}px`
     variables[`--kit-${key}-padding-x`] = `${recipe.paddingX.value}px`
     variables[`--kit-${key}-radius`] = radiusReference(tokens, recipe.radius.value)
@@ -227,12 +228,23 @@ export function kitCssVariables(tokens: TokensDocument): KitCssVariables {
   }
 
   const composition = kitComposition(tokens)
-  variables['--kit-radius-card'] = `var(--kit-radius-${composition.radius.card})`
+  // The card's own recipe wins over the composed fallback wherever the kit has
+  // one: since the engine started measuring captured cards, the card's radius
+  // and padding are evidence rather than a step the panel picked.
+  const cardRecipe = tokens.components.recipes.find((recipe) => recipe.name === 'card')
+  variables['--kit-radius-card'] =
+    cardRecipe === undefined
+      ? `var(--kit-radius-${composition.radius.card})`
+      : radiusReference(tokens, cardRecipe.radius.value)
   variables['--kit-radius-control'] = `var(--kit-radius-${composition.radius.control})`
   variables['--kit-radius-pill'] = `var(--kit-radius-${composition.radius.pill})`
   for (const [role, step] of Object.entries(composition.space)) {
     variables[`--kit-space-${role}`] = `var(--kit-space-${step})`
   }
+  variables['--kit-card-pad-y'] =
+    cardRecipe === undefined ? 'var(--kit-space-comfy)' : `${cardRecipe.paddingY.value}px`
+  variables['--kit-card-pad-x'] =
+    cardRecipe === undefined ? 'var(--kit-space-comfy)' : `${cardRecipe.paddingX.value}px`
   for (const [role, step] of Object.entries(composition.type)) {
     variables[`--kit-type-${role}-size`] = `var(--kit-text-${step}-size)`
     variables[`--kit-type-${role}-leading`] = `var(--kit-text-${step}-leading)`
