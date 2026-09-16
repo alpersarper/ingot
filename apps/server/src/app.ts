@@ -18,6 +18,7 @@ import { exportRoutes, kitRoutes } from './routes/kits'
 import { groupRoutes } from './routes/groups'
 import { healthRoutes } from './routes/health'
 import { pairingRoutes, requirePairing } from './routes/pairing'
+import { resetRoutes } from './routes/reset'
 import { reviewRoutes } from './routes/reviews'
 import { settingsRoutes } from './routes/settings'
 import { panelRoutes } from './static'
@@ -36,6 +37,7 @@ export function createApp(context: AppContext): Hono<AppEnv> {
   app.route('/api/groups', groupRoutes(context))
   app.route('/api/kits', kitRoutes(context))
   app.route('/api/reviews', reviewRoutes(context))
+  app.route('/api/reset', resetRoutes(context))
   app.route('/api/assistant', assistantRoutes(context))
   app.route('/api/export', exportRoutes(context))
 

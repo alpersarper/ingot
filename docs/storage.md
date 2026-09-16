@@ -28,7 +28,24 @@ apps/server/src/storage/
 | `proposals` | The assistant's standing proposals for a scope. Review state, not kit state: nothing here reaches an export. See [docs/panel.md](panel.md#the-assistant). |
 | `settings` | Server-side key/value. The pairing token and the LLM API key live here. |
 | `importCaptureSet` | One atomic bulk import: group, records, membership. |
+| `resetLibrary` | Destroy every capture, group, kit and review atomically, and report what went. Settings survive. |
 | `close` | Release the connection. |
+
+A kit's `scope` says what it distils: one `group`, the whole `library`, or a
+`selection` -- an ad-hoc list of capture ids. A selection has no name and no
+lifetime, so it is not a fourth review scope and it does not open a lineage of
+its own: a selection kit takes the next **library** version and reviews under
+the library scope, which is why `kits.latest(null)` returns one. The alternative
+-- a scope keyed to the selection -- would file a reviewer's overrides under an
+identity nothing can reconstruct. A reviewer who wants a lineage groups the
+selection; that is what groups are for.
+
+`resetLibrary` is the only operation in the product that deletes a kit.
+Everywhere else kit history is append-only: regenerating adds a version, and
+deleting a group orphans its kits (`group_id` to NULL, `scope` still `group`)
+rather than removing them. It returns the screenshot paths it orphaned, because
+the bytes are on the volume rather than in the database and the store is the
+only thing that knows which were in use.
 
 `reviews` keys on a **scope** -- a group id, or `null` for the whole library --
 rather than on a kit id, and that is the whole reason the review survives a

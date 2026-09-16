@@ -138,11 +138,13 @@ export function SystemPanel(props: SystemPanelProps): ReactNode {
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">System</h2>
-        <Button size="sm" onClick={onGenerate} disabled={generating || captureCount === 0}>
+        <Button size="sm" onClick={onGenerate} disabled={generating || (kit === null && captureCount === 0)}>
           {generating ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />}
-          {kit === null ? 'Generate kit' : 'Regenerate'}
+          {kit === null ? 'Generate kit' : kit.scope === 'selection' ? 'Regenerate selection' : 'Regenerate'}
         </Button>
       </header>
+
+      {kit?.scope === 'selection' ? <SelectionKitNotice kit={kit} /> : null}
 
       {error === null ? null : (
         <p className="border-b border-border px-4 py-3 text-xs text-destructive" role="alert">
@@ -183,6 +185,27 @@ export function SystemPanel(props: SystemPanelProps): ReactNode {
         </>
       )}
     </div>
+  )
+}
+
+/**
+ * What a one-off kit is, stated on the kit itself.
+ *
+ * A selection has no name and no lifetime, so its kit is versioned and reviewed
+ * in the library's lineage rather than in one of its own. That is a good deal
+ * -- an override made here survives, instead of being filed under a selection
+ * nobody can reconstruct -- but it is not what a reader would assume, so the
+ * kit says it rather than letting them find out when a library kit turns up
+ * carrying a decision they made somewhere else.
+ */
+function SelectionKitNotice({ kit }: { kit: KitSummary }): ReactNode {
+  const count = kit.captureIds.length
+  return (
+    <p className="border-b border-border bg-muted/40 px-4 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
+      <span className="font-medium text-foreground">One-off kit</span> from {count} selected capture
+      {count === 1 ? '' : 's'}. It takes the whole library's version numbers and shares its review, so anything you
+      override here stands for the library too. Group the selection to give it a name and a lineage of its own.
+    </p>
   )
 }
 

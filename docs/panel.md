@@ -112,7 +112,7 @@ Everything except `/api/health` and `/api/pairing*` requires the token.
 | `PUT/GET /api/captures/:id/screenshot` | Image bytes to the volume, path to the database. |
 | `GET/POST /api/groups`, `GET/PATCH/DELETE /api/groups/:id` | Groups. |
 | `POST /api/groups/:id/captures`, `DELETE /api/groups/:id/captures/:captureId` | Membership. |
-| `POST /api/kits` | Run the engine over a group, or over the whole library. |
+| `POST /api/kits` | Run the engine over a group, the whole library, or an explicit `captureIds` selection. |
 | `GET /api/kits`, `GET /api/kits/latest`, `GET /api/kits/:id` | Kit retrieval: the kit, its effective tokens, `design.md`, and the review state behind them. |
 | `GET /api/kits/:id/{tokens.json,design.md}` | Downloads. |
 | `GET /api/kits/:id/components/:component.md` | One component, self-sufficient. |
@@ -125,6 +125,7 @@ Everything except `/api/health` and `/api/pairing*` requires the token.
 | `POST /api/assistant/ask`, `/name`, `/rationale` | Content, not kit changes. Rate-limited. |
 | `POST /api/assistant/proposals/:id/{accept,dismiss}` | Accept writes an override through the ordinary boundary; dismiss writes nothing to the kit. |
 | `DELETE /api/settings/llm-key` | Remove the stored key. There is no endpoint that returns it. |
+| `POST /api/reset` | Destroy the library. Requires `{ "confirm": "reset" }`. The only endpoint that deletes a kit; settings and pairing survive. |
 
 ## The workbench
 
@@ -132,6 +133,47 @@ Three columns, per the approved skeleton: collection on the left, the live
 sample UI in the middle, the system on the right. The middle is widest because
 the user's real question is "will my app look good", not "am I faithful to the
 capture".
+
+### The collection, and curating it
+
+The left column is where a kit's evidence is chosen, and the model it implements
+is three words.
+
+- **Library** is the pool. Every capture lands in it, whatever its type and
+  wherever it came from; the browser extension will post into the same place.
+- **Groups** are named curations *within* the pool, and they are deliberately
+  **not exclusive**: a capture can be in several. Deciding which captures belong
+  together is the work this product exists for, and a capture that can only be
+  in one place makes that decision unrepeatable. Groups are objects here, not
+  filters -- open, rename, delete -- and the selected one shows its own name and
+  description, which is where an imported set's prose lives.
+- **A kit generates from a scope**: the whole library, one group, or an ad-hoc
+  **selection**.
+
+The primary journey is collect, curate, distil. Ticking captures raises the
+selection bar, which states the count, the **type mix** ("4 buttons · 3 cards ·
+2 inputs · 3 type") and three actions: group the selection, generate from it, or
+delete it. The mix earns its space because "6 selected" says nothing about
+whether the evidence is worth distilling and "6 buttons" says everything.
+
+A selection is a *set*: the server hands the ids to the engine in the library's
+own insertion order, so the same captures ticked in any order produce the same
+bytes. The kit it makes takes the next **library** version and reviews under the
+library scope rather than opening a lineage of its own -- the ruling and its
+reason are in [DECISIONS.md](../DECISIONS.md) -- and the kit says so on itself,
+because a library kit turning up carrying a decision made on a one-off is not
+something a reader should have to discover.
+
+Generating is offered wherever the user already is: the empty middle column
+carries its own button, the selection bar carries "Generate from selection", and
+the system column keeps the one that regenerates what is on screen. An empty
+state that points at a control in another column is an instruction to go looking.
+
+Every destructive action confirms first and **names what survives** --
+`apps/panel/src/workbench/ConfirmDialog.tsx`. Deleting a group says its captures
+stay and its kits are kept as orphans; deleting captures says the kits already
+generated keep their evidence; "Start over" makes the user type the word the API
+itself insists on, and is the only path in the product that destroys a kit.
 
 ### The review loop
 

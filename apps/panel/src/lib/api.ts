@@ -101,8 +101,14 @@ export interface GroupSummary {
 export interface KitSummary {
   id: string
   groupId: string | null
-  /** What the kit distils. A deleted group's kit keeps `group`; only `library` kits are the library's. */
-  scope: 'group' | 'library'
+  /**
+   * What the kit distils.
+   *
+   * A deleted group's kit keeps `group`. `library` and `selection` are both the
+   * library scope -- they share its version lineage and its review state -- and
+   * differ in what fed them: the whole pool, or the ids in `captureIds`.
+   */
+  scope: 'group' | 'library' | 'selection'
   version: number
   setId: string
   name: string
@@ -236,6 +242,20 @@ export interface AssistantNaming {
   roles: Array<{ path: string; name: string; rationale: string }>
 }
 
+/** The word the reset dialog makes the user type, and the API insists on. */
+export const RESET_CONFIRMATION = 'reset'
+
+/** What a reset destroyed, as the server counted it. */
+export interface ResetCounts {
+  captures: number
+  groups: number
+  kits: number
+  overrides: number
+  decisions: number
+  proposals: number
+  screenshots: number
+}
+
 export const api = {
   /** Open: answers before the panel holds a token. */
   async health(): Promise<{ status: string; engine: { name: string; version: string } }> {
@@ -282,6 +302,66 @@ export const api = {
 
   async generateKit(groupId: string | null): Promise<KitPayload> {
     return write('/api/kits', 'POST', { groupId })
+  },
+
+  /**
+   * Distil an explicit set of captures.
+   *
+   * The ids are a set, not an order: the server hands them to the engine in the
+   * library's own order, so the same captures ticked in any order produce the
+   * same bytes. The kit that comes back lives in the library's lineage and
+   * review scope -- it is a lens on the library, not a collection of its own.
+   */
+  async generateKitFromSelection(captureIds: readonly string[]): Promise<KitPayload> {
+    return write('/api/kits', 'POST', { captureIds })
+  },
+
+  /**
+   * Kit summaries. No argument means every kit in the library, whatever scope
+   * it belongs to -- which is what lets the panel say how many kits a group
+   * delete would orphan before the user presses the button.
+   */
+  async kits(groupId?: string | null): Promise<KitSummary[]> {
+    const query = groupId === undefined || groupId === null ? '' : `?groupId=${encodeURIComponent(groupId)}`
+    return (await get<{ kits: KitSummary[] }>(`/api/kits${query}`)).kits
+  },
+
+  async createGroup(slug: string, name: string, description?: string): Promise<GroupSummary> {
+    return (
+      await write<{ group: GroupSummary }>('/api/groups', 'POST', {
+        slug,
+        name,
+        ...(description === undefined ? {} : { description }),
+      })
+    ).group
+  },
+
+  async renameGroup(groupId: string, name: string): Promise<GroupSummary> {
+    return (await write<{ group: GroupSummary }>(`/api/groups/${encodeURIComponent(groupId)}`, 'PATCH', { name })).group
+  },
+
+  async deleteGroup(groupId: string): Promise<void> {
+    await send(`/api/groups/${encodeURIComponent(groupId)}`, { method: 'DELETE' })
+  },
+
+  /** Append captures to a group. Already-members are skipped by the server. */
+  async addToGroup(groupId: string, captureIds: readonly string[]): Promise<{ added: string[] }> {
+    return write(`/api/groups/${encodeURIComponent(groupId)}/captures`, 'POST', { captureIds })
+  },
+
+  async deleteCapture(captureId: string): Promise<void> {
+    await send(`/api/captures/${encodeURIComponent(captureId)}`, { method: 'DELETE' })
+  },
+
+  /**
+   * Destroy the library.
+   *
+   * The confirmation word is sent rather than implied: the server refuses a
+   * body that does not carry it, so the typed dialog in the panel is the same
+   * gate the API has rather than a decoration in front of an open door.
+   */
+  async resetLibrary(): Promise<ResetCounts> {
+    return (await write<{ reset: ResetCounts }>('/api/reset', 'POST', { confirm: RESET_CONFIRMATION })).reset
   },
 
   async latestKit(groupId: string | null): Promise<KitPayload | null> {

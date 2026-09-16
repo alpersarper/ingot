@@ -6,6 +6,12 @@
  * the previous kit intact -- the panel's future override and comparison views
  * need a kit to compare against.
  *
+ * `POST /` takes one of three targets: a group, the whole library, or an
+ * explicit `captureIds` selection. A selection kit is versioned and reviewed in
+ * the library's lineage rather than one of its own -- the ruling and the reason
+ * are on `KitScope` in `../storage/store.ts` -- so nothing downstream of here
+ * needs a fourth code path.
+ *
  * The download routes serve the stored strings byte for byte. They are the path
  * the acceptance test walks: a `design.md` downloaded here must equal the one
  * `pnpm skeleton` writes from the same captures.
@@ -14,12 +20,12 @@ import { Hono } from 'hono'
 import { COMPONENT_DOC_IDS, renderComponentMarkdown } from '@ingot/engine'
 import type { ComponentDocId } from '@ingot/engine'
 import { ApiError } from '../errors'
-import { KitGenerationError, effectiveKit, generateKit } from '../kit'
-import type { EffectiveKit } from '../kit'
+import { KitGenerationError, effectiveKit, generateKit, targetFor } from '../kit'
+import type { EffectiveKit, KitTarget } from '../kit'
 import { kitPayload, scopeFrom } from './reviews'
 import type { AppContext, AppEnv } from '../context'
 import type { Kit } from '../storage/store'
-import { optionalNullableString, readJsonBody } from '../validate'
+import { optionalNullableString, optionalStringArray, readJsonBody } from '../validate'
 
 /** `?groupId=` absent or `library` means the whole-library scope. */
 function scopeFromQuery(value: string | undefined): string | null {
@@ -48,14 +54,33 @@ function componentAttachment(kit: Kit, id: ComponentDocId): string {
   return `attachment; filename="${kit.setId}-v${kit.version}-${id}.md"`
 }
 
-async function runGeneration(context: AppContext, groupId: string | null): Promise<Kit> {
+async function runGeneration(context: AppContext, target: KitTarget): Promise<Kit> {
   try {
-    const { kit } = await generateKit(context.store, groupId)
+    const { kit } = await generateKit(context.store, target)
     return kit
   } catch (error) {
     if (error instanceof KitGenerationError) throw new ApiError(error.status, 'kit_generation', error.message)
     throw error
   }
+}
+
+/**
+ * What this request is pointed at.
+ *
+ * `captureIds` is the selection scope: an explicit list, distilled as one
+ * one-off kit. It is exclusive with `groupId` on purpose -- a selection is
+ * already a set of ids, and "this group, but only these of it" is two different
+ * answers to what the kit is, which is the ambiguity that would have to be
+ * resolved silently on every read afterwards.
+ */
+function targetFrom(body: Record<string, unknown>): KitTarget {
+  const captureIds = optionalStringArray(body, 'captureIds')
+  const groupId = scopeFrom(optionalNullableString(body, 'groupId'))
+  if (captureIds === undefined) return targetFor(groupId)
+  if (groupId !== null) {
+    throw ApiError.badRequest('send captureIds or groupId, not both; a selection is already a set of captures')
+  }
+  return { kind: 'selection', captureIds }
 }
 
 export function kitRoutes(context: AppContext): Hono<AppEnv> {
@@ -64,7 +89,7 @@ export function kitRoutes(context: AppContext): Hono<AppEnv> {
 
   app.post('/', async (c) => {
     const body = c.req.header('content-type')?.includes('application/json') ? await readJsonBody(c.req.raw) : {}
-    const kit = await runGeneration(context, scopeFrom(optionalNullableString(body, 'groupId')))
+    const kit = await runGeneration(context, targetFrom(body))
     // The new version inherits the scope's standing overrides, so the panel
     // gets back what it will actually render -- conflicts included.
     return c.json(kitPayload(await effectiveKit(store, kit)), 201)

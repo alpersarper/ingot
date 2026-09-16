@@ -45,6 +45,8 @@ describe('pairing', () => {
       ['/api/export/design.md', {}],
       ['/api/captures/import', { method: 'POST', body: '{}' }],
       ['/api/kits', { method: 'POST', body: '{}' }],
+      // Reset destroys the library. It is on this list, not the open one.
+      ['/api/reset', { method: 'POST', body: '{"confirm":"reset"}' }],
     ]
     for (const [path, init] of paths) {
       const response = await harness.raw(path, init)
@@ -366,6 +368,206 @@ describe('kit generation', () => {
     const orphan = kits.find((kit) => kit.id === grouped.kit.id)
     expect(orphan).toEqual(expect.objectContaining({ scope: 'group', groupId: null }))
     expect(kits.find((kit) => kit.id === library.kit.id)).toEqual(expect.objectContaining({ scope: 'library' }))
+  })
+})
+
+/**
+ * The selection scope: a kit distilled from an explicit list of capture ids.
+ *
+ * Two properties carry the whole feature. The bytes must be a function of
+ * *which* captures were chosen and not of the order they were ticked in, and
+ * the kit must land in the library's lineage and review scope rather than in
+ * one of its own -- because an ad-hoc selection has no identity for review
+ * state to key on, and an override filed under one would be a decision the user
+ * could never reach again.
+ */
+describe('kit generation from a selection', () => {
+  /** Import ghost-warm and answer with its capture ids in library order. */
+  async function importedCaptureIds(): Promise<string[]> {
+    await harness.call('/api/captures/import', body(await ghostWarmSet()))
+    const { captures } = await harness.json<{ captures: Array<{ id: string }> }>('/api/captures')
+    return captures.map((capture) => capture.id)
+  }
+
+  it('distils exactly the captures it was given, and says that is what it did', async () => {
+    const ids = await importedCaptureIds()
+    const chosen = ids.slice(0, 4)
+
+    const response = await harness.call('/api/kits', body({ captureIds: chosen }))
+    expect(response.status).toBe(201)
+    const generated = (await response.json()) as {
+      kit: { scope: string; groupId: string | null; setId: string; captureIds: string[]; version: number }
+      tokens: { source: { setId: string; captureCount: number } }
+    }
+
+    expect(generated.kit.scope).toBe('selection')
+    expect(generated.kit.groupId).toBeNull()
+    expect(generated.kit.setId).toBe('selection')
+    expect(generated.kit.captureIds).toEqual(chosen)
+    expect(generated.tokens.source.captureCount).toBe(4)
+  })
+
+  it('is byte-identical for the same ids in a different order', async () => {
+    const ids = await importedCaptureIds()
+    const chosen = ids.slice(0, 5)
+
+    const first = (await (await harness.call('/api/kits', body({ captureIds: chosen }))).json()) as {
+      kit: { id: string }
+    }
+    const shuffled = [chosen[2], chosen[0], chosen[4], chosen[1], chosen[3]]
+    const second = (await (await harness.call('/api/kits', body({ captureIds: shuffled }))).json()) as {
+      kit: { id: string; captureIds: string[] }
+    }
+
+    // A selection is a set. The server orders it by the library's own insertion
+    // sequence, so click order cannot reach the engine at all.
+    expect(second.kit.captureIds).toEqual(chosen)
+    expect(await (await harness.call(`/api/kits/${second.kit.id}/design.md`)).text()).toBe(
+      await (await harness.call(`/api/kits/${first.kit.id}/design.md`)).text(),
+    )
+    expect(await (await harness.call(`/api/kits/${second.kit.id}/tokens.json`)).text()).toBe(
+      await (await harness.call(`/api/kits/${first.kit.id}/tokens.json`)).text(),
+    )
+  })
+
+  it('takes the next library version and becomes the library scope\'s latest kit', async () => {
+    const ids = await importedCaptureIds()
+    const library = (await (await harness.call('/api/kits', body({}))).json()) as { kit: { version: number } }
+    expect(library.kit.version).toBe(1)
+
+    const selection = (await (await harness.call('/api/kits', body({ captureIds: ids.slice(0, 3) }))).json()) as {
+      kit: { id: string; version: number }
+    }
+    // One lineage, so a version number never names two different kits.
+    expect(selection.kit.version).toBe(2)
+
+    const latest = await harness.json<{ kit: { id: string; scope: string } }>('/api/kits/latest')
+    expect(latest.kit.id).toBe(selection.kit.id)
+    expect(latest.kit.scope).toBe('selection')
+
+    // And it is the library scope's list, not a list of its own.
+    const { kits } = await harness.json<{ kits: Array<{ id: string }> }>('/api/kits?groupId=library')
+    expect(kits.map((kit) => kit.id)).toContain(selection.kit.id)
+  })
+
+  it('reviews under the library scope, so an override on a one-off is not lost', async () => {
+    const ids = await importedCaptureIds()
+    await harness.call('/api/kits', body({ captureIds: ids.slice(0, 4) }))
+
+    const written = await harness.call(
+      '/api/reviews/overrides',
+      put({ groupId: null, path: 'radius.steps.md', value: '10px' }),
+    )
+    expect(written.status).toBe(200)
+    expect(await harness.context.store.reviews.overrides(null)).toEqual([
+      expect.objectContaining({ path: 'radius.steps.md', value: '10px' }),
+    ])
+
+    // The whole-library kit generated afterwards carries the same decision.
+    const library = (await (await harness.call('/api/kits', body({}))).json()) as {
+      review: { overrides: Array<{ path: string }> }
+    }
+    expect(library.review.overrides.map((entry) => entry.path)).toEqual(['radius.steps.md'])
+  })
+
+  it('refuses an empty selection, an unknown id, and a selection that also names a group', async () => {
+    const ids = await importedCaptureIds()
+    const { groups } = await harness.json<{ groups: Array<{ id: string }> }>('/api/groups')
+
+    const empty = await harness.call('/api/kits', body({ captureIds: [] }))
+    expect(empty.status).toBe(422)
+    expect(((await empty.json()) as { error: { message: string } }).error.message).toMatch(/at least one capture/)
+
+    const unknown = await harness.call('/api/kits', body({ captureIds: [ids[0], 'no-such-capture'] }))
+    expect(unknown.status).toBe(404)
+    expect(((await unknown.json()) as { error: { message: string } }).error.message).toMatch(/no-such-capture/)
+
+    const both = await harness.call('/api/kits', body({ captureIds: ids, groupId: groups[0]?.id }))
+    expect(both.status).toBe(400)
+  })
+})
+
+/**
+ * Starting over: the only thing in the product that deletes a kit.
+ *
+ * Everything else about kit history is append-only, so this endpoint is held to
+ * two properties -- it cannot be reached without the typed confirmation, and
+ * when it is reached it leaves nothing behind but the settings that let the
+ * user back in.
+ */
+describe('library reset', () => {
+  /** A library with something of every kind in it, so a reset has work to do. */
+  async function aFullLibrary(): Promise<{ groupId: string; captureId: string }> {
+    const imported = (await (await harness.call('/api/captures/import', body(await ghostWarmSet()))).json()) as {
+      group: { id: string }
+    }
+    await harness.call('/api/kits', body({ groupId: imported.group.id }))
+    await harness.call('/api/kits', body({}))
+    await harness.call('/api/reviews/overrides', put({ groupId: null, path: 'radius.steps.md', value: '10px' }))
+    await harness.call('/api/reviews/decisions', put({ groupId: null, cardId: 'choice:radius.steps.md', state: 'accepted' }))
+
+    const { captures } = await harness.json<{ captures: Array<{ id: string }> }>('/api/captures')
+    const captureId = captures[0]?.id ?? ''
+    await harness.call(`/api/captures/${captureId}/screenshot`, {
+      method: 'PUT',
+      headers: { 'content-type': 'image/png' },
+      body: new Uint8Array([1, 2, 3]),
+    })
+    return { groupId: imported.group.id, captureId }
+  }
+
+  it('refuses a body that does not carry the confirmation word', async () => {
+    await aFullLibrary()
+    for (const payload of [{}, { confirm: 'yes' }, { confirm: 'RESET' }]) {
+      const response = await harness.call('/api/reset', body(payload))
+      expect([400, 422], JSON.stringify(payload)).toContain(response.status)
+    }
+    // Nothing was destroyed by the refusals.
+    const { captures } = await harness.json<{ captures: unknown[] }>('/api/captures')
+    expect(captures.length).toBeGreaterThan(0)
+  })
+
+  it('destroys every capture, group, kit and review, and says how many', async () => {
+    const { captureId } = await aFullLibrary()
+    const screenshotPath = (await harness.context.store.captures.get(captureId))?.screenshotPath ?? null
+    expect(screenshotPath).not.toBeNull()
+
+    const response = await harness.call('/api/reset', body({ confirm: 'reset' }))
+    expect(response.status).toBe(200)
+    const { reset } = (await response.json()) as {
+      reset: { captures: number; groups: number; kits: number; overrides: number; decisions: number; screenshots: number }
+    }
+    expect(reset.captures).toBeGreaterThan(0)
+    expect(reset.groups).toBe(1)
+    expect(reset.kits).toBe(2)
+    expect(reset.overrides).toBe(1)
+    expect(reset.decisions).toBe(1)
+    expect(reset.screenshots).toBe(1)
+
+    // Nothing of the library is left, through the API or under it.
+    expect(await harness.json<{ captures: unknown[] }>('/api/captures')).toEqual({ captures: [] })
+    expect(await harness.json<{ groups: unknown[] }>('/api/groups')).toEqual({ groups: [] })
+    expect(await harness.json<{ kits: unknown[] }>('/api/kits')).toEqual({ kits: [] })
+    expect(await harness.context.store.reviews.overrides(null)).toEqual([])
+    expect(await harness.context.store.reviews.decisions(null)).toEqual([])
+    // And the image bytes are gone from the volume, not merely unreferenced.
+    if (screenshotPath !== null) {
+      await expect(harness.context.screenshots.read(screenshotPath)).rejects.toThrow()
+    }
+  })
+
+  it('leaves the pairing and the stored key alone, so the user is not locked out', async () => {
+    await aFullLibrary()
+    await harness.call('/api/settings', put({ llmApiKey: 'sk-ant-test-key' }))
+
+    expect((await harness.call('/api/reset', body({ confirm: 'reset' }))).status).toBe(200)
+
+    // Same token still works...
+    expect((await harness.call('/api/captures')).status).toBe(200)
+    // ...and the key is still configured, still never returned.
+    const { settings } = await harness.json<{ settings: { llm: { configured: boolean } } }>('/api/settings')
+    expect(settings.llm.configured).toBe(true)
+    expect(await harness.context.store.settings.get(LLM_API_KEY_SETTING)).toBe('sk-ant-test-key')
   })
 })
 

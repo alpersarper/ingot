@@ -12,9 +12,12 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Sparkles } from 'lucide-react'
 import type { ComponentDocId } from '@ingot/engine'
+import { Button } from './components/ui/button'
 import { CollectionPanel } from './workbench/CollectionPanel'
+import type { GroupTarget } from './workbench/CollectionPanel'
+import { SIZING_GUIDANCE } from './workbench/selection'
 import { SystemPanel } from './workbench/SystemPanel'
 import { Topbar } from './workbench/Topbar'
 import { FirstRun } from './workbench/FirstRun'
@@ -41,6 +44,18 @@ export function App(): ReactNode {
   const [libraryCount, setLibraryCount] = useState(0)
   const [captures, setCaptures] = useState<CaptureSummary[]>([])
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
+  /**
+   * The captures ticked in the left column.
+   *
+   * Held here rather than in the column because three other things act on it --
+   * grouping, generating and deleting -- and because it has to be dropped when
+   * the scope changes: a selection that survived a scope change would be a set
+   * of ids the user can no longer see, acted on by a bar stating a number they
+   * cannot check.
+   */
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  /** Kits per group, so a group delete can state what it would orphan. */
+  const [kitsByGroup, setKitsByGroup] = useState<Record<string, number>>({})
   const [kit, setKit] = useState<KitPayload | null>(null)
   /**
    * The assistant's state and this scope's proposals.
@@ -57,6 +72,9 @@ export function App(): ReactNode {
   const [kitError, setKitError] = useState<string | null>(null)
   /** True while a review write is in flight, so a double click cannot race. */
   const [reviewing, setReviewing] = useState(false)
+  /** The same, for the curation writes the left column makes. */
+  const [curating, setCurating] = useState(false)
+  const [curationError, setCurationError] = useState<string | null>(null)
   const [view, setView] = useState<PreviewView>('preview')
   const [theme, setTheme] = useState<PreviewTheme>('kit')
 
@@ -87,11 +105,20 @@ export function App(): ReactNode {
     [],
   )
 
-  /** The library list is the count behind "Whole library" and the fallback view. */
+  /**
+   * The library list: the count behind "Whole library", the groups, and how many
+   * kits each group has -- which is what a group delete has to be able to state
+   * before it happens.
+   */
   const refreshLibrary = useCallback(async (): Promise<void> => {
-    const [nextGroups, allCaptures] = await Promise.all([api.groups(), api.captures()])
+    const [nextGroups, allCaptures, allKits] = await Promise.all([api.groups(), api.captures(), api.kits()])
     setGroups(nextGroups)
     setLibraryCount(allCaptures.length)
+    const counts: Record<string, number> = {}
+    for (const kit of allKits) {
+      if (kit.groupId !== null) counts[kit.groupId] = (counts[kit.groupId] ?? 0) + 1
+    }
+    setKitsByGroup(counts)
   }, [])
 
   useEffect(() => {
@@ -121,6 +148,10 @@ export function App(): ReactNode {
   // has, so switching groups shows that group's system rather than a stale one.
   useEffect(() => {
     if (phase !== 'ready') return
+    // A selection is about captures on screen. Leaving the scope takes them off
+    // it, so the selection goes with them rather than quietly acting on rows
+    // the user can no longer see.
+    setSelectedIds([])
     // The cancelled flag keeps a slow response for a previous scope from
     // landing on top of the one the user has since switched to.
     let cancelled = false
@@ -167,16 +198,131 @@ export function App(): ReactNode {
     }
   }
 
+  /**
+   * Regenerate whatever is on screen.
+   *
+   * A selection kit regenerates from its *own* ids rather than from the scope
+   * it lives in: the button under a one-off has to mean "run this again", and
+   * quietly distilling the whole library instead would replace what the user is
+   * looking at with a different kit under the same click. Changing the ticks
+   * and pressing "Generate from selection" is the other path, and it is
+   * deliberately a different button.
+   */
   async function onGenerate(): Promise<void> {
+    const showing = kit?.kit
+    await runGeneration(
+      showing !== undefined && showing.scope === 'selection'
+        ? () => api.generateKitFromSelection(showing.captureIds)
+        : () => api.generateKit(selectedGroupId),
+    )
+  }
+
+  async function onGenerateFromSelection(): Promise<void> {
+    await runGeneration(() => api.generateKitFromSelection(selectedIds))
+  }
+
+  async function runGeneration(run: () => Promise<KitPayload>): Promise<void> {
     setGenerating(true)
     setKitError(null)
     try {
-      setKit(await api.generateKit(selectedGroupId))
+      setKit(await run())
+      await refreshLibrary()
     } catch (error) {
       setKitError(handle(error))
     } finally {
       setGenerating(false)
     }
+  }
+
+  /**
+   * One curation write, then a reload of what it changed.
+   *
+   * Every one of these moves rows the three columns are drawn from, so they all
+   * end the same way: ask the server again rather than patch a local copy. The
+   * panel is never the authority on what the library contains.
+   */
+  async function runCuration(action: () => Promise<void>): Promise<void> {
+    setCurating(true)
+    setCurationError(null)
+    try {
+      await action()
+      await refreshLibrary()
+      setCaptures(await api.captures(selectedGroupId ?? undefined))
+    } catch (error) {
+      setCurationError(handle(error))
+    } finally {
+      setCurating(false)
+    }
+  }
+
+  function onToggleCapture(captureId: string): void {
+    setSelectedIds((current) =>
+      current.includes(captureId) ? current.filter((id) => id !== captureId) : [...current, captureId],
+    )
+  }
+
+  /**
+   * Put the selection in a group -- a new one, or one that exists.
+   *
+   * Groups are not exclusive, so this adds rather than moves: a capture that is
+   * already in another group stays in it. The server skips ids the group
+   * already holds, which is what makes pressing this twice harmless.
+   */
+  async function onGroupSelection(target: GroupTarget): Promise<void> {
+    const ids = selectedIds
+    await runCuration(async () => {
+      const groupId =
+        target.kind === 'existing' ? target.groupId : (await api.createGroup(target.slug, target.name)).id
+      await api.addToGroup(groupId, ids)
+      // Land in what was just curated: it is the thing the user made.
+      setSelectedGroupId(groupId)
+    })
+  }
+
+  /**
+   * Delete captures, one request each.
+   *
+   * There is no bulk endpoint on purpose: `DELETE /api/captures/:id` is the
+   * contract the extension is being built against, and a second way to remove a
+   * capture would be a second place for the screenshot cleanup to be forgotten.
+   * A partial failure stops at the first one and says so -- with the rest still
+   * there, which is recoverable, rather than continuing blind.
+   */
+  async function onDeleteCaptures(captureIds: readonly string[]): Promise<void> {
+    await runCuration(async () => {
+      for (const id of captureIds) await api.deleteCapture(id)
+      setSelectedIds((current) => current.filter((id) => !captureIds.includes(id)))
+      // The kit on screen was distilled from evidence that has just changed.
+      // Re-reading the scope's latest is how the panel avoids claiming a kit
+      // covers captures that are gone.
+      setKit(await api.latestKit(selectedGroupId))
+    })
+  }
+
+  async function onRenameGroup(groupId: string, name: string): Promise<void> {
+    await runCuration(async () => {
+      await api.renameGroup(groupId, name)
+    })
+  }
+
+  async function onDeleteGroup(groupId: string): Promise<void> {
+    await runCuration(async () => {
+      await api.deleteGroup(groupId)
+      // The scope the user was in no longer exists; the library always does.
+      if (selectedGroupId === groupId) setSelectedGroupId(null)
+    })
+  }
+
+  /** The only path that destroys a kit. The dialog in front of it says so. */
+  async function onReset(): Promise<void> {
+    await runCuration(async () => {
+      await api.resetLibrary()
+      setSelectedIds([])
+      setKit(null)
+      setAssistant(null)
+      setSelectedGroupId(null)
+      setCaptures([])
+    })
   }
 
   async function onDownload(file: 'tokens.json' | 'design.md'): Promise<void> {
@@ -321,17 +467,39 @@ export function App(): ReactNode {
             captures={captures}
             selectedGroupId={selectedGroupId}
             libraryCaptureCount={libraryCount}
+            kitsByGroup={kitsByGroup}
             importing={importing}
             importError={importError}
+            busy={curating}
+            generating={generating}
+            error={curationError}
+            onDismissError={() => setCurationError(null)}
+            selectedIds={selectedIds}
             onSelectGroup={setSelectedGroupId}
             onImport={(set) => void onImport(set)}
             onDismissImportError={() => setImportError(null)}
+            onToggleCapture={onToggleCapture}
+            onSelectAll={() => setSelectedIds(captures.map((capture) => capture.id))}
+            onClearSelection={() => setSelectedIds([])}
+            onGroupSelection={(target) => void onGroupSelection(target)}
+            onGenerateFromSelection={() => void onGenerateFromSelection()}
+            onDeleteCaptures={(ids) => void onDeleteCaptures(ids)}
+            onRenameGroup={(groupId, name) => void onRenameGroup(groupId, name)}
+            onDeleteGroup={(groupId) => void onDeleteGroup(groupId)}
+            onReset={() => void onReset()}
           />
         </aside>
 
         <section className="min-h-0 overflow-hidden" aria-label="Live preview">
           {kit === null ? (
-            <EmptyPreview scopeLabel={scopeLabel} hasCaptures={captures.length > 0} />
+            <EmptyPreview
+              scopeLabel={scopeLabel}
+              captureCount={captures.length}
+              selectedCount={selectedIds.length}
+              generating={generating}
+              onGenerate={() => void onGenerate()}
+              onGenerateFromSelection={() => void onGenerateFromSelection()}
+            />
           ) : (
             <CanonicalPreview
               tokens={kit.tokens}
@@ -386,16 +554,58 @@ export function App(): ReactNode {
   )
 }
 
-function EmptyPreview({ scopeLabel, hasCaptures }: { scopeLabel: string; hasCaptures: boolean }): ReactNode {
+/**
+ * The middle column before a kit exists.
+ *
+ * It carries the generate button itself, which is the whole point: an empty
+ * state that tells somebody to press a control in another column is an
+ * instruction they have to go and find, and the one place they are already
+ * looking is the empty space where the answer should be. The right column keeps
+ * its own button -- that one is for regenerating, and it belongs next to the
+ * system it regenerates.
+ */
+function EmptyPreview({
+  scopeLabel,
+  captureCount,
+  selectedCount,
+  generating,
+  onGenerate,
+  onGenerateFromSelection,
+}: {
+  scopeLabel: string
+  captureCount: number
+  selectedCount: number
+  generating: boolean
+  onGenerate: () => void
+  onGenerateFromSelection: () => void
+}): ReactNode {
   return (
     <div className="flex h-full items-center justify-center p-10">
       <div className="max-w-sm text-center">
         <h2 className="text-sm font-semibold">Nothing to preview yet</h2>
         <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-          {hasCaptures
-            ? `Generate a kit for ${scopeLabel} and this is where it will be rendered -- buttons, a card, inputs and the type scale, drawn entirely from its tokens.`
-            : 'Import a capture set on the left, generate a kit, and the system will be drawn here.'}
+          {captureCount === 0
+            ? 'Import a capture set on the left, generate a kit, and the system will be drawn here.'
+            : `Distil ${scopeLabel} and this is where the result is rendered -- buttons, a card, inputs and the type scale, drawn entirely from its tokens.`}
         </p>
+        {captureCount === 0 ? null : (
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            <Button onClick={onGenerate} disabled={generating}>
+              {generating ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />}
+              Generate kit
+            </Button>
+            {selectedCount === 0 ? null : (
+              <Button variant="outline" onClick={onGenerateFromSelection} disabled={generating}>
+                Generate from {selectedCount} selected
+              </Button>
+            )}
+          </div>
+        )}
+        {/* Once the selection bar is on screen it carries this line, and the
+            guidance is worth exactly one line anywhere. */}
+        {captureCount === 0 || selectedCount > 0 ? null : (
+          <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">{SIZING_GUIDANCE}</p>
+        )}
       </div>
     </div>
   )

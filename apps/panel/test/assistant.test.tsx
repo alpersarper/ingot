@@ -63,7 +63,11 @@ async function reachTheWorkbench(user: ReturnType<typeof userEvent.setup>): Prom
   await user.click(screen.getByRole('button', { name: 'Import set' }))
   await waitFor(() => expect(screen.getByText('ghost-btn-primary')).toBeTruthy())
 
-  await user.click(screen.getByRole('button', { name: /Generate kit/ }))
+  // Two buttons say this now -- the empty middle column carries its own, so
+  // the CTA is never off-screen. This one is the system panel's.
+  await user.click(
+    within(screen.getByRole('complementary', { name: 'System' })).getByRole('button', { name: /Generate kit/ }),
+  )
   await screen.findByLabelText('Live preview')
 }
 

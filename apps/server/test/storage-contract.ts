@@ -289,6 +289,97 @@ export function describeStoreContract(name: string, createStore: () => Store | P
         expect((await store.kits.list({ groupId: null })).map((kit) => kit.groupId)).toEqual([null])
         expect(Object.keys((await store.kits.list())[0] ?? {})).not.toContain('tokensJson')
       })
+
+      it('versions a selection kit in the library lineage and surfaces it there', async () => {
+        const library = await store.kits.create({ ...kitInput, groupId: null })
+        const selection = await store.kits.create({
+          ...kitInput,
+          groupId: null,
+          scope: 'selection',
+          setId: 'selection',
+          captureIds: ['c-one', 'c-two'],
+        })
+
+        expect(selection.scope).toBe('selection')
+        // One lineage: a version number never names two different kits in the
+        // scope a reviewer's overrides key on.
+        expect([library.version, selection.version]).toEqual([1, 2])
+        expect((await store.kits.latest(null))?.id).toBe(selection.id)
+        expect((await store.kits.list({ groupId: null })).map((kit) => kit.id)).toEqual([selection.id, library.id])
+      })
+
+      it('refuses a selection kit that claims a group, and a group kit with no group', async () => {
+        const group = await store.groups.create({ slug: 'warm', name: 'Warm', description: 'Warm things.' })
+        await expect(
+          store.kits.create({ ...kitInput, groupId: group.id, scope: 'selection' }),
+        ).rejects.toThrow()
+        // An orphan is what a group deletion makes; it is never created as one.
+        await expect(store.kits.create({ ...kitInput, groupId: null, scope: 'group' })).rejects.toThrow()
+      })
+    })
+
+    describe('resetLibrary', () => {
+      it('destroys every capture, group, kit and review, and counts what it destroyed', async () => {
+        const group = await store.groups.create({ slug: 'warm', name: 'Warm', description: 'Warm things.' })
+        await store.captures.upsert({ record: record('c-one'), tags: ['brand'] })
+        await store.captures.upsert({ record: record('c-two'), screenshotPath: 'c-two.png' })
+        await store.groups.addCaptures(group.id, ['c-one', 'c-two'])
+        await store.kits.create({
+          setId: 'warm',
+          name: 'Warm',
+          engineVersion: '0.2.0',
+          captureIds: ['c-one'],
+          tokensJson: '{}\n',
+          designMd: '# Warm\n',
+          warningCount: 0,
+          groupId: group.id,
+        })
+        await store.reviews.setOverride(null, { path: 'radius.steps.md', value: '10px', baseValue: '6px' })
+        await store.reviews.acceptDecision(null, 'choice:radius.steps.md')
+        await store.proposals.create(null, {
+          capability: 'derive',
+          promptVersion: 'v1',
+          model: 'test',
+          path: 'radius.steps.md',
+          value: '12px',
+          baseValue: '6px',
+          title: 'Rounder',
+          rationale: 'because',
+        })
+        await store.settings.set('llm.apiKey', 'sk-secret')
+
+        const summary = await store.resetLibrary()
+
+        expect(summary).toEqual(
+          expect.objectContaining({ captures: 2, groups: 1, kits: 1, overrides: 1, decisions: 1, proposals: 1 }),
+        )
+        // The bytes are not the store's to delete, but which ones were in use
+        // is the only thing that knows.
+        expect(summary.screenshotPaths).toEqual(['c-two.png'])
+
+        expect(await store.captures.list()).toEqual([])
+        expect(await store.captures.tags()).toEqual([])
+        expect(await store.groups.list()).toEqual([])
+        expect(await store.kits.list()).toEqual([])
+        expect(await store.reviews.overrides(null)).toEqual([])
+        expect(await store.reviews.decisions(null)).toEqual([])
+        expect(await store.proposals.list(null)).toEqual([])
+        // Settings survive: the pairing token and the key live there, and
+        // starting a library over is not re-pairing.
+        expect(await store.settings.get('llm.apiKey')).toBe('sk-secret')
+      })
+
+      it('is safe on an empty library and reports zeroes', async () => {
+        expect(await store.resetLibrary()).toEqual({
+          captures: 0,
+          groups: 0,
+          kits: 0,
+          overrides: 0,
+          decisions: 0,
+          proposals: 0,
+          screenshotPaths: [],
+        })
+      })
     })
 
     describe('reviews', () => {

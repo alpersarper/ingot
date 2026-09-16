@@ -120,6 +120,22 @@ export interface GroupPatch {
 }
 
 /**
+ * What a kit distils.
+ *
+ * `group` and `library` are the two durable scopes: a named curation, and the
+ * whole pool. `selection` is the third thing a user can point the engine at --
+ * an ad-hoc set of capture ids that has no name and no lifetime beyond the
+ * click that made it.
+ *
+ * A selection is not a fourth *review* scope, and it is not a lineage of its
+ * own. It is drawn from the library and it versions and reviews there; see
+ * {@link Kit.version} and `reviewScopeOf` in `src/kit.ts`. Keeping the kind on
+ * the row rather than inferring it from `captureIds` is what lets a kit say
+ * what it distilled without a second field that can disagree with this one.
+ */
+export type KitScope = 'group' | 'library' | 'selection'
+
+/**
  * One generated kit: the engine's output frozen with the inputs that produced it.
  *
  * `tokensJson` and `designMd` are stored as the exact strings the engine
@@ -131,16 +147,28 @@ export interface Kit {
   /**
    * The group this kit distilled, or `null`. NULL alone does not mean the
    * library: a deleted group's kit keeps `scope: 'group'` with a `null`
-   * `groupId`. `scope` is the field that says what a kit is.
+   * `groupId`, and a selection kit has no group to point at either. `scope` is
+   * the field that says what a kit is.
    */
   groupId: string | null
   /**
-   * What the kit distils: one group, or the whole library. Explicit rather
-   * than inferred from `groupId`, so a kit orphaned by a group deletion stays
-   * a group kit instead of silently becoming the library's.
+   * What the kit distils: one group, the whole library, or an ad-hoc
+   * selection. Explicit rather than inferred from `groupId`, so a kit orphaned
+   * by a group deletion stays a group kit instead of silently becoming the
+   * library's, and a selection kit stays a selection instead of claiming to be
+   * the whole pool.
    */
-  scope: 'group' | 'library'
-  /** 1-based, monotonic within its scope. Kits are versioned, never overwritten. */
+  scope: KitScope
+  /**
+   * 1-based, monotonic within the kit's *lineage*. Kits are versioned, never
+   * overwritten.
+   *
+   * A group's kits are a lineage of their own. `library` and `selection` share
+   * one: a selection is a lens on the library, so its kits take the next
+   * library version rather than opening a lineage nothing can ever reach
+   * again. That keeps one version sequence per durable scope, which is what
+   * makes "overrides survive regeneration" mean something for a selection too.
+   */
   version: number
   /** Set id handed to the engine; `tokens.source.setId` in the output. */
   setId: string
@@ -162,6 +190,12 @@ export type KitSummary = Omit<Kit, 'tokensJson' | 'designMd'>
 
 export interface KitInput {
   groupId: string | null
+  /**
+   * What this kit distils. Omitted means the ordinary derivation from
+   * `groupId` -- `library` for null, `group` otherwise. `selection` must come
+   * with a null `groupId`: a selection is a set of capture ids, not a group.
+   */
+  scope?: KitScope
   setId: string
   name: string
   engineVersion: string
@@ -223,22 +257,30 @@ export interface KitRepository {
   /**
    * Kits, newest first.
    *
-   * `groupId: null` selects kits with `scope: 'library'` specifically -- never
-   * a group kit orphaned by its group's deletion; omitting the query returns
-   * every kit.
+   * `groupId: null` selects the library scope's kits -- `scope: 'library'` and
+   * `scope: 'selection'`, which share that scope's lineage and review state --
+   * and never a group kit orphaned by its group's deletion. Omitting the query
+   * returns every kit.
    */
   list(query?: { groupId?: string | null }): Promise<KitSummary[]>
   get(id: string): Promise<Kit | null>
   /**
    * The highest-versioned kit for this scope, or `null` if none exists.
-   * `null` means the library scope (`scope: 'library'`), which an orphaned
-   * group kit never satisfies.
+   *
+   * `null` means the library scope, whose lineage holds both whole-library and
+   * selection kits; an orphaned group kit never satisfies it. Returning a
+   * selection kit here is deliberate and is what makes a one-off reviewable:
+   * an override is written against the kit the reviewer is looking at, and
+   * that kit has to be the one this method hands back.
    */
   latest(groupId: string | null): Promise<Kit | null>
   /**
-   * Assigns the next version within the kit's scope and stores it. The scope
-   * is derived here: a `null` `groupId` creates a library kit, anything else a
-   * group kit -- an orphaned group kit can only arise from a group deletion.
+   * Assigns the next version within the kit's lineage and stores it.
+   *
+   * The scope comes from `input.scope` when it is given and is derived from
+   * `groupId` otherwise -- null is the library, anything else a group; an
+   * orphaned group kit can only arise from a group deletion. A `selection` kit
+   * takes the next *library* version, because it belongs to that lineage.
    */
   create(input: KitInput): Promise<Kit>
 }
@@ -472,6 +514,25 @@ export interface CaptureSetImport {
   records: CaptureRecord[]
 }
 
+/** What a library reset destroyed, counted per kind so the panel can say so. */
+export interface ResetSummary {
+  captures: number
+  groups: number
+  kits: number
+  overrides: number
+  decisions: number
+  proposals: number
+  /**
+   * Screenshot paths the wipe orphaned, so the caller can remove the files.
+   *
+   * The bytes live on the volume rather than in the database, so the store
+   * cannot delete them -- but it is the only thing that knows which ones were
+   * in use. Returning the paths keeps the filesystem out of this seam without
+   * leaving images behind that nothing refers to any more.
+   */
+  screenshotPaths: string[]
+}
+
 export interface Store {
   readonly captures: CaptureRepository
   readonly groups: GroupRepository
@@ -489,5 +550,19 @@ export interface Store {
    * be given for free.
    */
   importCaptureSet(input: CaptureSetImport): Promise<ImportResult>
+  /**
+   * Destroy the library: every capture, group, kit, override, decision and
+   * proposal, atomically, and report what went.
+   *
+   * Settings are deliberately untouched. The pairing token and the LLM key are
+   * how the user reaches the panel at all, and re-pairing is not part of
+   * starting a library over; this is a library reset, not a factory reset.
+   *
+   * This is the only operation in the product that deletes a kit. Kit history
+   * is append-only everywhere else -- a group deletion orphans its kits rather
+   * than removing them -- so this one method is the whole exception, and it
+   * exists behind a typed confirmation for that reason.
+   */
+  resetLibrary(): Promise<ResetSummary>
   close(): Promise<void>
 }
