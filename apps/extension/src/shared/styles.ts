@@ -87,23 +87,26 @@ function roundPx(value: number): string {
  */
 export function normaliseRadius(value: string, box: Rect): string | undefined {
   const raw = value.trim()
-  const direct = px(raw)
   const shorter = Math.min(box.width, box.height)
 
+  // Elliptical corners compute to the two-value form -- `"10px 20px"`,
+  // `"50% 40%"`. The first value is the horizontal radius; the engine models
+  // one number per corner, so that is the one that travels.
+  const first = raw.split(/\s+/)[0] ?? raw
+
+  const direct = px(first)
   if (direct !== undefined) {
     const size = toNumber(direct) ?? 0
     return shorter > 0 && size >= shorter / 2 ? PILL_RADIUS : direct
   }
 
-  // `"50%"`, and the two-value form `"50% 40%"` browsers report for elliptical
-  // corners. The first value is the horizontal radius; the engine models one
-  // number per corner, so that is the one that travels.
-  const percent = /^(\d+(?:\.\d+)?)%/.exec(raw)
+  const percent = /^(\d+(?:\.\d+)?)%$/.exec(first)
   if (percent === null) return undefined
   const ratio = Number(percent[1]) / 100
   if (!Number.isFinite(ratio)) return undefined
   if (ratio >= 0.5) return PILL_RADIUS
-  return roundPx(ratio * box.width)
+  const size = ratio * box.width
+  return shorter > 0 && size >= shorter / 2 ? PILL_RADIUS : roundPx(size)
 }
 
 /**
@@ -125,8 +128,11 @@ export function normaliseWeight(value: string): string | undefined {
  * The gap, when the element is one of the two display types that have one.
  *
  * `getComputedStyle().gap` is `"normal"` on everything else, and the two-value
- * form `"10px 20px"` on a grid with different row and column gaps. One number
- * reaches the record, so the column gap -- the first -- is the one taken.
+ * form `"10px 20px"` on a grid with different row and column gaps -- the
+ * shorthand is `<row-gap> <column-gap>`. One number reaches the record, so the
+ * row gap -- the first -- is the one taken: the two-value form only appears
+ * when the gaps differ, and the row gap is the one that describes the vertical
+ * rhythm of the column layouts most captured cards use.
  */
 export function normaliseGap(value: string): string | undefined {
   const first = value.trim().split(/\s+/)[0]

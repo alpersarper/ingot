@@ -81,6 +81,24 @@ export interface QueueOptions {
 export function createQueue(options: QueueOptions): Queue {
   const { store, onCount, now } = options
 
+  /**
+   * Every read-modify-write of a storage key runs on this one chain. The
+   * service worker is single-threaded, so the hazard is interleaving, not
+   * parallelism: an enqueue that lands while a send is awaited must not race
+   * the drain's own write, or one of the two writes acts on a snapshot the
+   * other has already made stale.
+   */
+  let chain: Promise<unknown> = Promise.resolve()
+
+  function serialized<T>(task: () => Promise<T>): Promise<T> {
+    const run = chain.then(task)
+    chain = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
+  }
+
   async function readPending(): Promise<QueuedCapture[]> {
     const raw = (await store.get([PENDING_KEY]))[PENDING_KEY]
     return Array.isArray(raw) ? (raw as QueuedCapture[]) : []
@@ -103,6 +121,19 @@ export function createQueue(options: QueueOptions): Queue {
   }
 
   /**
+   * Remove one sent (or parked) entry from what storage holds *now* -- never
+   * from a list read before the send was awaited. Matching `queuedAt` as well
+   * as the id means a re-capture that replaced the entry mid-send stays in the
+   * buffer and travels on the next pass, instead of being deleted unsent.
+   */
+  async function removePending(entry: QueuedCapture): Promise<void> {
+    const pending = await readPending()
+    await writePending(
+      pending.filter((item) => !(item.record.id === entry.record.id && item.queuedAt === entry.queuedAt)),
+    )
+  }
+
+  /**
    * Only one drain at a time.
    *
    * A drain is read-modify-write over a single storage key, and the service
@@ -114,29 +145,28 @@ export function createQueue(options: QueueOptions): Queue {
 
   async function runDrain(): Promise<{ sent: number; pending: number; error: string | null }> {
     const transport = await options.transport()
-    let pending = await readPending()
     let sent = 0
     let error: string | null = null
 
-    while (pending.length > 0) {
-      const head = pending[0]
+    for (;;) {
+      const head = (await serialized(readPending))[0]
       if (head === undefined) break
       const outcome = await transport.send(head.record, head.screenshot)
 
       if (outcome.kind === 'sent') {
-        pending = pending.slice(1)
         sent += 1
-        await writePending(pending)
+        await serialized(() => removePending(head))
         continue
       }
 
       if (outcome.kind === 'rejected') {
-        const rejected = await readRejected()
-        rejected.push({ record: head.record, reason: outcome.message, rejectedAt: now() })
-        await store.set({ [REJECTED_KEY]: rejected })
-        pending = pending.slice(1)
-        await writePending(pending)
         error = `${head.record.id}: ${outcome.message}`
+        await serialized(async () => {
+          const rejected = await readRejected()
+          rejected.push({ record: head.record, reason: outcome.message, rejectedAt: now() })
+          await store.set({ [REJECTED_KEY]: rejected })
+          await removePending(head)
+        })
         continue
       }
 
@@ -146,29 +176,32 @@ export function createQueue(options: QueueOptions): Queue {
       break
     }
 
+    const pending = await serialized(readPending)
     await store.set({ [STATE_KEY]: { lastError: error, lastAttemptAt: now() } satisfies QueueState })
     return { sent, pending: pending.length, error }
   }
 
   return {
     async enqueue(record, screenshot, queuedAt) {
-      const pending = await readPending()
-      if (pending.length >= MAX_PENDING) throw new QueueFullError(`${MAX_PENDING} waiting`)
-      // Replace rather than append when the same element is captured twice:
-      // the id is stable by design, and the panel upserts on it, so two rows in
-      // the buffer would mean sending the same capture twice for no reason.
-      const existing = pending.findIndex((item) => item.record.id === record.id)
-      const entry: QueuedCapture = { record, screenshot, queuedAt }
-      if (existing === -1) pending.push(entry)
-      else pending[existing] = entry
+      return serialized(async () => {
+        const pending = await readPending()
+        if (pending.length >= MAX_PENDING) throw new QueueFullError(`${MAX_PENDING} waiting`)
+        // Replace rather than append when the same element is captured twice:
+        // the id is stable by design, and the panel upserts on it, so two rows in
+        // the buffer would mean sending the same capture twice for no reason.
+        const existing = pending.findIndex((item) => item.record.id === record.id)
+        const entry: QueuedCapture = { record, screenshot, queuedAt }
+        if (existing === -1) pending.push(entry)
+        else pending[existing] = entry
 
-      const bytes = JSON.stringify(pending).length
-      if (bytes > MAX_PENDING_BYTES) {
-        throw new QueueFullError(`${Math.round(bytes / 100_000) / 10}MB of screenshots waiting`)
-      }
+        const bytes = JSON.stringify(pending).length
+        if (bytes > MAX_PENDING_BYTES) {
+          throw new QueueFullError(`${Math.round(bytes / 100_000) / 10}MB of screenshots waiting`)
+        }
 
-      await writePending(pending)
-      return pending.length
+        await writePending(pending)
+        return pending.length
+      })
     },
 
     async drain() {
@@ -190,7 +223,9 @@ export function createQueue(options: QueueOptions): Queue {
     },
 
     async clearRejected() {
-      await store.set({ [REJECTED_KEY]: [] })
+      await serialized(async () => {
+        await store.set({ [REJECTED_KEY]: [] })
+      })
     },
 
     async pendingCount() {

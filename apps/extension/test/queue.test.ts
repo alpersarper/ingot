@@ -274,4 +274,93 @@ describe('the capture buffer', () => {
     expect(first).toEqual(second)
     expect(await queue.pendingCount()).toBe(0)
   })
+
+  /**
+   * A panel whose sends only complete when the test says so, for pinning what
+   * happens when an enqueue lands while a send is still on the wire.
+   */
+  function gatedPanel() {
+    const received: string[] = []
+    const releases: Array<() => void> = []
+    const startWaiters: Array<() => void> = []
+    let startsSeen = 0
+    let startsAwaited = 0
+
+    const transport: Transport = {
+      async send(record) {
+        startsSeen += 1
+        for (const wake of startWaiters.splice(0)) wake()
+        await new Promise<void>((resolve) => releases.push(resolve))
+        received.push(record.id)
+        return { kind: 'sent' }
+      },
+      async check() {
+        return { ok: true }
+      },
+    }
+
+    return {
+      transport,
+      received,
+      /** Resolves once one more send than previously awaited has started. */
+      async sendStarted() {
+        startsAwaited += 1
+        while (startsSeen < startsAwaited) await new Promise<void>((resolve) => startWaiters.push(resolve))
+      },
+      releaseSend() {
+        releases.shift()?.()
+      },
+    }
+  }
+
+  it('does not lose a capture enqueued while a send is in flight', async () => {
+    // The drain must never write back a pending list read before its send was
+    // awaited: doing so deletes whatever was enqueued during the send, unsent
+    // and unreported.
+    const gate = gatedPanel()
+    panel.transport.send = gate.transport.send
+    panel.transport.check = gate.transport.check
+
+    await queue.enqueue(record('a'), null, '2026-02-11T09:14:22.000Z')
+    const draining = queue.drain()
+
+    await gate.sendStarted()
+    await queue.enqueue(record('b'), null, '2026-02-11T09:14:30.000Z')
+    gate.releaseSend()
+
+    await gate.sendStarted()
+    gate.releaseSend()
+
+    const result = await draining
+    expect(gate.received).toEqual(['a', 'b'])
+    expect(result).toEqual({ sent: 2, pending: 0, error: null })
+    expect(await queue.pendingCount()).toBe(0)
+    expect(badge.at(-1)).toBe(0)
+  })
+
+  it('does not resurrect a sent capture when an enqueue races the send completing', async () => {
+    // The reverse interleaving: the enqueue's read happens before the drain
+    // removes the sent head, so an unserialized write would put the already
+    // sent capture back and the next drain would send it twice.
+    const gate = gatedPanel()
+    panel.transport.send = gate.transport.send
+    panel.transport.check = gate.transport.check
+
+    await queue.enqueue(record('a'), null, '2026-02-11T09:14:22.000Z')
+    const draining = queue.drain()
+
+    await gate.sendStarted()
+    const enqueueing = queue.enqueue(record('b'), null, '2026-02-11T09:14:30.000Z')
+    gate.releaseSend()
+
+    await gate.sendStarted()
+    gate.releaseSend()
+
+    await Promise.all([enqueueing, draining])
+    const again = await queue.drain()
+
+    expect(gate.received).toEqual(['a', 'b'])
+    expect(again.sent).toBe(0)
+    expect(await queue.pendingCount()).toBe(0)
+  })
 })

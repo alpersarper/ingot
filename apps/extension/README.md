@@ -110,7 +110,9 @@ tested in `test/styles.test.ts`:
 - **Variable-font weights.** `"450"` is snapped to `"500"`; the schema takes
   hundreds. A 25-unit rounding is a smaller lie than a capture with no weight.
 - **`gap`.** `"normal"` on everything that is not flex or grid, and dropped
-  there; a grid's two gaps become the first.
+  there; a grid's two gaps (`<row-gap> <column-gap>`) become the row gap -- the
+  first -- because it is the one that describes the vertical rhythm of the
+  column layouts most captured cards use.
 - **Border colour.** Browsers report one even at zero width, usually the text
   colour. It travels only from an element that actually draws a border.
 

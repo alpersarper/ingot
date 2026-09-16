@@ -62,7 +62,7 @@ describe('normaliseRadius', () => {
   })
 
   it('resolves a percentage against the box', () => {
-    expect(normaliseRadius('25%', { ...BOX, width: 80 })).toBe('20px')
+    expect(normaliseRadius('25%', { ...BOX, width: 80, height: 100 })).toBe('20px')
   })
 
   it('reads a maximally-rounded corner as a pill rather than as half the box', () => {
@@ -74,6 +74,18 @@ describe('normaliseRadius', () => {
 
   it('takes the horizontal radius of an elliptical corner', () => {
     expect(normaliseRadius('10% 40%', { ...BOX, width: 100 })).toBe('10px')
+    expect(normaliseRadius('10px 20px', BOX)).toBe('10px')
+  })
+
+  it('reads an elliptical corner as a pill when its horizontal radius fills the shorter side', () => {
+    expect(normaliseRadius('24px 32px', BOX)).toBe('9999px')
+  })
+
+  it('applies the pill check to a resolved percentage against the shorter side', () => {
+    // 45% of a 200px-wide, 40px-tall element is 90px -- the same corner a
+    // direct "90px" would report as a pill, so the percentage must agree.
+    expect(normaliseRadius('45%', { ...BOX, width: 200 })).toBe('9999px')
+    expect(normaliseRadius('25%', { ...BOX, width: 80 })).toBe('9999px')
   })
 
   it('drops a value it cannot read as a length', () => {
@@ -107,7 +119,8 @@ describe('normaliseGap', () => {
     expect(normaliseGap('normal')).toBeUndefined()
   })
 
-  it('takes the first of a grid\'s two gaps', () => {
+  it('takes the row gap -- the first -- of a grid\'s two gaps', () => {
+    // The shorthand is `<row-gap> <column-gap>`; the row gap travels.
     expect(normaliseGap('10px 24px')).toBe('10px')
   })
 
