@@ -10,18 +10,20 @@
  * The interesting part is the classification. A drain has to tell three
  * situations apart, because they want three different behaviours:
  *
- *   - `unreachable`  the panel is down or the address is wrong. Keep the
- *                    capture, keep the order, try later. This is the buffering
- *                    case and it must never lose anything.
- *   - `refused`      the panel answered, and said no in a way a person has to
- *                    fix: a wrong token, an origin it will not accept. Also
- *                    keeps the capture -- fixing the setting makes it work --
- *                    but stops the drain, because every other item will fail
- *                    the same way.
+ *   - `unreachable`  the panel is down. Keep the capture, keep the order, try
+ *                    later. This is the buffering case and it must never lose
+ *                    anything.
+ *   - `refused`      a server answered, and said no in a way a person has to
+ *                    fix: a wrong token, an origin it will not accept, or a
+ *                    mistyped address where some other server happens to
+ *                    listen. Also keeps the capture -- fixing the setting makes
+ *                    it work -- but stops the drain, because every other item
+ *                    will fail the same way.
  *   - `rejected`     the panel answered and will never accept *this* capture:
- *                    a 422 from the capture validator, a 400. Parking it is the
- *                    only honest move; leaving it at the head of the queue
- *                    would wedge every capture behind it forever.
+ *                    a 422 from the capture validator, a 400, and nothing
+ *                    else. Parking it is the only honest move; leaving it at
+ *                    the head of the queue would wedge every capture behind it
+ *                    forever.
  */
 import type { CaptureRecord } from '@ingot/engine'
 import type { ScreenshotBlob, Settings } from './protocol'
@@ -60,15 +62,21 @@ async function describe(response: Response): Promise<string> {
 /**
  * Which bucket a status code falls in.
  *
- * 401 and 403 are `refused` rather than `rejected` on purpose: both mean the
- * *configuration* is wrong, not the capture, and a user who pastes the right
- * token expects the queue they watched pile up to drain, not to have been
- * thrown away while they looked for it.
+ * `rejected` means 400 and 422 only: the panel read this capture and will
+ * never accept it, whatever the reviewer does. Every other answer is
+ * *configuration* a person fixes, and the buffering contract is that captures
+ * are never lost to one of those. 401 and 403 are a wrong token; 404 and 405
+ * are a server that answered but has no such route -- a mistyped panel address
+ * with some other local server on it -- and discarding queued screenshots
+ * because that server said 404 would be data loss from a recoverable mistake.
+ * Both hold the queue, so a corrected setting self-heals: the user who fixes
+ * it expects the queue they watched pile up to drain, not to have been thrown
+ * away while they looked.
  */
 function classify(status: number, message: string): SendOutcome {
-  if (status === 401 || status === 403) return { kind: 'refused', message }
+  if (status === 400 || status === 422) return { kind: 'rejected', message }
   if (status === 429 || status >= 500) return { kind: 'unreachable', message }
-  return { kind: 'rejected', message }
+  return { kind: 'refused', message }
 }
 
 /** Turn a data URL back into bytes, so the image is uploaded as an image. */

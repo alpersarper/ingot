@@ -185,11 +185,13 @@ export function createQueue(options: QueueOptions): Queue {
     async enqueue(record, screenshot, queuedAt) {
       return serialized(async () => {
         const pending = await readPending()
-        if (pending.length >= MAX_PENDING) throw new QueueFullError(`${MAX_PENDING} waiting`)
         // Replace rather than append when the same element is captured twice:
         // the id is stable by design, and the panel upserts on it, so two rows in
         // the buffer would mean sending the same capture twice for no reason.
+        // A replacement does not grow the queue, so only an append is checked
+        // against the cap -- a full buffer must still take a re-capture.
         const existing = pending.findIndex((item) => item.record.id === record.id)
+        if (existing === -1 && pending.length >= MAX_PENDING) throw new QueueFullError(`${MAX_PENDING} waiting`)
         const entry: QueuedCapture = { record, screenshot, queuedAt }
         if (existing === -1) pending.push(entry)
         else pending[existing] = entry

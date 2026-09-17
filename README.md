@@ -162,7 +162,7 @@ Requires Node 20+ and pnpm 10.
 | `pnpm dev` | The server, the panel, and the extension's watch build, outside Docker. |
 | `pnpm build` | Build the panel, bundle the server. |
 | `pnpm build:extension` | Build the unpacked Chrome extension into `apps/extension/dist`. |
-| `pnpm test` | The whole suite, across engine, server and panel. |
+| `pnpm test` | The whole suite, across engine, extension, server and panel. |
 | `pnpm typecheck` | `tsc --noEmit` across the workspace. |
 | `pnpm skeleton` | Distil every fixture set into `examples/<set>/`. |
 | `pnpm skeleton --check` | Regenerate in memory and fail on any drift. This is the determinism check. |

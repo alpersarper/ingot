@@ -57,9 +57,11 @@ capturing the frame's own empty box.
 **When the panel is down**, captures queue in the extension and the toolbar
 badge shows how many are waiting. They survive a browser restart, drain in the
 order you took them as soon as the panel answers, and can be pushed by hand with
-**Sync now** on the options page. A capture the panel refuses outright -- a
-schema error rather than an unreachable server -- is set aside there with the
-reason, so one bad record cannot block the ones behind it.
+**Sync now** on the options page. Only a capture the panel will never accept --
+a schema error (a 400 or 422), rather than an unreachable server or a setting
+to fix -- is set aside there with the reason, so one bad record cannot block
+the ones behind it. Everything else, a wrong token or a mistyped address some
+other server answers, holds the queue: correct the setting and it drains.
 
 ## What it reads, and what it sends
 
@@ -90,7 +92,7 @@ reason, so one bad record cannot block the ones behind it.
 | `storage` | The panel address, the token, and the buffer of captures waiting to be sent. |
 | `alarms` | The retry that drains the buffer when the panel comes back. MV3 evicts the service worker when idle, so a timer would not survive; an alarm does. |
 | `host_permissions: http://localhost:4310/*` | The default panel address, so the common case needs no permission prompt. |
-| `optional_host_permissions: http(s)://*/*` | Requested for *one* host, at the moment you save a different panel address on the options page. Nothing is granted until then. |
+| `optional_host_permissions: http(s)://*/*` | Requested for *one* host, at the moment you save a different panel address on the options page. Nothing is granted until then, and the grant for a previously saved address is revoked when it is no longer the configured one. |
 
 The extension asks for no host permission on the sites you browse. `activeTab`
 covers those, one click at a time.

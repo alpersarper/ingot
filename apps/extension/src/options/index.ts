@@ -6,7 +6,7 @@
  * automatic retry the same code path, so the manual button cannot drift into a
  * second, subtly different drain.
  */
-import { chromeLocalStore, hostPatternFor, readSettings, writeSettings } from '../shared/settings'
+import { chromeLocalStore, hostPatternFor, patternToRevoke, readSettings, writeSettings } from '../shared/settings'
 import { DEFAULT_PANEL_URL } from '../shared/protocol'
 import type { OptionsMessage, QueueStatus } from '../shared/protocol'
 
@@ -80,6 +80,23 @@ async function ensureHostAccess(url: string): Promise<{ ok: true } | { ok: false
   return granted ? { ok: true } : { ok: false, message: `without access to ${pattern} captures cannot be sent` }
 }
 
+/**
+ * Drop the grant the previous address needed, once a new one is saved.
+ *
+ * `patternToRevoke` decides; this only carries the decision to Chrome. A
+ * removal Chrome refuses or that throws is ignored on purpose: the settings
+ * are already written, and a save must not fail over a revocation.
+ */
+async function dropSupersededGrant(previousUrl: string, nextUrl: string): Promise<void> {
+  const pattern = patternToRevoke(previousUrl, nextUrl, DEFAULT_PANEL_URL)
+  if (pattern === null) return
+  try {
+    await chrome.permissions.remove({ origins: [pattern] })
+  } catch {
+    // The save already succeeded; a refused revocation changes nothing here.
+  }
+}
+
 form.addEventListener('submit', (event) => {
   event.preventDefault()
   void (async () => {
@@ -89,7 +106,9 @@ form.addEventListener('submit', (event) => {
       say(settingsStatus, access.message, 'error')
       return
     }
+    const previous = await readSettings(store)
     await writeSettings(store, { panelUrl: address, token: token.value })
+    await dropSupersededGrant(previous.panelUrl, address)
     const current = await readSettings(store)
     panelUrl.value = current.panelUrl
     say(settingsStatus, 'Saved.')

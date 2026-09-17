@@ -241,6 +241,23 @@ describe('the capture buffer', () => {
     expect(await queue.pendingCount()).toBe(MAX_PENDING)
   })
 
+  it('still takes a re-capture at the cap, because a replacement does not grow the buffer', async () => {
+    // Re-picking an element already in a full buffer replaces its entry in
+    // place. Refusing it would make the cap check unreachable code out of the
+    // replace-not-append rule, exactly when the buffer is full.
+    panel.stop()
+    for (let i = 0; i < MAX_PENDING; i += 1) {
+      await queue.enqueue(record(`capture-${i}`), null, '2026-02-11T09:14:22.000Z')
+    }
+
+    await queue.enqueue({ ...record('capture-3'), componentType: 'card' }, null, '2026-02-11T09:15:00.000Z')
+    expect(await queue.pendingCount()).toBe(MAX_PENDING)
+
+    await expect(queue.enqueue(record('one-too-many'), null, '2026-02-11T09:15:01.000Z')).rejects.toBeInstanceOf(
+      QueueFullError,
+    )
+  })
+
   it('refuses to grow past the byte budget, before the write that would throw', async () => {
     // A hundred captures is not a size: a card screenshot is orders of
     // magnitude larger than a button's. Without this, a handful of big ones

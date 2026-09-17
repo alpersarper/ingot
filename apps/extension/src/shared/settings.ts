@@ -56,3 +56,21 @@ export function hostPatternFor(panelUrl: string): string | null {
     return null
   }
 }
+
+/**
+ * Which standing grant a saved address change has made redundant.
+ *
+ * The minimal-permission posture is a stated requirement -- the README's
+ * permission table promises access to the configured panel address and nothing
+ * else, and behaviour conforms to the documented promise, never the other way
+ * round. So the previous address's grant is revoked once it is no longer the
+ * configured one. The exception is the default address: that pattern is a
+ * static `host_permissions` entry in the manifest, which cannot be removed at
+ * runtime and must not be attempted.
+ */
+export function patternToRevoke(previousUrl: string, nextUrl: string, defaultUrl: string): string | null {
+  const previous = hostPatternFor(previousUrl)
+  if (previous === null) return null
+  if (previous === hostPatternFor(nextUrl) || previous === hostPatternFor(defaultUrl)) return null
+  return previous
+}
