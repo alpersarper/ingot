@@ -8,7 +8,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { SCHEMA_VERSION } from '../src/storage/sqlite/schema'
+import { SCHEMA_VERSION, migrateTo } from '../src/storage/sqlite/schema'
 import { countingIdFactory, steppingClock } from '../src/storage/ids'
 import { createSqliteStore } from '../src/storage/sqlite'
 import { describeStoreContract, record } from './storage-contract'
@@ -63,6 +63,60 @@ describe('sqlite adapter', () => {
     expect(() => createSqliteStore({ file, idFactory: countingIdFactory(), clock: steppingClock() })).toThrow(
       /newer than this server understands/,
     )
+  })
+
+  /**
+   * The v5 shape, written by hand.
+   *
+   * Migration 6 rebuilds `kits` to admit the `selection` scope, and a rebuild
+   * is the one migration shape that can lose rows. Running it against a
+   * database that already holds kits is the only way to know it does not --
+   * a fresh database rebuilds an empty table and proves nothing. The DDL below
+   * is a copy of what shipped precisely because it must not follow the current
+   * schema when that changes again.
+   */
+  function writeV5Database(file: string): void {
+    const raw = new Database(file)
+    // The real migration ladder, stopped one step short of the rebuild. The old
+    // DDL is never copied into this file, so the row below really was written by
+    // the shape that shipped.
+    migrateTo(raw, 5)
+    raw.exec(`
+      INSERT INTO groups VALUES ('g1', 'warm', 'Warm', 'Warm things.', 'import', 'then', 'then');
+      INSERT INTO kits VALUES ('k1', 'g1', 'group', 1, 'warm', 'Warm', '0.2.0', '["c-one"]', '{}', '# Warm', 0, 'then');
+      INSERT INTO kits VALUES ('k2', NULL, 'library', 1, 'library', 'Lib', '0.2.0', '["c-one"]', '{}', '# Lib', 0, 'then');
+    `)
+    raw.close()
+  }
+
+  it('rebuilds the kits table in place without losing a kit', async () => {
+    const file = join(await tempDir(), 'ingot.db')
+    writeV5Database(file)
+
+    const store = createSqliteStore({ file, idFactory: countingIdFactory(), clock: steppingClock() })
+    const kits = await store.kits.list()
+    expect(kits.map((kit) => [kit.id, kit.scope, kit.version])).toEqual([
+      ['k2', 'library', 1],
+      ['k1', 'group', 1],
+    ])
+    // The payloads came through the copy byte for byte, which is the whole risk
+    // a table rebuild carries.
+    expect((await store.kits.get('k1'))?.designMd).toBe('# Warm')
+    // And the upgraded table admits what it was rebuilt for, in the library's
+    // lineage: the next version after the library kit that was already there.
+    const selection = await store.kits.create({
+      groupId: null,
+      scope: 'selection',
+      setId: 'selection',
+      name: 'Selected captures',
+      engineVersion: '0.2.0',
+      captureIds: ['c-one'],
+      tokensJson: '{}',
+      designMd: '# Sel',
+      warningCount: 0,
+    })
+    expect(selection.version).toBe(2)
+    await store.close()
   })
 
   it('takes ids and timestamps from its injected factories', async () => {

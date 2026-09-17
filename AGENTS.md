@@ -78,6 +78,18 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
   weaken it: a kit row stores the engine's own bytes and `effectiveKit()` replays
   the reviewer's values on read, short-circuiting to the stored strings when
   there are none.
+- **The library is a pool; groups are non-exclusive curations of it; a kit
+  generates from a scope.** Multi-select in the left column is the primary verb,
+  and its bar acts on exactly what is ticked. A selection kit (`scope:
+  'selection'`) is a *lens on the library*: it takes the next library version
+  and reviews under the library scope, because a selection has no identity for
+  review state to key on. Order never reaches the engine -- a selection is fed
+  in the library's own insertion order, so the same ids in any order are
+  byte-identical. Kit history is append-only everywhere except `POST /api/reset`,
+  which is the single path that deletes a kit and is gated on a confirmation
+  word the API checks itself; deleting a group orphans its kits instead.
+  Every destructive action names what goes *and what stays*. Rules:
+  [DECISIONS.md](DECISIONS.md) and [docs/panel.md](docs/panel.md#the-collection-and-curating-it).
 - **Storage stays behind `apps/server/src/storage/store.ts`.** Async methods, no
   transaction handle across the seam, total ordering on every list. A Postgres
   adapter must be a new file under `storage/` plus one line in

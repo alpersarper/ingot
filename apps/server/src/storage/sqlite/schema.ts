@@ -205,6 +205,42 @@ const MIGRATIONS: string[][] = [
      )`,
     `CREATE INDEX assistant_proposals_scope ON assistant_proposals (scope_key, created_at, id)`,
   ],
+  [
+    // A third kind of kit: one distilled from an ad-hoc selection of capture
+    // ids rather than from a group or the whole library. The CHECK constraint
+    // on `scope` is part of the table definition and SQLite cannot alter one,
+    // so this is the standard table rebuild -- new table, copy, drop, rename.
+    //
+    // The two version indexes are where the ruling lives. A group keeps its own
+    // lineage; `library` and `selection` now *share* one, because a selection
+    // is a lens on the library rather than a collection of its own. Versioning
+    // them together is what lets a one-off be reviewed at all: review state
+    // keys on the scope, the review routes read the scope's latest kit, and a
+    // selection kit that sat outside that lineage could never be the kit an
+    // override was written against.
+    `CREATE TABLE kits_new (
+       id             TEXT PRIMARY KEY,
+       group_id       TEXT REFERENCES groups (id) ON DELETE SET NULL,
+       scope          TEXT NOT NULL CHECK (scope IN ('group', 'library', 'selection')),
+       version        INTEGER NOT NULL,
+       set_id         TEXT NOT NULL,
+       name           TEXT NOT NULL,
+       engine_version TEXT NOT NULL,
+       capture_ids    TEXT NOT NULL,
+       tokens_json    TEXT NOT NULL,
+       design_md      TEXT NOT NULL,
+       warning_count  INTEGER NOT NULL,
+       created_at     TEXT NOT NULL
+     )`,
+    `INSERT INTO kits_new (id, group_id, scope, version, set_id, name, engine_version, capture_ids,
+                           tokens_json, design_md, warning_count, created_at)
+       SELECT id, group_id, scope, version, set_id, name, engine_version, capture_ids,
+              tokens_json, design_md, warning_count, created_at FROM kits`,
+    `DROP TABLE kits`,
+    `ALTER TABLE kits_new RENAME TO kits`,
+    `CREATE UNIQUE INDEX kits_group_version ON kits (group_id, version) WHERE scope = 'group'`,
+    `CREATE UNIQUE INDEX kits_library_version ON kits (version) WHERE scope IN ('library', 'selection')`,
+  ],
 ]
 
 /** The schema version this build of the server expects. */
@@ -219,14 +255,28 @@ export function migrate(db: Database): void {
         'upgrade the server or start from a fresh data volume',
     )
   }
-  if (current === SCHEMA_VERSION) return
+  migrateTo(db, SCHEMA_VERSION)
+}
+
+/**
+ * Bring a database up to a chosen version. `migrate` is this with the latest.
+ *
+ * Exported for the tests, and for one specific test: a migration that *rebuilds*
+ * a table can lose rows, and the only honest way to prove one does not is to
+ * run it against a database that was really built by the older schema. Copying
+ * the old DDL into a test would prove the copy right rather than the migration,
+ * so the test stops the real ladder at the step before instead.
+ */
+export function migrateTo(db: Database, target: number): void {
+  const current = db.pragma('user_version', { simple: true }) as number
+  if (current >= target) return
 
   db.exec('BEGIN')
   try {
-    for (let version = current; version < SCHEMA_VERSION; version += 1) {
+    for (let version = current; version < target; version += 1) {
       for (const statement of MIGRATIONS[version] ?? []) db.exec(statement)
     }
-    db.pragma(`user_version = ${SCHEMA_VERSION}`)
+    db.pragma(`user_version = ${target}`)
     db.exec('COMMIT')
   } catch (error) {
     db.exec('ROLLBACK')

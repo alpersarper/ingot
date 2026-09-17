@@ -186,7 +186,7 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
     return {
       id: row.id,
       groupId: row.group_id,
-      scope: row.scope === 'library' ? 'library' : 'group',
+      scope: row.scope === 'library' || row.scope === 'selection' ? row.scope : 'group',
       version: row.version,
       setId: row.set_id,
       name: row.name,
@@ -445,12 +445,20 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
   const KIT_SUMMARY_COLUMNS = `id, group_id, scope, version, set_id, name, engine_version, capture_ids,
        '' AS tokens_json, '' AS design_md, warning_count, created_at`
 
+  /**
+   * The library scope's kits: distilled from the whole pool, or from a
+   * selection drawn out of it. One lineage, one review scope -- see the ruling
+   * in `../store.ts` on {@link KitScope}.
+   */
+  const LIBRARY_LINEAGE = "WHERE scope IN ('library', 'selection')"
+
   const kits: KitRepository = {
     async list(query = {}) {
       const hasScope = 'groupId' in query
       // The library scope is selected by the scope column, never by group_id
-      // being NULL: an orphaned group kit also has a NULL group_id.
-      const where = hasScope ? (query.groupId === null ? "WHERE scope = 'library'" : 'WHERE group_id = ?') : ''
+      // being NULL: an orphaned group kit also has a NULL group_id, and so does
+      // a selection kit -- which *is* in the library scope and belongs here.
+      const where = hasScope ? (query.groupId === null ? LIBRARY_LINEAGE : 'WHERE group_id = ?') : ''
       const params = hasScope && query.groupId !== null && query.groupId !== undefined ? [query.groupId] : []
       const rows = db
         .prepare<unknown[], KitRow>(
@@ -471,7 +479,7 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
     async latest(groupId) {
       const row =
         groupId === null
-          ? db.prepare<[], KitRow>("SELECT * FROM kits WHERE scope = 'library' ORDER BY version DESC LIMIT 1").get()
+          ? db.prepare<[], KitRow>(`SELECT * FROM kits ${LIBRARY_LINEAGE} ORDER BY version DESC LIMIT 1`).get()
           : db
               .prepare<[string], KitRow>('SELECT * FROM kits WHERE group_id = ? ORDER BY version DESC LIMIT 1')
               .get(groupId)
@@ -480,12 +488,20 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
 
     async create(input: KitInput) {
       return db.transaction(() => {
-        const scope = input.groupId === null ? 'library' : 'group'
+        const scope = input.scope ?? (input.groupId === null ? 'library' : 'group')
+        if (scope !== 'group' && input.groupId !== null) {
+          throw new Error(`a ${scope} kit cannot belong to a group`)
+        }
+        if (scope === 'group' && input.groupId === null) {
+          throw new Error('a group kit needs a group; an orphan is made by deleting one, never by creating one')
+        }
+        // A selection kit takes the next *library* version: it is a lens on the
+        // library, and the two share one lineage and one review scope.
         const nextVersion =
           (input.groupId === null
             ? db
                 .prepare<[], { next: number }>(
-                  "SELECT COALESCE(MAX(version), 0) + 1 AS next FROM kits WHERE scope = 'library'",
+                  `SELECT COALESCE(MAX(version), 0) + 1 AS next FROM kits ${LIBRARY_LINEAGE}`,
                 )
                 .get()?.next
             : db
@@ -742,6 +758,49 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
         const refreshed = getGroupRow.get(groupRow.id)
         if (!refreshed) throw new Error(`group ${input.slug} vanished during import`)
         return { group: hydrateGroup(refreshed), created, replaced }
+      })()
+    },
+
+    async resetLibrary() {
+      return db.transaction(() => {
+        const screenshotPaths = db
+          .prepare<[], { screenshot_path: string }>(
+            'SELECT screenshot_path FROM captures WHERE screenshot_path IS NOT NULL ORDER BY seq',
+          )
+          .all()
+          .map((row) => row.screenshot_path)
+
+        const count = (table: string): number =>
+          db.prepare<[], { n: number }>(`SELECT COUNT(*) AS n FROM ${table}`).get()?.n ?? 0
+        const summary = {
+          captures: count('captures'),
+          groups: count('groups'),
+          kits: count('kits'),
+          overrides: count('token_overrides'),
+          decisions: count('decision_reviews'),
+          proposals: count('assistant_proposals'),
+          screenshotPaths,
+        }
+
+        // Every table but `settings`. The pairing token and the LLM key live
+        // there and are how the user reaches the panel at all; wiping a library
+        // is not re-pairing. capture_tags and group_captures fall to their
+        // cascades, but are named anyway so this reads as the complete list it
+        // has to be -- a table added later and forgotten here is a row that
+        // survives a reset nobody expected it to.
+        for (const table of [
+          'assistant_proposals',
+          'decision_reviews',
+          'token_overrides',
+          'kits',
+          'group_captures',
+          'groups',
+          'capture_tags',
+          'captures',
+        ]) {
+          db.prepare(`DELETE FROM ${table}`).run()
+        }
+        return summary
       })()
     },
 

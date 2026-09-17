@@ -115,7 +115,11 @@ async function reachTheWorkbench(user: ReturnType<typeof userEvent.setup>): Prom
   await user.click(screen.getByRole('button', { name: 'Import set' }))
   await waitFor(() => expect(screen.getByText('ghost-btn-primary')).toBeTruthy())
 
-  await user.click(screen.getByRole('button', { name: /Generate kit/ }))
+  // The empty middle column carries a Generate button of its own, so the
+  // system panel's has to be asked for by name.
+  await user.click(
+    within(screen.getByRole('complementary', { name: 'System' })).getByRole('button', { name: /Generate kit/ }),
+  )
   await screen.findByLabelText('Live preview')
 }
 
@@ -351,7 +355,8 @@ describe('the review loop', () => {
     // not an omitted key -- so this walks the request shape the server has to
     // accept, against the real routes.
     await user.click(screen.getByRole('button', { name: /Whole library/ }))
-    await user.click(await screen.findByRole('button', { name: 'Generate kit' }))
+    const systemColumn = screen.getByRole('complementary', { name: 'System' })
+    await user.click(await within(systemColumn).findByRole('button', { name: 'Generate kit' }))
     await waitFor(() => expect(screen.getByLabelText('Live preview').querySelector('.kit-surface')).toBeTruthy())
     const system = screen.getByRole('complementary', { name: 'System' })
 

@@ -20,6 +20,16 @@ history owns the chronology.
   split, no two-audience UI.
 - **The panel is the product, not an export utility.** Review and override are
   the experience. Forbids treating override as an escape hatch or a debug view.
+- **Curation is the primary journey: collect, curate, distil.** The **library**
+  is the type-agnostic pool every capture lands in. **Groups** are named
+  curations within it and are **non-exclusive** — a capture may be in several,
+  because deciding which captures belong together is the work, and a capture
+  that can only be in one place makes that decision unrepeatable. A kit
+  generates from a **scope**: the whole library, a group, or an ad-hoc
+  selection. Requires: multi-select is a first-class verb of the collection
+  column, and groups are objects there (open, rename, delete) rather than
+  filters. Forbids a "move to group" that takes a capture out of another, and
+  forbids an import being the only way a group can exist.
 
 ## Hard boundaries (v1 scope)
 
@@ -65,6 +75,34 @@ history owns the chronology.
   *unresolved* rather than as passing. Forbids: satisfying the bar by capturing
   a red into a fixture instead of answering the question, and hard-blocking
   export on an unresolved kit — the card and the kit status stay visibly open.
+
+## Curation and kit lifecycle
+
+- **A selection kit versions and reviews in the library's lineage.** Generating
+  from an ad-hoc selection makes a kit with `scope: 'selection'`, which takes the
+  next *library* version and carries the *library* scope's review state. The two
+  candidates were a lineage of its own and the library's; the library's wins
+  because review state keys on a scope, and a selection has no identity for one
+  to key on — an override filed under "these six ids" is a decision the user can
+  never reach again, which is the silent loss the whole override machinery
+  exists to prevent. A reviewer who wants a lineage of their own groups the
+  selection, which is one click away in the same bar. Requires: a selection kit
+  states that it is a one-off, and says that overrides made on it stand for the
+  library. Forbids inferring "selection" from `captureIds` instead of storing
+  the scope, and forbids a fourth review scope.
+- **A selection is a set, not an order.** The same captures ticked in any order
+  produce byte-identical output: the server orders a selection by the library's
+  own insertion sequence, never by the order the ids arrived in. Forbids letting
+  click order reach the engine.
+- **Kit history is append-only; a library reset is the single exception.**
+  Regenerating adds a version, and deleting a group *orphans* its kits rather
+  than deleting them, so a document somebody exported never loses the record of
+  what produced it. `POST /api/reset` is the one path that destroys a kit, and
+  it is gated on a confirmation word the API itself checks rather than on a
+  dialog alone. Pairing and the stored key survive it — starting a library over
+  is not re-pairing. Forbids a second delete path into kits, and forbids a
+  destructive action whose dialog does not name exactly what goes and what
+  stays.
 
 ## Architecture
 
