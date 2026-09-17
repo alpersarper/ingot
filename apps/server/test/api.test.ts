@@ -6,9 +6,11 @@
  * one value that goes in and never comes out; and the import-to-kit path is
  * what the panel actually walks.
  */
+import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { EXTENSION_ORIGIN } from '../src/cors'
 import { PAIRING_HEADER } from '../src/pairing'
 import { LLM_API_KEY_SETTING } from '../src/routes/settings'
 import { createHarness, TEST_TOKEN, body, put } from './harness'
@@ -94,6 +96,34 @@ describe('cors', () => {
       expect(response.status, origin).toBe(200)
       expect(response.headers.get('access-control-allow-origin')).toBe(origin)
     }
+  })
+
+  it('allows the capture extension, which Chrome gives an Origin of its own', async () => {
+    // Measured, not assumed: an MV3 service worker's fetch carries
+    // `Origin: chrome-extension://<id>`, so the extension reaches this API only
+    // because `EXTENSION_ORIGIN` is allowed. The pairing token still guards it.
+    const response = await harness.raw('/api/health', { headers: { origin: EXTENSION_ORIGIN } })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('access-control-allow-origin')).toBe(EXTENSION_ORIGIN)
+
+    const other = await harness.raw('/api/health', {
+      headers: { origin: 'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
+    })
+    expect(other.status, 'any other extension is still refused').toBe(403)
+  })
+
+  it('pins the same extension the manifest does', async () => {
+    // A Chrome extension's id is the first 128 bits of the SHA-256 of its
+    // public key, nibble by nibble into a-p. Deriving it here is what stops the
+    // constant in `cors.ts` and the pinned key in the manifest drifting apart
+    // and locking the extension out with a 403 nobody can explain.
+    const manifest = JSON.parse(await readFile(`${ROOT}apps/extension/manifest.json`, 'utf8')) as { key: string }
+    const digest = createHash('sha256').update(Buffer.from(manifest.key, 'base64')).digest()
+    let id = ''
+    for (const byte of digest.subarray(0, 16)) {
+      id += String.fromCharCode(97 + (byte >> 4)) + String.fromCharCode(97 + (byte & 15))
+    }
+    expect(EXTENSION_ORIGIN).toBe(`chrome-extension://${id}`)
   })
 
   it('answers a preflight for the panel origin only', async () => {

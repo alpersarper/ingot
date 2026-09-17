@@ -24,6 +24,10 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/engine/package.json packages/engine/
 COPY apps/server/package.json apps/server/
 COPY apps/panel/package.json apps/panel/
+# The extension is not in the image, but it is in the workspace: `--frozen-lockfile`
+# compares the lockfile's projects against the ones it can see, and a missing
+# manifest here fails the install rather than being ignored.
+COPY apps/extension/package.json apps/extension/
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 
 COPY . .

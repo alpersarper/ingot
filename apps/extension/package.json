@@ -1,0 +1,19 @@
+{
+  "name": "@ingot/extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Ingot capture extension for Chrome: pick a component while browsing, send it to the panel.",
+  "scripts": {
+    "dev": "node build.mjs --watch",
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.287",
+    "esbuild": "^0.28.2"
+  },
+  "dependencies": {
+    "@ingot/engine": "workspace:*"
+  }
+}

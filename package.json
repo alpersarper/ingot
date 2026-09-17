@@ -11,6 +11,7 @@
   "scripts": {
     "dev": "pnpm --parallel --filter \"./apps/*\" dev",
     "build": "pnpm --filter @ingot/panel build && pnpm --filter @ingot/server build",
+    "build:extension": "pnpm --filter @ingot/extension build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json && pnpm --filter \"./apps/*\" typecheck",
     "skeleton": "tsx scripts/skeleton.ts",

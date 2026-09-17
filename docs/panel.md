@@ -12,7 +12,8 @@ apps/panel/    React + Vite + Tailwind + shadcn conventions. The workbench UI.
 
 The container exposes **one port**: the server serves the built panel, so the
 API and the UI share an origin and there is exactly one address to configure --
-the one the future browser extension will be pointed at.
+the one the browser extension is pointed at
+([apps/extension](../apps/extension/README.md)).
 
 ## Running it
 
@@ -57,6 +58,18 @@ merely declining to set the header. Declining the header stops a script reading
 the response; it does not stop the request. The server's own origin is always
 allowed without being configured, because in the container the panel is
 same-origin with it.
+
+Two origins are allowed without being configured, and the second is worth
+knowing about. Chrome puts `Origin: chrome-extension://<id>` on every request an
+MV3 service worker makes -- measured, not assumed -- so the capture extension is
+a cross-origin caller like any other, and the lock would refuse it. Its origin
+is fixed by the public key pinned in `apps/extension/manifest.json` and allowed
+by name, so this is one extension rather than a class of them. Refusing it would
+have protected nothing: a web page cannot forge an extension origin, and an
+extension that wanted to lie about its own could rewrite the header. The pairing
+token is the guard there, as it is for `curl`.
+`apps/server/test/api.test.ts` derives the id from the manifest so the constant
+and the extension cannot drift apart.
 
 ## The LLM key
 
@@ -380,6 +393,6 @@ the assistant present or absent as long as no proposal has been accepted.
 
 ## Deliberately not built yet
 
-No browser extension. Within the assistant, deliberately absent in v1: chat
+Within the assistant, deliberately absent in v1: chat
 history persisted beyond the session, multi-provider support, and autonomous
 batch operations -- there is no "fix everything", only single-suggestion cards.
