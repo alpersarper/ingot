@@ -11,7 +11,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { distill, renderDesignKitMarkdown, serializeTokens } from '@ingot/engine'
+import { distill, renderDesignKitMarkdown, renderSpecDesignMarkdown, serializeTokens } from '@ingot/engine'
 import type { CaptureSet } from '@ingot/engine'
 import { fixtureSetIds, renderSet } from '../scripts/skeleton'
 
@@ -35,6 +35,7 @@ describe('determinism', () => {
       const second = distill(structuredClone(input))
       expect(serializeTokens(second)).toBe(serializeTokens(first))
       expect(renderDesignKitMarkdown(second)).toBe(renderDesignKitMarkdown(first))
+      expect(renderSpecDesignMarkdown(second)).toBe(renderSpecDesignMarkdown(first))
     })
 
     it('does not depend on the order captures appear in', async () => {

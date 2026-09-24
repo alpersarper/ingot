@@ -14,10 +14,12 @@
  * const tokens = distill(JSON.parse(await readFile('fixtures/linear-dark/set.json', 'utf8')))
  * await writeFile('tokens.json', serializeTokens(tokens))
  * await writeFile('design-kit.md', renderDesignKitMarkdown(tokens))
+ * await writeFile('DESIGN.md', renderSpecDesignMarkdown(tokens))
  * ```
  */
 export { distill, serializeTokens } from './distill'
 export { renderDesignKitMarkdown } from './export/design-kit-md'
+export { DESIGN_MD_SPEC_VERSION, renderSpecDesignMarkdown } from './export/design-md-spec'
 export { renderComponentMarkdown } from './export/component-md'
 export {
   COMPONENT_DOC_IDS,

@@ -256,6 +256,16 @@ export interface ResetCounts {
   screenshots: number
 }
 
+/**
+ * The whole-kit downloads, which are the three files a user leaves with.
+ *
+ * `DESIGN.md` keeps the specification's capitalisation because that *is* the
+ * filename the format is addressed by: an agent looking for a design system
+ * looks for `DESIGN.md`, and a `design.md` beside it is a different file to
+ * every case-sensitive filesystem there is.
+ */
+export type KitFile = 'tokens.json' | 'design-kit.md' | 'DESIGN.md'
+
 export const api = {
   /** Open: answers before the panel holds a token. */
   async health(): Promise<{ status: string; engine: { name: string; version: string } }> {
@@ -452,7 +462,7 @@ export const api = {
    * price of not putting the token in a URL, where it would end up in history
    * and in logs.
    */
-  async download(kitId: string, file: 'tokens.json' | 'design-kit.md'): Promise<void> {
+  async download(kitId: string, file: KitFile): Promise<void> {
     const response = await send(`/api/kits/${encodeURIComponent(kitId)}/${file}`)
     saveBlob(await response.blob(), suggestedFilename(response, file))
   },

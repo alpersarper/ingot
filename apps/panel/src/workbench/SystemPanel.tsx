@@ -45,7 +45,7 @@ import type { CardSeverity } from './decisions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import type { AssistantAnswer, AssistantNaming, AssistantState, KitSummary, ReviewState } from '@/lib/api'
+import type { AssistantAnswer, AssistantNaming, AssistantState, KitFile, KitSummary, ReviewState } from '@/lib/api'
 import { decisionCards, openCount } from './decisions'
 import type { DecisionCard } from './decisions'
 import { AssistantTab } from './AssistantPanel'
@@ -93,7 +93,7 @@ export interface SystemPanelProps {
   busy: boolean
   error: string | null
   onGenerate: () => void
-  onDownload: (file: 'tokens.json' | 'design-kit.md') => void
+  onDownload: (file: KitFile) => void
   onDownloadComponent: (component: ComponentDocId) => void
   onDownloadDocs: () => void
   onOverride: (path: string, value: string, note?: string) => void
@@ -691,6 +691,10 @@ function ExportTab({
             <Download aria-hidden />
             design-kit.md
           </Button>
+          <Button size="sm" variant="outline" onClick={() => onDownload('DESIGN.md')}>
+            <Download aria-hidden />
+            DESIGN.md
+          </Button>
           <Button size="sm" variant="outline" onClick={() => onDownload('tokens.json')}>
             <Download aria-hidden />
             tokens.json
@@ -700,6 +704,11 @@ function ExportTab({
             Docs site (single HTML file)
           </Button>
         </div>
+        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+          <span className="font-mono">design-kit.md</span> is the full specification, written for an LLM building
+          against this kit. <span className="font-mono">DESIGN.md</span> is the same kit in the open DESIGN.md format,
+          for an agent that already reads that standard — save it at the root of the repository under that exact name.
+        </p>
         <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
           The docs site is the Docs tab, rendered to one self-contained file. It opens with no server and no network.
         </p>

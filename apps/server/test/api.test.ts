@@ -45,6 +45,7 @@ describe('pairing', () => {
       ['/api/kits', {}],
       ['/api/settings', {}],
       ['/api/export/design-kit.md', {}],
+      ['/api/export/DESIGN.md', {}],
       ['/api/captures/import', { method: 'POST', body: '{}' }],
       ['/api/kits', { method: 'POST', body: '{}' }],
       // Reset destroys the library. It is on this list, not the open one.
@@ -351,10 +352,24 @@ describe('kit generation', () => {
     expect(tokens.headers.get('content-type')).toContain('application/json')
 
     expect(await (await harness.call('/api/export/design-kit.md')).text()).toBe(designKitMd)
+
+    // The spec-conformant artifact is the third download and a different
+    // document: same kit, stated in the DESIGN.md format. Its front matter is
+    // the thing a conforming reader looks for first, so that is what is
+    // asserted here -- `test/design-md-spec.test.ts` holds the contents to the
+    // specification's own linter.
+    const spec = await harness.call(`/api/kits/${generated.kit.id}/DESIGN.md`)
+    expect(spec.headers.get('content-type')).toContain('text/markdown')
+    expect(spec.headers.get('content-disposition')).toContain('library-v1-DESIGN.md')
+    const specMd = await spec.text()
+    expect(specMd).toMatch(/^---\nversion: alpha\n/)
+    expect(specMd).not.toBe(designKitMd)
+    expect(await (await harness.call('/api/export/DESIGN.md')).text()).toBe(specMd)
   })
 
   it('refuses an export before anything has been generated', async () => {
     expect((await harness.call('/api/export/design-kit.md')).status).toBe(409)
+    expect((await harness.call('/api/export/DESIGN.md')).status).toBe(409)
   })
 
   it('never serves a deleted group\'s kit as the library export', async () => {
@@ -684,6 +699,11 @@ describe('review: overrides and decisions', () => {
     expect(await tokensFile.text()).toContain('"user-override"')
     const componentFile = await harness.call(`/api/export/components/button.md`)
     expect(await componentFile.text()).toContain('# Button')
+    // Including the spec-conformant one, which is rendered from the effective
+    // tokens rather than stored -- so a reviewer's decision reaches the agent
+    // reading the standard, not only the one reading Ingot's own document.
+    const specFile = await harness.call(`/api/kits/${generated.kit.id}/DESIGN.md`)
+    expect(await specFile.text()).toContain('md: 10px')
     // And the stored kit is untouched: the engine's answer stays on the record.
     const stored = await harness.store.kits.get(generated.kit.id)
     expect(JSON.parse(stored?.tokensJson ?? '{}').radius.steps.md.value).toBe(engineRadius)

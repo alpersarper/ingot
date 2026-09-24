@@ -17,7 +17,7 @@
  * `pnpm skeleton` writes from the same captures.
  */
 import { Hono } from 'hono'
-import { COMPONENT_DOC_IDS, renderComponentMarkdown } from '@ingot/engine'
+import { COMPONENT_DOC_IDS, renderComponentMarkdown, renderSpecDesignMarkdown } from '@ingot/engine'
 import type { ComponentDocId } from '@ingot/engine'
 import { ApiError } from '../errors'
 import { KitGenerationError, effectiveKit, generateKit, targetFor } from '../kit'
@@ -144,6 +144,20 @@ export function kitRoutes(context: AppContext): Hono<AppEnv> {
     })
   })
 
+  // The spec-conformant artifact, rendered on demand for the same reason the
+  // component docs are: it is a pure function of the effective tokens, and a
+  // second stored copy of a kit is a second thing that can fall out of step
+  // with the first. `design-kit.md` is stored rather than rendered only because
+  // it is the document the determinism guarantee is written against, and that
+  // guarantee is about the engine's *own* bytes for a kit version.
+  app.get('/:id/DESIGN.md', async (c) => {
+    const effective = await load(c.req.param('id'))
+    return c.body(renderSpecDesignMarkdown(effective.tokens), 200, {
+      'Content-Type': 'text/markdown; charset=utf-8',
+      'Content-Disposition': attachment(effective.kit, 'DESIGN.md'),
+    })
+  })
+
   // One component, on its own. Rendered on demand from the effective tokens
   // rather than stored, because it is a pure function of them and storing nine
   // more strings per kit would be nine more things to keep in step.
@@ -199,6 +213,14 @@ export function exportRoutes(context: AppContext): Hono<AppEnv> {
     return c.body(effective.designKitMd, 200, {
       'Content-Type': 'text/markdown; charset=utf-8',
       'Content-Disposition': attachment(effective.kit, 'design-kit.md'),
+    })
+  })
+
+  app.get('/DESIGN.md', async (c) => {
+    const effective = await latestOrFail(c)
+    return c.body(renderSpecDesignMarkdown(effective.tokens), 200, {
+      'Content-Type': 'text/markdown; charset=utf-8',
+      'Content-Disposition': attachment(effective.kit, 'DESIGN.md'),
     })
   })
 
