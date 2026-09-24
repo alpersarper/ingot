@@ -206,8 +206,9 @@ history owns the chronology.
   contrast/collapse checks; an explicit user override on a dependent always wins.
 - **One rule source per behaviour.** Per-component markdown is self-sufficient
   and must agree with `design-kit.md`, `DESIGN.md` and the preview. Shared
-  prose — `errorSignalGuidance` is the case that exists — is translated into a
-  target's own naming on the way out, never forked per target.
+  prose — `errorSignalGuidance` and `collapsedShadesSentence` are the cases
+  that exist — is translated into a target's own naming on the way out, never
+  forked per target.
 - **A conflict retires only when the reviewer responds** — a value change or a
   card action. Note-only edits touch nothing; retirements are recorded in
   provenance.

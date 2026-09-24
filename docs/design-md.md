@@ -86,9 +86,13 @@ is recorded here and in `test/design-md-spec.test.ts` rather than papered over.
 ## Shared prose
 
 `errorSignalGuidance` (`export/error-signal.ts`) is the single owner of
-everything any Ingot artifact says about drawing an error, and it is written for
-`design-kit.md`: dotted recipe names, section numbers. `inSpecNames` in
-`design-md-spec.ts` translates both into this document's naming on the way out.
+everything any Ingot artifact says about drawing an error, and
+`collapsedShadesSentence` (`color/roles.ts`) of what it says about states a
+reader cannot tell apart. Both are written for `design-kit.md`: dotted recipe
+names, section numbers, camelCase colour-role names. `inSpecNames` in
+`design-md-spec.ts` translates all three into this document's naming on the way
+out — the role renames come from `COLOR_TOKEN_NAMES`, the same map that names
+the front-matter tokens, so the prose and the tokens cannot drift apart.
 Forking the prose per target would be how the two documents start describing two
 different kits to the same reader.
 
