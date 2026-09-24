@@ -131,22 +131,38 @@ function componentKey(name: string): string {
  *
  * `errorSignalGuidance` is the one owner of everything any Ingot artifact says
  * about drawing an error, and it is written for `design-kit.md`: recipe names
- * in the token model's dotted form (`button.destructive`) and cross-references
- * by section number (`see §2`). This document calls that control
- * `button-destructive` and numbers no sections at all, so the sentence arrives
- * pointing at two things the reader cannot find. Translating on the way out
- * keeps the single owner intact; forking the prose to fix the addressing would
- * not, and a forked copy is how the two documents would start describing two
- * different kits.
+ * in the token model's dotted form (`button.destructive`), cross-references
+ * by section number (`see §2`), and colour roles in the token model's camelCase
+ * (`textMuted`). The same is true of `collapsedShadesSentence`, which names the
+ * roles it compares. This document calls that control `button-destructive`,
+ * numbers no sections at all and names its colour tokens in kebab-case, so the
+ * sentence arrives pointing at three things the reader cannot find. Translating
+ * on the way out keeps the single owner intact; forking the prose to fix the
+ * addressing would not, and a forked copy is how the two documents would start
+ * describing two different kits.
+ *
+ * The role renames come from {@link COLOR_TOKEN_NAMES} rather than a second
+ * list, so the front matter and the prose cannot drift apart. Only the roles
+ * whose spec name differs are rewritten -- the identity-mapped ones (`primary`,
+ * `text`, `border`, ...) are ordinary English words this prose also uses, and a
+ * camelCase multi-word name is not.
  */
 const SECTION_NAMES: Readonly<Record<string, string>> = { '2': 'Colors', '7': 'Components' }
 
+const ROLE_RENAMES: ReadonlyArray<readonly [ColorRoleName, string]> = (
+  Object.entries(COLOR_TOKEN_NAMES) as Array<[ColorRoleName, string]>
+).filter(([role, token]) => role !== token)
+
 function inSpecNames(text: string): string {
-  return text
+  let translated = text
     .replace(/`([a-z]+)\.([a-z]+)`/g, (whole, group: string, member: string) =>
       group === 'button' || group === 'table' ? `\`${group}-${member}\`` : whole,
     )
     .replace(/§(\d+)/g, (whole, number: string) => SECTION_NAMES[number] ?? whole)
+  for (const [role, token] of ROLE_RENAMES) {
+    translated = translated.replace(new RegExp(`\\b${role}\\b`, 'g'), token)
+  }
+  return translated
 }
 
 /** `color.roles.primaryHover` -> `primary-hover`, or `undefined` for no role. */
@@ -411,7 +427,7 @@ export function renderSpecDesignMarkdown(tokens: TokensDocument): string {
   })
   if (collapsed.length > 0) {
     push(
-      `**These states are not distinguishable on screen:** ${collapsedShadesSentence(collapsed)}. Signal them with the focus ring, a border or a transform — not with the fill.`,
+      `**These states are not distinguishable on screen:** ${inSpecNames(collapsedShadesSentence(collapsed))}. Signal them with the focus ring, a border or a transform — not with the fill.`,
       '',
     )
   }

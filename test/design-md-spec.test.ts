@@ -26,11 +26,13 @@
  * modelling gap: see the assertion at the bottom.
  */
 import { execFile } from 'node:child_process'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { describe, expect, it } from 'vitest'
-import { DESIGN_MD_SPEC_VERSION } from '@ingot/engine'
+import { DESIGN_MD_SPEC_VERSION, distill, renderSpecDesignMarkdown } from '@ingot/engine'
 import { fixtureSetIds } from '../scripts/skeleton'
 
 const run = promisify(execFile)
@@ -49,20 +51,30 @@ interface LintReport {
   summary: { errors: number; warnings: number; infos: number }
 }
 
-/** Run the published linter over one committed example. */
-async function lint(setId: string): Promise<LintReport> {
+/** Run the published linter over one document on disk. */
+async function lintFile(path: string): Promise<LintReport> {
   // The CLI exits non-zero when it finds errors, which `execFile` turns into a
   // rejection -- so the report is read off the error as readily as off the
   // result. Failing here on the exit code alone would cost the test the one
   // thing worth printing when it fails: which rule fired, and where.
   try {
-    const { stdout } = await run(process.execPath, [LINTER, 'lint', join(ROOT, 'examples', setId, 'DESIGN.md')])
+    const { stdout } = await run(process.execPath, [LINTER, 'lint', path])
     return JSON.parse(stdout) as LintReport
   } catch (error) {
     const stdout = (error as { stdout?: string }).stdout
     if (stdout === undefined || stdout === '') throw error
     return JSON.parse(stdout) as LintReport
   }
+}
+
+/** Run the published linter over one committed example. */
+async function lint(setId: string): Promise<LintReport> {
+  return lintFile(join(ROOT, 'examples', setId, 'DESIGN.md'))
+}
+
+/** Distill one fixture set, for tests that render a document the examples cannot reach. */
+async function distillSet(setId: string): Promise<ReturnType<typeof distill>> {
+  return distill(JSON.parse(await readFile(join(ROOT, 'fixtures', setId, 'set.json'), 'utf8')))
 }
 
 const setIds = await fixtureSetIds()
@@ -91,8 +103,9 @@ describe('DESIGN.md conformance', () => {
       (finding) =>
         !(finding.rule === 'orphaned-tokens' && finding.path === 'colors.border') &&
         !(finding.rule === 'contrast-ratio' && finding.path === 'components.control-disabled') &&
-        // The one genuine finding, and only in the incoherent set. See below.
-        !(setId === 'messy-mixed' && finding.rule === 'contrast-ratio'),
+        // The one genuine finding, and only in the incoherent set, pinned to
+        // the one component it is known on. See below.
+        !(setId === 'messy-mixed' && finding.rule === 'contrast-ratio' && finding.path === 'components.button-primary'),
     )
     expect(unexplained).toEqual([])
   })
@@ -123,6 +136,64 @@ describe('DESIGN.md conformance', () => {
     for (const setId of setIds.filter((id) => id !== 'messy-mixed')) {
       const contrast = notable(await lint(setId)).filter((finding) => finding.rule === 'contrast-ratio')
       expect(contrast.map((finding) => finding.path)).toEqual(['components.control-disabled'])
+    }
+  })
+
+  it('carries exactly the one recorded contrast gap in messy-mixed, on the primary button alone', async () => {
+    const contrast = notable(await lint('messy-mixed')).filter(
+      (finding) => finding.rule === 'contrast-ratio' && finding.path !== 'components.control-disabled',
+    )
+    expect(contrast.map((finding) => finding.path)).toEqual(['components.button-primary'])
+  })
+
+  /**
+   * The shared prose is written in `design-kit.md`'s names, and the generator
+   * translates it into this document's own on the way out. These two documents
+   * are reachable from real kits -- an acknowledged missing error colour, and a
+   * state collapse the chroma rescue could not fix -- but no committed example
+   * carries either, so the lint pass above never sees the translated sentences.
+   */
+  it('names colour tokens in its own kebab-case in the acknowledged error language', async () => {
+    const tokens = await distillSet('linear-dark')
+    expect(tokens.color.roles.destructive).toBeUndefined()
+    tokens.components.states.error.mode.value = 'acknowledged'
+    const doc = renderSpecDesignMarkdown(tokens)
+    expect(doc).toContain('never `text-muted`')
+    expect(doc).not.toContain('textMuted')
+  })
+
+  it('names colour tokens in its own kebab-case in the collapsed-states sentence', async () => {
+    const tokens = await distillSet('stripe-light')
+    const primary = tokens.color.roles.primary
+    const hover = tokens.color.roles.primaryHover
+    if (primary === undefined || hover === undefined) throw new Error('fixture lost its primary shades')
+    hover.value.hex = primary.value.hex
+    const doc = renderSpecDesignMarkdown(tokens)
+    expect(doc).toContain('**These states are not distinguishable on screen:** primary-hover and primary are the same colour')
+    expect(doc).not.toContain('primaryHover')
+    expect(doc).not.toContain('primaryActive')
+  })
+
+  /**
+   * No fixture distils without radii or spacing, so the `omitted:` front-matter
+   * branch is linted here instead: the same pinned CLI, over a document rendered
+   * from a fixture stripped of both scales.
+   */
+  it('lints a kit with no radius and no spacing scale with no errors, via omitted', async () => {
+    const tokens = await distillSet('stripe-light')
+    tokens.radius.steps = {}
+    tokens.spacing.steps = []
+    const doc = renderSpecDesignMarkdown(tokens)
+    expect(doc).toContain('omitted:')
+    const dir = await mkdtemp(join(tmpdir(), 'ingot-design-md-'))
+    try {
+      const path = join(dir, 'DESIGN.md')
+      await writeFile(path, doc)
+      const report = await lintFile(path)
+      expect(report.findings.filter((finding) => finding.severity === 'error')).toEqual([])
+      expect(report.summary.errors).toBe(0)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
     }
   })
 })
