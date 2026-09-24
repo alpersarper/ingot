@@ -30,6 +30,7 @@
  */
 
 import { describeError } from './redact'
+import type { ConnectionId } from './connections'
 
 /** One turn of the conversation handed to the model. */
 export interface LlmMessage {
@@ -106,13 +107,40 @@ export class LlmError extends Error {
 
 /** Everything an implementation needs to reach a provider. */
 export interface LlmClientConfig {
-  /** The secret. It goes in here and comes out of nothing. */
-  apiKey: string
+  /**
+   * Which connection this client is for.
+   *
+   * On the config rather than implied by which factory was called, because the
+   * factory the server actually holds is one that dispatches -- see
+   * `providers.ts` -- and because a test that injects its own factory has to be
+   * able to see which connection the service asked for.
+   */
+  connection: ConnectionId
+  /**
+   * The secret, when the connection has one.
+   *
+   * Absent for the local CLI, which is signed in rather than keyed, and
+   * optional for an OpenAI-compatible endpoint, since a model running on this
+   * machine has nobody to authenticate to. A connection that requires one says
+   * so in `connections.ts`, and the service refuses before a client is built.
+   */
+  apiKey?: string
   model: string
   /** Provider endpoint, when it is not the default. */
   baseUrl?: string
   /** Wall-clock ceiling for one request, in milliseconds. */
   timeoutMs?: number
+  /**
+   * Every secret this process holds, read at throw time.
+   *
+   * Supplied by the caller rather than assembled from `apiKey`, because the
+   * caller is the only thing that knows the whole list: the pairing token, a
+   * stored key belonging to a connection that is not the selected one, a key
+   * that has since been replaced. An implementation hands this straight to
+   * {@link structuredClient}; it never reads it. A client built without one
+   * still redacts its own key.
+   */
+  secrets?: () => readonly (string | undefined)[]
 }
 
 export interface LlmClient {

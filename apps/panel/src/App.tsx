@@ -632,6 +632,16 @@ export function App(): ReactNode {
               setSettings(await api.settings().catch(() => null))
               await refreshAssistant(reviewScope)
             }}
+            onSaveLlmConnection={async (connection) => {
+              await api.saveLlmConnection(connection)
+              setSettings(await api.settings().catch(() => null))
+              await refreshAssistant(reviewScope)
+            }}
+            onSaveLlmBaseUrl={async (baseUrl) => {
+              await api.saveLlmBaseUrl(baseUrl)
+              setSettings(await api.settings().catch(() => null))
+              await refreshAssistant(reviewScope)
+            }}
           />
         </aside>
       </main>

@@ -18,6 +18,7 @@ import { createScreenshotStore } from '../src/screenshots'
 import { countingIdFactory, steppingClock } from '../src/storage/ids'
 import { createSqliteStore } from '../src/storage/sqlite'
 import type { AppContext } from '../src/context'
+import type { CliProbe } from '../src/assistant/claude-cli'
 import type { LlmClient, LlmClientConfig } from '../src/assistant/llm'
 import type { Store } from '../src/storage/store'
 
@@ -43,6 +44,22 @@ export interface FakeLlm {
   readonly configs: LlmClientConfig[]
 }
 
+/**
+ * Everything a test may vary about the world outside this process.
+ *
+ * The CLI probe is here rather than left to the real one on purpose: whether
+ * the developer running the suite happens to have Claude Code installed must
+ * not change which connection the assistant resolves, or the same test would
+ * mean two different things on two machines. The default is "no CLI, not a
+ * container", which is the configuration every pre-existing test was written
+ * against.
+ */
+export interface HarnessOptions {
+  env?: NodeJS.ProcessEnv
+  cli?: CliProbe
+  containerized?: boolean
+}
+
 export interface Harness {
   /** Lines the assistant logged. Redacted, because the logger redacts. */
   readonly logs: string[]
@@ -62,9 +79,19 @@ export interface Harness {
 
 const ORIGIN = 'http://localhost:4310'
 
-export async function createHarness(env: NodeJS.ProcessEnv = {}): Promise<Harness> {
+const NO_CLI: CliProbe = {
+  available: false,
+  version: undefined,
+  signedIn: undefined,
+  detail: '`claude` is not on this server’s PATH',
+}
+
+export async function createHarness(
+  envOrOptions: NodeJS.ProcessEnv | HarnessOptions = {},
+): Promise<Harness> {
+  const options: HarnessOptions = isOptions(envOrOptions) ? envOrOptions : { env: envOrOptions }
   const dataDir = await mkdtemp(join(tmpdir(), 'ingot-api-'))
-  const config = loadConfig({ INGOT_DATA_DIR: dataDir, ...env })
+  const config = loadConfig({ INGOT_DATA_DIR: dataDir, ...(options.env ?? {}) })
   const store = createSqliteStore({ file: ':memory:', idFactory: countingIdFactory(), clock: steppingClock() })
 
   // The scripted provider. Queues rather than single slots, so a test can set
@@ -89,7 +116,12 @@ export async function createHarness(env: NodeJS.ProcessEnv = {}): Promise<Harnes
     configs.push(clientConfig)
     return structuredClient({
       model: clientConfig.model,
-      secrets: () => [clientConfig.apiKey],
+      // Exactly what every real implementation does: the service's whole list
+      // of secrets, falling back to this client's own key. A fake that used
+      // only `apiKey` would let the redaction test pass on a connection that
+      // has no key of its own -- which is the connection where a leaked
+      // pairing token or an unrelated stored key would actually escape.
+      secrets: () => clientConfig.secrets?.() ?? [clientConfig.apiKey],
       async transport(request) {
         calls.push({ system: request.system, messages: request.messages.map((m) => ({ ...m })) })
         const failure = failures.shift()
@@ -129,6 +161,8 @@ export async function createHarness(env: NodeJS.ProcessEnv = {}): Promise<Harnes
       config,
       pairingToken: TEST_TOKEN,
       llmFactory,
+      cliProbe: async () => options.cli ?? NO_CLI,
+      runtime: { containerized: options.containerized === true, detail: 'test harness' },
       logSink: (line) => void logs.push(line),
     }),
     assistantLimiter,
@@ -164,6 +198,17 @@ export async function createHarness(env: NodeJS.ProcessEnv = {}): Promise<Harnes
       await rm(dataDir, { recursive: true, force: true })
     },
   }
+}
+
+/**
+ * Options or a bare environment?
+ *
+ * The suite predates the options object and passes environments positionally in
+ * a dozen places. Rather than rewrite those, the two shapes are told apart by
+ * the keys only the options object has.
+ */
+function isOptions(value: NodeJS.ProcessEnv | HarnessOptions): value is HarnessOptions {
+  return 'env' in value || 'cli' in value || 'containerized' in value
 }
 
 /** A JSON POST body, so the tests read as what they are testing. */

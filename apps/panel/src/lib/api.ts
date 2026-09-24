@@ -158,15 +158,51 @@ export interface KitPayload {
   review: ReviewState
 }
 
+/** The three ways this assistant can reach a model. */
+export type ConnectionId = 'claude-cli' | 'openai-compatible' | 'anthropic-api'
+
+/**
+ * One connection as the server reports it, including why it is not usable.
+ *
+ * Readiness is the server's answer rather than the panel's, deliberately: only
+ * the server can see whether the `claude` binary is there, and a panel that
+ * re-derived any of this would be a second opinion that can disagree.
+ */
+export interface ConnectionReport {
+  id: ConnectionId
+  label: string
+  summary: string
+  ready: boolean
+  /** What to do about it, when it is not ready. Empty when it is. */
+  blocked: string
+  /** True when this runtime cannot reach it at all -- a host CLI from Docker. */
+  unreachable: boolean
+  requiresApiKey: boolean
+  acceptsApiKey: boolean
+  requiresBaseUrl: boolean
+  defaultModel: string
+}
+
+/** Everything the panel needs to render the assistant's setup, with no secrets. */
+export interface LlmSettings {
+  configured: boolean
+  connection: ConnectionId
+  connectionManagedByEnvironment: boolean
+  source: 'environment' | 'settings' | 'none'
+  managedByEnvironment: boolean
+  /** The model the assistant will ask. Not a secret; the panel shows it. */
+  model: string
+  modelManagedByEnvironment: boolean
+  /** The OpenAI-compatible endpoint. Not a secret -- a typo has to be visible. */
+  baseUrl?: string
+  baseUrlManagedByEnvironment: boolean
+  /** True when the server is in a container and cannot start a host process. */
+  containerized: boolean
+  connections: ConnectionReport[]
+}
+
 export interface PanelSettings {
-  llm: {
-    configured: boolean
-    source: 'environment' | 'settings' | 'none'
-    managedByEnvironment: boolean
-    /** The model the assistant will ask. Not a secret; the panel shows it. */
-    model: string
-    modelManagedByEnvironment: boolean
-  }
+  llm: LlmSettings
   engine: { name: string; version: string }
   storage: { adapter: string; schemaVersion: number }
   allowedOrigins: string[]
@@ -206,12 +242,7 @@ export interface AssistantProposal {
   updatedAt: string
 }
 
-export interface AssistantStatus {
-  configured: boolean
-  source: 'environment' | 'settings' | 'none'
-  managedByEnvironment: boolean
-  model: string
-  modelManagedByEnvironment: boolean
+export interface AssistantStatus extends LlmSettings {
   /** The prompt template version behind every proposal in this build. */
   promptVersion: string
   rateLimit: { max: number; windowMs: number; remaining: number }
@@ -295,6 +326,22 @@ export const api = {
   /** The model the assistant asks. `null` takes the server's default back. */
   async saveLlmModel(model: string | null): Promise<void> {
     await write('/api/settings', 'PUT', { llmModel: model })
+  },
+
+  /**
+   * Which connection the assistant uses.
+   *
+   * `null` clears the choice, which is not the same as picking a default: with
+   * nothing chosen the server takes whichever connection is ready, so a machine
+   * that has the Claude CLI signed in needs no choice at all.
+   */
+  async saveLlmConnection(connection: ConnectionId | null): Promise<void> {
+    await write('/api/settings', 'PUT', { llmConnection: connection })
+  },
+
+  /** The OpenAI-compatible endpoint. `null` clears it. */
+  async saveLlmBaseUrl(baseUrl: string | null): Promise<void> {
+    await write('/api/settings', 'PUT', { llmBaseUrl: baseUrl })
   },
 
   async captures(groupId?: string): Promise<CaptureSummary[]> {

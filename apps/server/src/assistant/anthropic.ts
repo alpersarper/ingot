@@ -28,17 +28,15 @@ import { LlmError, structuredClient } from './llm'
 import type { LlmClient, LlmClientConfig } from './llm'
 
 /**
- * The model used when nothing is configured.
+ * One request's ceiling. Generous for a card, nowhere near a document.
  *
- * Sonnet is the default rather than the largest model on offer: every operation
- * here is a bounded judgement over a document that is already in front of it --
- * name this, is this a duplicate, why is this 8px -- and the user is paying per
- * call out of their own credit. The setting exists for the reviewer who
- * disagrees.
+ * The default *model* is not here any more: it belongs to the connection rather
+ * than to this implementation, because two connections reach Claude and each
+ * needs its own answer. `CONNECTIONS` in `connections.ts` carries it, and the
+ * reasoning is unchanged -- Sonnet rather than the largest model on offer,
+ * because every operation here is a bounded judgement over a document already
+ * in front of it, and the setting exists for the reviewer who disagrees.
  */
-export const DEFAULT_LLM_MODEL = 'claude-sonnet-5'
-
-/** One request's ceiling. Generous for a card, nowhere near a document. */
 const DEFAULT_TIMEOUT_MS = 60_000
 
 /**
@@ -54,7 +52,10 @@ export function looksLikeAnthropicKey(key: string): boolean {
 
 export function createAnthropicClient(config: LlmClientConfig): LlmClient {
   const client = new Anthropic({
-    apiKey: config.apiKey,
+    // Empty rather than absent when unset: the service refuses this connection
+    // without a key long before here, and an SDK that falls back to the
+    // process environment would make that refusal a lie.
+    apiKey: config.apiKey ?? '',
     ...(config.baseUrl === undefined ? {} : { baseURL: config.baseUrl }),
     timeout: config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     // The SDK retries 429s and 5xxs by default. One retry is worth having on a
@@ -65,7 +66,7 @@ export function createAnthropicClient(config: LlmClientConfig): LlmClient {
 
   return structuredClient({
     model: config.model,
-    secrets: () => [config.apiKey],
+    secrets: () => config.secrets?.() ?? [config.apiKey],
     classify: toLlmError,
 
     async transport(request) {

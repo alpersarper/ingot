@@ -95,29 +95,38 @@ its own provenance. Everything it proposes arrives as a card in the review queue
 beside the engine's own findings; you accept or dismiss it, and it can never
 write a token itself. **Every other feature works without it.**
 
-It needs an Anthropic API key, and there is one thing worth knowing before you
-look for one:
+It needs a model to ask, and there are three ways to give it one. With nothing
+configured the panel uses whichever is ready, in this order:
+
+1. **The Claude Code CLI you already have.** If `claude` is on this machine and
+   signed in, that is the whole setup — no API key, nothing billed per call,
+   your existing subscription. Available on the local run (`pnpm dev`); a
+   container cannot start a process on your machine, and the panel says so
+   rather than offering a button that cannot work.
+2. **Any OpenAI-compatible endpoint.** Ollama on your laptop (nothing leaves the
+   machine at all), or OpenRouter, Groq and Gemini, which have free tiers.
+3. **An Anthropic API key.** About $0.03 a suggestion, and there is one thing
+   worth knowing before you go looking for one:
 
 > **A Claude subscription does not include API usage.** Claude Pro and Max pay
 > for claude.ai. The API is billed separately, from prepaid credit on an
 > [Anthropic Console](https://console.anthropic.com) account. Having one does
-> not give you the other.
+> not give you the other — which is exactly why option 1 exists.
 
-So: sign in at <https://console.anthropic.com> (the Console, not claude.ai), add
-credit under **Billing**, create a key under **API keys**, and paste it into the
-Assistant tab. One suggestion costs about **$0.03** at the default model
-(`claude-sonnet-5`); **$5 of credit is ample** for working through a kit many
-times over. The server also rate-limits assistant calls, so a mistake cannot
-become a bill.
+The server rate-limits assistant calls whichever connection is in use, so a
+mistake cannot become a bill. A key is stored server-side, never returned to the
+browser, and redacted from every log and error message.
 
-The key is stored server-side, is never returned to the browser, and is redacted
-from every log and error message. What Ingot sends to Anthropic is written out
+Setup for all three, including the free tiers and the Docker caveats:
+**[docs/assistant.md](docs/assistant.md)**. What Ingot sends is written out
 below.
 
 ### What leaves your machine
 
 Nothing leaves this machine unless you use the assistant. When you do, exactly
-one payload goes to the Anthropic API, built in
+one payload goes to whichever connection you configured -- and with a model
+running locally under Ollama, it does not leave the machine even then. It is
+built in
 [`apps/server/src/assistant/context.ts`](apps/server/src/assistant/context.ts):
 
 **Sent:**
@@ -140,8 +149,9 @@ sends is written out in
 
 **Never sent:**
 
-- **the API key** -- it is an HTTP header handled by the SDK, and it is not in
-  this payload at any point;
+- **the API key** -- it is an HTTP header handled by the provider client, and it
+  is not in this payload at any point. On the local Claude CLI connection there
+  is no key at all: it is signed in, not keyed;
 - **the pairing token**, or any other server state -- no settings, no other
   groups, no other kits;
 - **capture records** -- the raw captures carry full CSS declarations, DOM
@@ -247,7 +257,8 @@ Full format documentation: [`docs/capture-record.md`](docs/capture-record.md)
 and [`docs/tokens.md`](docs/tokens.md). The `DESIGN.md` target and what it can
 and cannot carry: [`docs/design-md.md`](docs/design-md.md). The panel that
 drives it: [`docs/panel.md`](docs/panel.md); the storage seam behind it:
-[`docs/storage.md`](docs/storage.md).
+[`docs/storage.md`](docs/storage.md); connecting the assistant to a model:
+[`docs/assistant.md`](docs/assistant.md).
 
 ## The fixture sets
 
@@ -301,12 +312,18 @@ unresolved, not as passing. See [DECISIONS.md](DECISIONS.md#quality-bar).
 - **Dependencies stay small and boring.** The engine depends on
   [culori](https://culorijs.org/) and nothing else. The server adds hono,
   better-sqlite3 and the Anthropic SDK; the panel adds React, Vite and Tailwind.
+  The other two assistant connections added no dependency at all -- one is
+  `fetch`, the other is `spawn`.
   No ORM, no auth framework -- the pairing guard is a header check.
 - **The assistant advises; it never decides.** The engine's deterministic core
   -- colour maths, contrast, scales, conflict determination -- is never the
   LLM's job. The LLM does the parts that are language, and everything it
   proposes is checked by the engine and then by a person.
   [docs/panel.md](docs/panel.md#the-assistant).
+- **Which model answers is configuration, not architecture.** One narrow
+  `LlmClient` interface, three implementations behind it: the local Claude Code
+  CLI, any OpenAI-compatible endpoint, and the Anthropic API. No capability
+  knows which is in use. [docs/assistant.md](docs/assistant.md).
 - **Storage sits behind an interface.** SQLite runs the container today;
   Postgres is an adapter, not a rewrite. The contract, and what a second adapter
   has to honour, is in [docs/storage.md](docs/storage.md).

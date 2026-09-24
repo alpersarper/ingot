@@ -32,9 +32,12 @@ Environment (all optional; see `apps/server/src/config.ts`):
 | `INGOT_PANEL_DIR` | unset | Built panel to serve. Unset means API only. |
 | `INGOT_PANEL_ORIGIN` | `http://localhost:5173` | Comma-separated CORS allowlist. |
 | `INGOT_PAIRING_TOKEN` | minted on first run | Pin to skip the first-run screen. |
+| `INGOT_LLM_CONNECTION` | unset | Pin the assistant's connection: `claude-cli`, `openai-compatible` or `anthropic-api`. Unset, the server uses whichever is ready. |
 | `INGOT_LLM_API_KEY` | unset | Pin the key instead of typing it into the panel. |
-| `INGOT_LLM_MODEL` | `claude-sonnet-5` | Pin the assistant's model; otherwise it is a panel setting. |
-| `INGOT_LLM_BASE_URL` | unset | Provider endpoint, for a hosted proxy. |
+| `INGOT_LLM_MODEL` | per connection | Pin the assistant's model; otherwise it is a panel setting. |
+| `INGOT_LLM_BASE_URL` | unset | The OpenAI-compatible endpoint, or a hosted proxy for the Anthropic connection. |
+| `INGOT_CLAUDE_CLI_PATH` | `claude` | Full path to the Claude Code binary, when it is not on the server's PATH. |
+| `INGOT_IN_CONTAINER` | set by the image | Declares that host processes are unreachable, which disables the local-CLI connection with an explanation. |
 | `INGOT_ASSISTANT_RATE_LIMIT` | `20` | Assistant calls allowed per window. |
 | `INGOT_ASSISTANT_RATE_WINDOW_MS` | `60000` | Length of that window. |
 
@@ -126,7 +129,7 @@ Everything except `/api/health` and `/api/pairing*` requires the token.
 | --- | --- |
 | `GET /api/health` | Open. Engine version and storage schema version. |
 | `GET /api/pairing`, `POST /api/pairing/verify` | Open. Pairing status and token check. |
-| `GET/PUT /api/settings` | Panel settings; stores the LLM key, never returns it. |
+| `GET/PUT /api/settings` | Panel settings; stores the LLM key, never returns it. Also the assistant's connection, endpoint and model, and it reports every connection's readiness. |
 | `GET/POST /api/captures`, `GET/PATCH/DELETE /api/captures/:id` | Capture CRUD. |
 | `POST /api/captures/import` | Bulk import. Accepts a fixture set verbatim, or `{ set }`. |
 | `PUT /api/captures/:id/tags`, `GET /api/captures/tags` | Replace a capture's tags; list every tag in use. |
@@ -344,15 +347,45 @@ the assistant looked at the engine.
 ### The provider seam
 
 `assistant/llm.ts` is a narrow interface -- messages plus a response schema in,
-validated structured output out -- and `assistant/anthropic.ts` is its only
-implementation. Capability code depends on the interface alone, so a hosted
-proxy or a second provider is a sibling file rather than a change to any
-capability. Key, model and endpoint all come from configuration.
+validated structured output out -- and everything above it depends on that
+interface alone. Three implementations sit behind it, and `assistant/providers.ts`
+is the whole of the dispatch between them:
+
+| | |
+| --- | --- |
+| `assistant/claude-cli.ts` | The `claude` binary on this machine, headless. No API key: it uses the account it is already signed into. |
+| `assistant/openai-compatible.ts` | Anything that speaks `/chat/completions` -- Ollama locally, OpenRouter, Groq, Gemini. `fetch`, no SDK. |
+| `assistant/anthropic.ts` | The official SDK and a prepaid key. The only file in the repository that imports an LLM SDK. |
+
+Which one is in force is configuration -- pinned by the environment, chosen in
+the panel, or resolved from whichever is ready, in that precedence. Readiness
+itself is computed in `assistant/connections.ts`, which is pure: it takes
+presence facts (is there a key, is there an endpoint, is the CLI signed in, are
+we in a container) and returns a report per connection. The panel renders that
+report rather than deriving a second opinion, and the service's own "not set up"
+error quotes the same sentence, so the two cannot drift. The setup guide the
+reports are written for is [docs/assistant.md](assistant.md).
 
 The shared half of a client (`structuredClient`) does the parsing, the reader,
 and the redaction; an implementation supplies only a transport and its own
 status-to-kind classification. That split is deliberate: redaction living inside
-one implementation is a promise the next one has to remember to keep.
+one implementation is a promise the next one has to remember to keep -- and with
+three implementations it is now a promise that would have had to be kept three
+times. The secrets a client redacts are the *service's* whole list rather than
+its own key, so the connection that has no key of its own still cannot echo the
+pairing token.
+
+### Reachability is not the same as configuration
+
+One connection is a process on the host rather than an address, and a container
+cannot start one. `assistant/runtime.ts` detects that (the image declares
+`INGOT_IN_CONTAINER=1`; `/.dockerenv` and the cgroup are the fallback for a
+container somebody else built), and the local-CLI connection is then reported
+`unreachable` -- rendered disabled, with a sentence, rather than hidden. Hiding
+it would read as "Ingot does not have that"; the truth is "that one is for
+`pnpm dev`", which is what a person comparing the two run paths needs to know.
+It is also refused server-side, so setting it deliberately in a container fails
+with the same explanation rather than spawning nothing.
 
 ### Security
 
@@ -370,7 +403,12 @@ Five properties, each with a test in `apps/server/test/assistant.test.ts`:
   money rather than privacy, and a client-side limit would protect nothing,
   since the client is the part that was copied.
 - **Key management is write-only.** `PUT /api/settings` sets or replaces,
-  `DELETE /api/settings/llm-key` removes, `GET` reports presence only.
+  `DELETE /api/settings/llm-key` removes, `GET` reports presence only. The
+  *endpoint* is deliberately readable -- it is not a secret, and a typo in it
+  has to be visible to be fixed.
+- **A key goes only where it belongs.** A connection declares whether it takes
+  one; a stored Anthropic key is never sent as a bearer token to whatever
+  endpoint somebody pointed the OpenAI-compatible connection at.
 - **The existing guards still apply**: pairing token and CORS lock, both before
   a request reaches an assistant route.
 
@@ -388,10 +426,15 @@ never screenshots, never any other server state. The full list is in the
 
 ### Absence
 
-With no key configured, the Assistant tab shows a setup path -- including the
+With no usable connection, the Assistant tab shows a connection picker and the
+setup path for whichever is selected -- including, on the Anthropic one, the
 fact that a Claude subscription does not include API usage, which is the step
-nearly everyone is surprised by -- and every other panel feature is fully
-functional. A provider error is a notice in that column and nothing else.
+nearly everyone is surprised by. Every other panel feature is fully functional.
+A provider error is a notice in that column and nothing else.
+
+Absence is increasingly rare by design: a machine with Claude Code installed and
+signed in has a working assistant with no setup at all, because "whichever
+connection is ready" resolves to it.
 
 ### Determinism
 
@@ -401,6 +444,7 @@ the assistant present or absent as long as no proposal has been accepted.
 
 ## Deliberately not built yet
 
-Within the assistant, deliberately absent in v1: chat
-history persisted beyond the session, multi-provider support, and autonomous
-batch operations -- there is no "fix everything", only single-suggestion cards.
+Within the assistant, deliberately absent: chat history persisted beyond the
+session, streaming (every operation is one request and one structured answer),
+and autonomous batch operations -- there is no "fix everything", only
+single-suggestion cards.

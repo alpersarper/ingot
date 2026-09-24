@@ -8,6 +8,8 @@
  */
 import { resolve } from 'node:path'
 import { DEFAULT_ASSISTANT_RATE_LIMIT, DEFAULT_ASSISTANT_RATE_WINDOW_MS } from './assistant/rate-limit'
+import { CONNECTION_IDS, isConnectionId } from './assistant/connections'
+import type { ConnectionId } from './assistant/connections'
 
 export interface ServerConfig {
   port: number
@@ -34,6 +36,18 @@ export interface ServerConfig {
   /** LLM API key from the environment; otherwise it arrives via settings. */
   llmApiKey: string | undefined
   /**
+   * The connection the assistant uses, pinned in the environment.
+   *
+   * Undefined means the reviewer chooses in the panel, and an unchosen panel
+   * takes whichever connection is ready -- the local Claude CLI first, because
+   * it is the one that costs nothing. Pinned, it is not editable from the
+   * panel, the same rule the key and the model follow. Validated at load: an
+   * unknown value is a boot failure rather than a silent fallback, because a
+   * deployment that meant to pin a connection and typo'd it should find out
+   * immediately.
+   */
+  llmConnection: ConnectionId | undefined
+  /**
    * Model the assistant asks, pinned in the environment.
    *
    * Undefined means the reviewer chooses in the panel, falling back to the
@@ -44,9 +58,10 @@ export interface ServerConfig {
   /**
    * Provider endpoint, when it is not the SDK's own.
    *
-   * The seam this exists for is a hosted proxy: an organisation that wants
-   * assistant traffic to leave through something it operates points this at it
-   * and nothing else in the server changes.
+   * Two uses, one setting. A hosted proxy for the Anthropic connection -- an
+   * organisation that wants assistant traffic to leave through something it
+   * operates points this at it and nothing else changes -- and the endpoint of
+   * the OpenAI-compatible connection, where it is not optional.
    */
   llmBaseUrl: string | undefined
   /**
@@ -95,6 +110,22 @@ function listFromEnv(env: NodeJS.ProcessEnv, key: string): string[] {
     .filter((origin) => origin !== '')
 }
 
+/**
+ * The pinned connection, or a boot failure.
+ *
+ * Unknown values are rejected rather than ignored for the same reason a bad
+ * port is: a deployment that pinned something must find out at start-up, not by
+ * noticing weeks later that the panel has been choosing for itself.
+ */
+function connectionFromEnv(env: NodeJS.ProcessEnv): ConnectionId | undefined {
+  const raw = optional(env, 'INGOT_LLM_CONNECTION')
+  if (raw === undefined) return undefined
+  if (!isConnectionId(raw)) {
+    throw new Error(`INGOT_LLM_CONNECTION must be one of ${CONNECTION_IDS.join(', ')}, received ${JSON.stringify(raw)}`)
+  }
+  return raw
+}
+
 function optional(env: NodeJS.ProcessEnv, key: string): string | undefined {
   const raw = env[key]
   return raw === undefined || raw.trim() === '' ? undefined : raw.trim()
@@ -120,6 +151,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     allowedOrigins: configured.length > 0 ? configured : [DEV_PANEL_ORIGIN],
     pairingToken: optional(env, 'INGOT_PAIRING_TOKEN'),
     llmApiKey: optional(env, 'INGOT_LLM_API_KEY'),
+    llmConnection: connectionFromEnv(env),
     llmModel: optional(env, 'INGOT_LLM_MODEL'),
     llmBaseUrl: optional(env, 'INGOT_LLM_BASE_URL'),
     assistantRateLimit: countFromEnv(env, 'INGOT_ASSISTANT_RATE_LIMIT', DEFAULT_ASSISTANT_RATE_LIMIT),

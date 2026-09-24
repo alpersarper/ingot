@@ -45,7 +45,15 @@ import type { CardSeverity } from './decisions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import type { AssistantAnswer, AssistantNaming, AssistantState, KitFile, KitSummary, ReviewState } from '@/lib/api'
+import type {
+  AssistantAnswer,
+  AssistantNaming,
+  AssistantState,
+  ConnectionId,
+  KitFile,
+  KitSummary,
+  ReviewState,
+} from '@/lib/api'
 import { decisionCards, openCount } from './decisions'
 import type { DecisionCard } from './decisions'
 import { AssistantTab } from './AssistantPanel'
@@ -113,6 +121,8 @@ export interface SystemPanelProps {
   onName: () => Promise<AssistantNaming>
   onSaveLlmKey: (key: string) => Promise<void>
   onSaveLlmModel: (model: string) => Promise<void>
+  onSaveLlmConnection: (connection: ConnectionId) => Promise<void>
+  onSaveLlmBaseUrl: (baseUrl: string) => Promise<void>
   /**
    * Draft a reason for one override.
    *

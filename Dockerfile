@@ -45,6 +45,11 @@ ENV NODE_ENV=production \
     INGOT_HOST=0.0.0.0 \
     INGOT_DATA_DIR=/data \
     INGOT_PANEL_DIR=/app/panel
+
+# Declared rather than sniffed. The assistant's local-Claude-CLI connection runs
+# a process on the user's machine, which a container cannot do, so the panel
+# disables it here and says why instead of offering a button that cannot work.
+ENV INGOT_IN_CONTAINER=1
 WORKDIR /app
 
 COPY --from=build /runtime/node_modules ./node_modules

@@ -1,0 +1,151 @@
+/**
+ * The connection picker, in the panel, against the real server.
+ *
+ * Two properties are worth a test at this level, and neither is visible from a
+ * server test.
+ *
+ * **A machine with Claude Code signed in has a working assistant and is never
+ * asked for a key.** That is the whole point of the feature, and the way it
+ * would regress is not an error -- it is the setup screen quietly appearing for
+ * somebody who did not need it.
+ *
+ * **A connection this runtime cannot reach is disabled and explained, not
+ * hidden.** Hiding it reads as "Ingot does not have that". The panel has to say
+ * "that one is for the local run", and it has to say it while still showing the
+ * connections that do work here.
+ *
+ * `fetch` points at the real Hono app throughout, as in the other panel suites,
+ * so every assertion is about the panel and the server agreeing.
+ */
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createHarness, TEST_TOKEN } from '../../server/test/harness'
+import type { Harness, HarnessOptions } from '../../server/test/harness'
+import type { CliProbe } from '../../server/src/assistant/claude-cli'
+import { App } from '@/App'
+
+function repositoryRoot(): string {
+  let candidate = process.cwd()
+  while (!existsSync(join(candidate, 'fixtures', 'ghost-warm', 'set.json'))) {
+    const parent = dirname(candidate)
+    if (parent === candidate) throw new Error('could not find the repository root from ' + process.cwd())
+    candidate = parent
+  }
+  return candidate
+}
+
+const CAPTURE_SET = JSON.parse(readFileSync(join(repositoryRoot(), 'fixtures/ghost-warm/set.json'), 'utf8')) as unknown
+
+const SIGNED_IN: CliProbe = { available: true, version: '2.1.236', signedIn: true, detail: '2.1.236 and signed in' }
+
+let harness: Harness | undefined
+
+afterEach(async () => {
+  vi.unstubAllGlobals()
+  window.localStorage.clear()
+  await harness?.close()
+  harness = undefined
+})
+
+/** Build the world this test needs, then point the panel's `fetch` at it. */
+async function serve(options: HarnessOptions): Promise<void> {
+  harness = await createHarness(options)
+  const app = harness.app
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    return app.fetch(new Request(`http://localhost:4310${url.replace(/^https?:\/\/[^/]+/, '')}`, init))
+  })
+}
+
+function systemPanel(): HTMLElement {
+  return screen.getByRole('complementary', { name: 'System' })
+}
+
+async function reachTheWorkbench(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  render(<App />)
+  await user.type(await screen.findByLabelText('Pairing token'), TEST_TOKEN)
+  await user.click(screen.getByRole('button', { name: 'Pair' }))
+  await user.click(await screen.findByRole('button', { name: /Continue without a key/ }))
+  await screen.findByRole('heading', { name: 'Collection' })
+
+  await user.click(screen.getByRole('button', { name: /Paste a capture set/ }))
+  fireEvent.change(screen.getByLabelText('Capture set JSON'), { target: { value: JSON.stringify(CAPTURE_SET) } })
+  await user.click(screen.getByRole('button', { name: 'Import set' }))
+  await waitFor(() => expect(screen.getByText('ghost-btn-primary')).toBeTruthy())
+
+  await user.click(within(systemPanel()).getByRole('button', { name: /Generate kit/ }))
+  await screen.findByLabelText('Live preview')
+  await user.click(within(systemPanel()).getByRole('tab', { name: 'Assistant' }))
+}
+
+describe('a machine with the Claude CLI signed in', () => {
+  it('is working with no key, and is never shown the Anthropic errand', async () => {
+    await serve({ cli: SIGNED_IN })
+    const user = userEvent.setup()
+    await reachTheWorkbench(user)
+
+    // The working state, reached without anybody typing a key.
+    await screen.findByRole('button', { name: /Fill the gaps/ })
+    // And the twenty-minute errand is not on screen.
+    expect(within(systemPanel()).queryByText(/does not include API usage/)).toBeNull()
+
+    const chosen = within(systemPanel()).getByRole('radio', { name: /Local Claude Code CLI/ })
+    expect(chosen.getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('switches to the Anthropic connection and shows its setup, on one click', async () => {
+    await serve({ cli: SIGNED_IN })
+    const user = userEvent.setup()
+    await reachTheWorkbench(user)
+    await screen.findByRole('button', { name: /Fill the gaps/ })
+
+    await user.click(within(systemPanel()).getByRole('radio', { name: /Anthropic API key/ }))
+
+    // Chosen but not ready, so the tab falls back to its setup state -- and
+    // that is where the sentence everybody is surprised by lives.
+    await screen.findByLabelText('Anthropic API key')
+    expect(within(systemPanel()).getByText(/does not include API usage/)).toBeTruthy()
+  })
+})
+
+describe('the same panel in a container', () => {
+  it('disables the CLI connection and says what it is for, without hiding it', async () => {
+    await serve({ cli: SIGNED_IN, containerized: true })
+    const user = userEvent.setup()
+    await reachTheWorkbench(user)
+
+    // Still listed -- dropping it would read as "Ingot does not have that".
+    const cli = within(systemPanel()).getByRole('radio', { name: /Local Claude Code CLI/ })
+    expect((cli as HTMLButtonElement).disabled).toBe(true)
+    expect(cli.textContent).toContain('container')
+    expect(cli.textContent).toContain('pnpm dev')
+
+    // And the connections that do work here are the ones offered.
+    expect(
+      (within(systemPanel()).getByRole('radio', { name: /OpenAI-compatible endpoint/ }) as HTMLButtonElement).disabled,
+    ).toBe(false)
+  })
+
+  it('offers the endpoint field with the host.docker.internal note the container needs', async () => {
+    await serve({ cli: SIGNED_IN, containerized: true })
+    const user = userEvent.setup()
+    await reachTheWorkbench(user)
+
+    await user.click(within(systemPanel()).getByRole('radio', { name: /OpenAI-compatible endpoint/ }))
+    const endpoint = await screen.findByLabelText('Endpoint URL')
+    expect(within(systemPanel()).getByText(/host\.docker\.internal/)).toBeTruthy()
+
+    fireEvent.change(endpoint, { target: { value: 'http://host.docker.internal:11434/v1' } })
+    await user.click(within(systemPanel()).getByRole('button', { name: 'Save endpoint' }))
+
+    // Stored server-side and reported back, because a typo in an endpoint has
+    // to be visible to be fixed.
+    await waitFor(async () => {
+      const settings = await harness?.json<{ settings: { llm: { baseUrl?: string } } }>('/api/settings')
+      expect(settings?.settings.llm.baseUrl).toBe('http://host.docker.internal:11434/v1')
+    })
+  })
+})

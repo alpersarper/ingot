@@ -166,7 +166,13 @@ history owns the chronology.
 
 - **The LLM API key is server-side only and write-only.** No endpoint returns
   it, it is redacted from logs (tested), and LLM endpoints are pairing-gated and
-  rate-limited.
+  rate-limited. The assistant *endpoint URL* is deliberately readable: it is not
+  a secret and a typo in it has to be visible. A key is passed only to a
+  connection that declares it takes one.
+- **The local CLI is spawned with an argument array and never a shell.** The
+  prompt goes on stdin, tools and settings sources are switched off, and the
+  working directory is neutral. Forbids shell interpolation on that path and
+  forbids the user's own `CLAUDE.md`, MCP servers or hooks shaping a suggestion.
 - **No encryption at rest for the key**, stated honestly in the docs: there is
   no user password to derive from. Revisit when hosted or multi-user. Forbids
   implying encryption we don't do.
@@ -174,18 +180,37 @@ history owns the chronology.
 
 ## LLM assistant
 
-- **BYOK Anthropic key for v1.** An API key is not a claude.ai subscription;
-  first run must guide a keyless user rather than failing opaquely.
 - **The assistant never writes tokens.** Proposals pass engine-guardrail
   validation, surface as proposal cards, and become values only through the
   override machinery, with distinct `llm-suggested` provenance.
-- **One narrow `LlmClient` interface**, sole v1 implementation the official
-  Anthropic SDK; typed capability operations with versioned in-code prompts and
-  structured-output schemas.
-- **Multi-LLM is deferred as a bounded seam, not debt.** An
-  OpenAI-compatible endpoint type will cover the rest. The Vercel AI SDK was
-  evaluated and not adopted for v1; re-evaluate at pickup. The interface is the
-  contract that keeps the deferral bounded.
+- **One narrow `LlmClient` interface**, with typed capability operations,
+  versioned in-code prompts and structured-output schemas. Everything above the
+  interface is provider-blind, and that is what made the deferral below bounded
+  rather than debt.
+- **The no-key path is the first-class path.** Ranked by what it costs the
+  user: the local Claude Code CLI, then an OpenAI-compatible endpoint (Ollama
+  locally, or a hosted free tier), then a BYOK Anthropic key. With nothing
+  configured the server uses whichever connection is ready, in that order, so a
+  machine with Claude Code signed in needs no setup. An API key is not a
+  claude.ai subscription, and telling someone to buy Console credit before
+  mentioning the CLI they already have is advice that wastes their evening.
+  Forbids making the key the default, and forbids a first run that fails
+  opaquely for a keyless user.
+- **Reachability is stated, never faked.** The CLI connection is a host process,
+  so a containerised panel reports it *unreachable with an explanation* and
+  refuses it server-side, rather than hiding it or offering a button that cannot
+  work. Forbids a connection whose readiness the panel derives for itself:
+  readiness is computed once, server-side, and rendered.
+- **Multi-LLM is three implementations of one interface, not three assistants.**
+  Same prompts, same schemas, same guardrails; the connection changes who
+  answers and nothing about what an answer may do. Forbids provider-specific
+  behaviour above `providers.ts`.
+- **The Vercel AI SDK stays unadopted.** Evaluated for v1 and again when the
+  second and third connections landed. The seam already owns parsing,
+  validation, the error taxonomy and redaction; what was left per connection was
+  a `fetch` and a `spawn`, and `spawn` is not something a provider SDK models.
+  Adopting it would trade a dependency, a second retry policy and a redaction
+  boundary we no longer control for code we did not write.
 
 ## Law (settled rulings — change these only by an explicit new ruling)
 
