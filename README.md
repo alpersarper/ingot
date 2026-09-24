@@ -25,7 +25,7 @@ apps/server/       panel server: storage behind an interface, API, engine host
 apps/panel/        the workbench UI -- React, Vite, Tailwind, shadcn conventions
 apps/extension/    the Chrome capture extension -- MV3, no framework, loads unpacked
 fixtures/          four hand-authored capture sets standing in for real captures
-examples/          generated tokens.json + design-kit.md, committed as evidence
+examples/          generated tokens.json + design-kit.md + DESIGN.md, committed as evidence
 schemas/           normative JSON Schema for both formats
 docs/              format, storage and panel documentation
 scripts/skeleton.ts  fixtures -> examples
@@ -54,6 +54,16 @@ one-click override -- and every token in the kit, with its provenance, editable
 in place. The downloaded `design-kit.md` is byte-for-byte the one `pnpm skeleton`
 writes for the same captures, until you override something, and then it says
 what you changed and what the engine had chosen.
+
+Two whole-kit documents come out, and they are for different readers.
+`design-kit.md` is the full specification -- provenance, override history,
+contrast evidence, the states a kit has to be explicit about -- written for an
+LLM building against the kit. `DESIGN.md` is the same kit stated in the
+[Google Labs DESIGN.md format](https://github.com/google-labs-code/design.md),
+an open specification with its own linter, for any agent that already reads that
+standard; save it at a repository root under that exact name. Ingot's own
+document is deliberately the richer of the two, and is not narrowed to fit the
+spec -- see [DECISIONS.md](DECISIONS.md#hard-boundaries-v1-scope).
 
 One container, one port, one volume (`/data`: the database, screenshots and the
 pairing token).
@@ -234,8 +244,9 @@ observed, and a machine-readable dominant-choice record -- `"12 of 28 corners at
 with the runner-up as a one-click override.
 
 Full format documentation: [`docs/capture-record.md`](docs/capture-record.md)
-and [`docs/tokens.md`](docs/tokens.md). The panel that drives it:
-[`docs/panel.md`](docs/panel.md); the storage seam behind it:
+and [`docs/tokens.md`](docs/tokens.md). The `DESIGN.md` target and what it can
+and cannot carry: [`docs/design-md.md`](docs/design-md.md). The panel that
+drives it: [`docs/panel.md`](docs/panel.md); the storage seam behind it:
 [`docs/storage.md`](docs/storage.md).
 
 ## The fixture sets
@@ -282,8 +293,9 @@ unresolved, not as passing. See [DECISIONS.md](DECISIONS.md#quality-bar).
   `packages/engine/test/purity.test.ts` enforces it by reading the engine's own
   source.
 - **The token model is stack-agnostic.** Tailwind and shadcn specificity lives
-  only in `packages/engine/src/export/design-kit-md.ts`. More export targets will be
-  siblings of that file, not changes to the token shape.
+  only in `packages/engine/src/export/design-kit-md.ts`, and the DESIGN.md
+  format's vocabulary only in `design-md-spec.ts` beside it. Further export
+  targets are siblings of those files, not changes to the token shape.
 - **Determinism is a hard guarantee**, not a nice-to-have. See
   [`docs/tokens.md#determinism`](docs/tokens.md#determinism).
 - **Dependencies stay small and boring.** The engine depends on

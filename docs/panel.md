@@ -110,6 +110,14 @@ byte-identical by construction. A scope with overrides gets a document that is
 still a pure function of `(stored kit, overrides)`, because `applyOverrides` is
 as deterministic as `distill`.
 
+`DESIGN.md` is not on the kit row. It is rendered on demand from the effective
+tokens, the way the per-component files are, because it is a pure function of
+them and a second stored copy of a kit is a second thing that can fall out of
+step with the first. `design-kit.md` is stored rather than rendered for one
+reason only: it is the document the determinism guarantee above is written
+against, and that guarantee is about the engine's *own* bytes for a kit
+version. Both reflect a reviewer's overrides, neither is regenerated to do so.
+
 ## The API
 
 Everything except `/api/health` and `/api/pairing*` requires the token.
@@ -127,9 +135,9 @@ Everything except `/api/health` and `/api/pairing*` requires the token.
 | `POST /api/groups/:id/captures`, `DELETE /api/groups/:id/captures/:captureId` | Membership. |
 | `POST /api/kits` | Run the engine over a group, the whole library, or an explicit `captureIds` selection. |
 | `GET /api/kits`, `GET /api/kits/latest`, `GET /api/kits/:id` | Kit retrieval: the kit, its effective tokens, `design-kit.md`, and the review state behind them. |
-| `GET /api/kits/:id/{tokens.json,design-kit.md}` | Downloads. |
+| `GET /api/kits/:id/{tokens.json,design-kit.md,DESIGN.md}` | Downloads. |
 | `GET /api/kits/:id/components/:component.md` | One component, self-sufficient. |
-| `GET /api/export/{tokens.json,design-kit.md}`, `GET /api/export/components/:component.md` | The latest kit for a scope, as a file. |
+| `GET /api/export/{tokens.json,design-kit.md,DESIGN.md}`, `GET /api/export/components/:component.md` | The latest kit for a scope, as a file. |
 | `GET /api/reviews` | The overrides and accepted decisions for a scope. Answers before a kit exists. |
 | `PUT/DELETE /api/reviews/overrides` | Set or clear one token override. Answers with the whole effective kit. |
 | `PUT /api/reviews/decisions` | Accept or reopen one decision card. |

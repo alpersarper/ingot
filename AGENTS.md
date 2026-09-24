@@ -46,8 +46,22 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
   suggestion is an ordinary override, so every export is byte-identical with the
   assistant present or absent until a proposal is accepted.
 - **The token model stays stack-agnostic.** Tailwind and shadcn naming lives only
-  in `packages/engine/src/export/`. New export targets are siblings of
-  `design-kit-md.ts`, never changes to `packages/engine/src/tokens/types.ts`.
+  in `packages/engine/src/export/`, and so does the DESIGN.md format's. New
+  export targets are siblings of `design-kit-md.ts` and `design-md-spec.ts`,
+  never changes to `packages/engine/src/tokens/types.ts`.
+- **Two whole-kit documents, and they are not interchangeable.**
+  `design-kit.md` is Ingot's own, the richer one, and the one the determinism
+  guarantee and the blind-LLM quality bar are written against; it is stored on
+  the kit row. `DESIGN.md` is the [Google Labs open
+  format](https://github.com/google-labs-code/design.md) and is rendered on
+  demand from the effective tokens, like the per-component files. Conformance is
+  not our opinion: `test/design-md-spec.test.ts` runs the specification's own
+  linter (`@google/design.md`, pinned in `devDependencies`) over the committed
+  examples and requires **zero errors**. Two warning classes survive on purpose
+  and are asserted by name, so a third kind is a failure -- the reasoning for
+  both is in the header of `design-md-spec.ts` and in
+  [docs/design-md.md](docs/design-md.md). Never narrow `design-kit.md` toward
+  the spec, and never ship a file named `design.md`.
 - **An override is provenance, not an annotation.** `applyOverrides`
   (`packages/engine/src/tokens/overrides.ts`) is as pure and as deterministic as
   `distill`, and it lives in the engine because the panel previews an override
@@ -217,8 +231,9 @@ Distillation rules are tuned constantly; the workflow is fixed:
 1. Change the rule, and update the prose rule description in
    [docs/tokens.md](docs/tokens.md) in the same commit -- `design-kit.md` quotes some
    of them verbatim.
-2. `pnpm skeleton` and commit the regenerated `examples/` alongside the code.
-   `pnpm skeleton --check` fails CI if they disagree.
+2. `pnpm skeleton` and commit the regenerated `examples/` alongside the code --
+   three files per set now, `DESIGN.md` included. `pnpm skeleton --check` fails
+   CI if they disagree.
 3. `pnpm vitest -u` to refresh `test/__snapshots__/`, then **read the snapshot
    diff**: it is deliberately a summary of decisions rather than whole documents,
    so the diff is the review surface for a tuning change.
