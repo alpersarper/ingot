@@ -70,7 +70,7 @@ function variableRule(tokens: TokensDocument): string {
  * Render the whole documentation site for one kit as a single HTML document.
  *
  * Deterministic: a pure function of the tokens document, with no clock in the
- * output, for the same reason `design.md` has none -- a timestamp would make
+ * output, for the same reason `design-kit.md` has none -- a timestamp would make
  * every regeneration a diff.
  */
 export function renderDocsHtml(tokens: TokensDocument): string {

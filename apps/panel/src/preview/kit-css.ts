@@ -17,7 +17,7 @@
  * the gap between sections, the size a field label is set at. The engine is
  * right not to invent them -- no capture measures "the gap between sections".
  * They are *composed* here, from steps the kit actually carries, which is
- * exactly what `design.md` tells a consumer to do when a value it needs is not
+ * exactly what `design-kit.md` tells a consumer to do when a value it needs is not
  * in the document. Composing them in one place has two consequences worth
  * having: `canonical.css` never needs a fallback literal, so the rule that
  * every visual value comes from a token holds without exception; and
@@ -132,7 +132,7 @@ export function kitComposition(tokens: TokensDocument): KitComposition {
  * Missing steps are simply absent from the `--kit-radius-*` / `--kit-shadow-*`
  * families rather than defaulted: the engine has already decided which steps a
  * kit has, and inventing an `lg` radius the kit never claimed would put a value
- * on screen that no `design.md` mentions. The composed variables below resolve
+ * on screen that no `design-kit.md` mentions. The composed variables below resolve
  * to steps that *do* exist, so the stylesheet never needs a fallback.
  */
 export function kitCssVariables(tokens: TokensDocument): KitCssVariables {
@@ -169,7 +169,7 @@ export function kitCssVariables(tokens: TokensDocument): KitCssVariables {
   variables['--kit-font-sans'] = tokens.typography.families.sans.value
   // A kit whose captures showed no monospace face has no mono family, and
   // naming a stack of the engine's own here would put a typeface on screen --
-  // in the preview and in the exported docs -- that no `design.md` mentions.
+  // in the preview and in the exported docs -- that no `design-kit.md` mentions.
   // The sans stack is one the kit actually carries, so it is what code spans
   // and token paths are set in until a capture says otherwise.
   variables['--kit-font-mono'] = tokens.typography.families.mono?.value ?? 'var(--kit-font-sans)'

@@ -52,7 +52,7 @@ history owns the chronology.
   in-panel docs and static docs export. Forbids a second render path or a second
   copy of the prose.
 - **Export set is fixed for v1:** `tokens.json` (source of truth), a
-  whole-library `design.md` (Tailwind + shadcn target), self-sufficient
+  whole-library `design-kit.md` (Tailwind + shadcn target), self-sufficient
   per-component markdown, and a standalone static docs site.
 - **Out of scope for v1:** accounts/sync, teams, working-code reproduction,
   Figma, auto-clustering, Firefox/Safari.
@@ -65,7 +65,7 @@ history owns the chronology.
   trades coherent-set quality for messy-set numbers.
 - **Minimum capture threshold.** No kit from too few captures; intent-only
   (capture-less) generation is out.
-- **Blind-LLM acceptance loop.** `design.md` handed to an LLM with no other
+- **Blind-LLM acceptance loop.** `design-kit.md` handed to an LLM with no other
   context must yield ship-quality UI. That run, not unit tests, is the bar a
   major engine change is measured against.
 - **A kit's error state clears the bar with *either* a destructive colour or a
@@ -176,11 +176,11 @@ history owns the chronology.
 - **Overriding a base colour re-derives dependent shades** and re-runs
   contrast/collapse checks; an explicit user override on a dependent always wins.
 - **One rule source per behaviour.** Per-component markdown is self-sufficient
-  and must agree with `design.md` and the preview.
+  and must agree with `design-kit.md` and the preview.
 - **A conflict retires only when the reviewer responds** — a value change or a
   card action. Note-only edits touch nothing; retirements are recorded in
   provenance.
-- **Spacing step names are opaque stable identifiers**, and `design.md` never
+- **Spacing step names are opaque stable identifiers**, and `design-kit.md` never
   asserts a blanket claim the shipped values contradict.
 - **Reviewer-authored reasons are never silently blanked**; a standing reason
   carries forward when a write supplies none.

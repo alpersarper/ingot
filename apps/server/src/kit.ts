@@ -26,7 +26,7 @@ import {
   asEffective,
   asPristine,
   distill,
-  renderDesignMarkdown,
+  renderDesignKitMarkdown,
   serializeTokens,
 } from '@ingot/engine'
 import type {
@@ -49,7 +49,7 @@ export const LIBRARY_SET = {
  * Set identity used when distilling an ad-hoc selection.
  *
  * The description carries the count rather than the ids: it is prose the engine
- * prints at the top of `design.md`, and a list of twelve opaque ids there would
+ * prints at the top of `design-kit.md`, and a list of twelve opaque ids there would
  * be noise. The count is a function of the selection, so the bytes stay a
  * function of the input -- which is the rule the whole file exists to keep.
  */
@@ -187,7 +187,7 @@ export async function generateKit(store: Store, target: KitTarget): Promise<Gene
     engineVersion: ENGINE_VERSION,
     captureIds: set.captures.map((capture) => capture.id),
     tokensJson: serializeTokens(tokens),
-    designMd: renderDesignMarkdown(tokens),
+    designKitMd: renderDesignKitMarkdown(tokens),
     warningCount: tokens.diagnostics.filter((diagnostic) => diagnostic.level === 'warning').length,
   })
   return { kit, tokens }
@@ -219,7 +219,7 @@ export function reviewScopeOf(kit: Pick<Kit, 'scope' | 'groupId'>): ReviewScope 
  * A kit as the panel and every export see it: the engine's answer with the
  * reviewer's on top.
  *
- * The stored kit is never rewritten. `tokensJson` and `designMd` on the row stay
+ * The stored kit is never rewritten. `tokensJson` and `designKitMd` on the row stay
  * byte-identical to what `pnpm skeleton` would have written, which is what
  * `test/kit-determinism.test.ts` holds the server to; overrides are replayed on
  * read instead. That also means an override is not frozen into a version: edit
@@ -229,7 +229,7 @@ export interface EffectiveKit {
   kit: Kit
   /** The kit as it is rendered and exported: every override replayed. */
   tokens: EffectiveTokens
-  designMd: string
+  designKitMd: string
   tokensJson: string
   overrides: StoredOverride[]
   /**
@@ -266,7 +266,7 @@ export async function effectiveKit(store: Store, kit: Kit): Promise<EffectiveKit
       // With nothing overridden the stored distillation *is* the effective
       // document, which is what makes handing back its own bytes sound.
       tokens: asEffective(JSON.parse(kit.tokensJson) as TokensDocument),
-      designMd: kit.designMd,
+      designKitMd: kit.designKitMd,
       tokensJson: kit.tokensJson,
       overrides,
       report: NO_REVIEW,
@@ -279,11 +279,11 @@ export async function effectiveKit(store: Store, kit: Kit): Promise<EffectiveKit
   return {
     kit,
     tokens: result.tokens,
-    // The whole result, not just its document: `design.md` states what a
+    // The whole result, not just its document: `design-kit.md` states what a
     // reviewer answered and what the engine said when they answered it, and
     // those come from the engine's report rather than from a second reading of
     // the document it produced.
-    designMd: renderDesignMarkdown(result),
+    designKitMd: renderDesignKitMarkdown(result),
     tokensJson: serializeTokens(result.tokens),
     overrides,
     report: result.report,

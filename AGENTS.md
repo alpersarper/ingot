@@ -39,7 +39,7 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
   engine's own source. Watch for accidental shadowing of host globals -- a
   parameter named `document` trips this check, correctly.
 - **Determinism.** Same capture set in, byte-identical `tokens.json` and
-  `design.md` out. No timestamps in output, explicit locale-independent
+  `design-kit.md` out. No timestamps in output, explicit locale-independent
   comparators on every sort, one rounding helper for every emitted number.
   Rationale and the full rule list: [docs/tokens.md](docs/tokens.md#determinism).
   The assistant does not weaken this: it writes nothing, and an accepted
@@ -47,7 +47,7 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
   assistant present or absent until a proposal is accepted.
 - **The token model stays stack-agnostic.** Tailwind and shadcn naming lives only
   in `packages/engine/src/export/`. New export targets are siblings of
-  `design-md.ts`, never changes to `packages/engine/src/tokens/types.ts`.
+  `design-kit-md.ts`, never changes to `packages/engine/src/tokens/types.ts`.
 - **An override is provenance, not an annotation.** `applyOverrides`
   (`packages/engine/src/tokens/overrides.ts`) is as pure and as deterministic as
   `distill`, and it lives in the engine because the panel previews an override
@@ -74,7 +74,7 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
   from `packages/engine/src/export/component-doc.ts`, which also writes the
   per-component markdown. A second render path or a second copy of the prose is
   how a docs page starts documenting a button nobody ships.
-- **Determinism survives the server path.** A `design.md` downloaded from the
+- **Determinism survives the server path.** A `design-kit.md` downloaded from the
   panel is byte-identical to the one `pnpm skeleton` writes from the same
   captures. Records are stored and replayed verbatim, capture order comes from
   group membership positions, and set metadata comes from the group. Enforced by
@@ -128,13 +128,13 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
 - **The preview and the docs have no hardcoded values.** Every visual property in
   `canonical.css` and `docs.css` is a `var(--kit-*)` fed by `kit-css.ts` -- no
   colour, no length, no font size, not even as a fallback. A literal would put a
-  value on screen that the exported `design.md` never mentions, which is the one
+  value on screen that the exported `design-kit.md` never mentions, which is the one
   thing that makes a preview lie, and it is invisible in review because the panel
   still looks fine. `apps/panel/test/canonical-css.test.ts` reads both
   stylesheets and enforces it. Values a real screen needs but no token names --
   a card's radius, the gap between sections, the size of a field label -- are
   *composed* in `kitComposition()` from steps the kit actually carries, which is
-  what `design.md` tells a consumer to do; they never become literals in the CSS.
+  what `design-kit.md` tells a consumer to do; they never become literals in the CSS.
   The panel's own chrome uses a separate shadcn variable set, so a dark kit in a
   light panel renders as itself. The kit docs are deliberately set *in* the kit.
 - **Every token carries provenance.** Contributing capture ids, every raw value
@@ -215,7 +215,7 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
 Distillation rules are tuned constantly; the workflow is fixed:
 
 1. Change the rule, and update the prose rule description in
-   [docs/tokens.md](docs/tokens.md) in the same commit -- `design.md` quotes some
+   [docs/tokens.md](docs/tokens.md) in the same commit -- `design-kit.md` quotes some
    of them verbatim.
 2. `pnpm skeleton` and commit the regenerated `examples/` alongside the code.
    `pnpm skeleton --check` fails CI if they disagree.
@@ -240,7 +240,7 @@ set start warning is a signal, not noise. Adding a set:
 [docs/capture-record.md](docs/capture-record.md#adding-a-fixture-set).
 
 **The quality bar is the three coherent sets.** "Would I ship a real page built
-against only this `design.md`?" is asked of `ghost-warm`, `linear-dark` and
+against only this `design-kit.md`?" is asked of `ghost-warm`, `linear-dark` and
 `stripe-light`, which are three deliberately different subjects so no single
 style can carry the engine. `messy-mixed` is exempt by design: it is judged on
 degrading legibly and warning loudly, never on ship quality. Full statement:

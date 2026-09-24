@@ -250,7 +250,7 @@ export function decisionCards({
       card.evidence = [
         'no captured colour reads as a red, so there is no `destructive` role',
         'set `color.roles.destructive` in the Tokens tab to give this kit an error colour',
-        'or acknowledge below, and `design.md` will prescribe the non-colour error language instead',
+        'or acknowledge below, and `design-kit.md` will prescribe the non-colour error language instead',
       ]
       card.options = [{ kind: 'override', value: 'acknowledged', label: 'Ship without an error colour' }]
     }

@@ -5,17 +5,17 @@
  * produce controls of the same height and padding. Today they cannot."* That is
  * not a test about how good the numbers are -- it is a test about whether there
  * is any room left to disagree. So it checks, for every kit and every control,
- * that the number exists, that it is on the kit's own scales, that `design.md`
+ * that the number exists, that it is on the kit's own scales, that `design-kit.md`
  * states it, and that a reader can tell measurement from default.
  *
- * A consumer only ever reads `design.md`, so the assertions about the document
+ * A consumer only ever reads `design-kit.md`, so the assertions about the document
  * matter as much as the ones about the token file.
  */
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { distill, renderDesignMarkdown } from '@ingot/engine'
+import { distill, renderDesignKitMarkdown } from '@ingot/engine'
 import type { ComponentRecipe, PristineTokens } from '@ingot/engine'
 import { fixtureSetIds } from '../scripts/skeleton'
 
@@ -145,16 +145,16 @@ describe.each(setIds)('%s', (setId) => {
     expect(focusRing.colorRole).toMatch(/^color\.roles\./)
   })
 
-  it('publishes every control in design.md, where a consumer will actually look', async () => {
+  it('publishes every control in design-kit.md, where a consumer will actually look', async () => {
     const tokens = await tokensFor(setId)
-    const markdown = renderDesignMarkdown(tokens)
+    const markdown = renderDesignKitMarkdown(tokens)
     expect(markdown).toContain('## 7. Components')
     for (const recipe of tokens.components.recipes) {
-      expect(markdown, `${recipe.name} is missing from design.md`).toContain(`\`${recipe.name}\``)
-      expect(markdown, `${recipe.name}'s height is missing from design.md`).toContain(
+      expect(markdown, `${recipe.name} is missing from design-kit.md`).toContain(`\`${recipe.name}\``)
+      expect(markdown, `${recipe.name}'s height is missing from design-kit.md`).toContain(
         recipe.height === undefined ? '— (container)' : `| ${recipe.height.value}px `,
       )
-      expect(markdown, `${recipe.name}'s padding is missing from design.md`).toContain(
+      expect(markdown, `${recipe.name}'s padding is missing from design-kit.md`).toContain(
         `${recipe.paddingY.value}px, ${recipe.paddingX.value}px`,
       )
     }

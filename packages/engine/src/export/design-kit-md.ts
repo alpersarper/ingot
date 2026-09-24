@@ -1,5 +1,5 @@
 /**
- * `design.md` generator, targeting Tailwind CSS v4 + shadcn/ui.
+ * `design-kit.md` generator, targeting Tailwind CSS v4 + shadcn/ui.
  *
  * This is the only layer in the engine that knows Tailwind or shadcn exists.
  * The token model above it is stack-agnostic; adding a second target means
@@ -76,7 +76,7 @@ const SHADOW_ORDER: ShadowStepName[] = ['none', 'sm', 'md', 'lg']
  * the report means this file states the engine's determination and makes none
  * of its own.
  */
-export function renderDesignMarkdown(kit: PristineTokens | OverrideResult): string {
+export function renderDesignKitMarkdown(kit: PristineTokens | OverrideResult): string {
   const reviewed = 'tokens' in kit ? kit : undefined
   const tokens: TokensDocument = 'tokens' in kit ? kit.tokens : kit
   const { color, spacing, border, radius, shadow, typography, components, source } = tokens

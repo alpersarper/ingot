@@ -92,7 +92,7 @@ async function designMarkdown(): Promise<string> {
   const { kit } = await harness.json<{ kit: { id: string } }>(
     `/api/kits/latest?groupId=${encodeURIComponent(groupId)}`,
   )
-  return (await harness.call(`/api/kits/${kit.id}/design.md`)).text()
+  return (await harness.call(`/api/kits/${kit.id}/design-kit.md`)).text()
 }
 
 /** The overrides the server is actually holding for the reviewed scope. */
@@ -124,7 +124,7 @@ async function reachTheWorkbench(user: ReturnType<typeof userEvent.setup>): Prom
 }
 
 describe('the panel, end to end', () => {
-  it('pairs, imports a set, generates a kit, previews it and downloads design.md', async () => {
+  it('pairs, imports a set, generates a kit, previews it and downloads design-kit.md', async () => {
     const user = userEvent.setup()
     await reachTheWorkbench(user)
 
@@ -144,10 +144,10 @@ describe('the panel, end to end', () => {
     expect(within(system).getByText('ghost-warm')).toBeTruthy()
     expect(within(system).getByText('v1')).toBeTruthy()
 
-    // And design.md downloads, with the pairing token on the request.
-    await user.click(within(system).getByRole('button', { name: 'design.md' }))
+    // And design-kit.md downloads, with the pairing token on the request.
+    await user.click(within(system).getByRole('button', { name: 'design-kit.md' }))
     await waitFor(() => {
-      const download = calls.find((call) => call.path.endsWith('/design.md'))
+      const download = calls.find((call) => call.path.endsWith('/design-kit.md'))
       expect(download?.token).toBe(TEST_TOKEN)
     })
   })
@@ -174,7 +174,7 @@ describe('the panel, end to end', () => {
 })
 
 describe('the review loop', () => {
-  it('overrides a token and turns the preview, the docs and design.md together', async () => {
+  it('overrides a token and turns the preview, the docs and design-kit.md together', async () => {
     const user = userEvent.setup()
     await reachTheWorkbench(user)
     const system = screen.getByRole('complementary', { name: 'System' })
@@ -206,7 +206,7 @@ describe('the review loop', () => {
     const preview = screen.getByLabelText('Live preview')
     await waitFor(() => expect(within(preview).getAllByText('user override').length).toBeGreaterThan(0))
 
-    // ...and design.md carries it, with the reason.
+    // ...and design-kit.md carries it, with the reason.
     const design = await designMarkdown()
     expect(design).toContain('## 10. User overrides')
     expect(design).toContain('the captured radius reads timid')
@@ -281,7 +281,7 @@ describe('the review loop', () => {
     await reachTheWorkbench(user)
     const system = screen.getByRole('complementary', { name: 'System' })
 
-    // The reviewer overrides a value and says why. design.md prints that reason.
+    // The reviewer overrides a value and says why. design-kit.md prints that reason.
     await user.click(within(system).getByRole('tab', { name: 'Tokens' }))
     await user.click(within(system).getByTitle('Override radius.steps.md'))
     fireEvent.change(within(system).getByLabelText('New value for radius.steps.md'), {

@@ -153,7 +153,7 @@ const MIGRATIONS: string[][] = [
     // The engine's answer the reviewer actually responded to. Without it the
     // only engine value on hand is the one the *current* kit distils, which
     // after another regeneration is a number nobody ever answered -- and
-    // `design.md` said it had been. NULL on a record written before this
+    // `design-kit.md` said it had been. NULL on a record written before this
     // column, which reads as "the engine moved" rather than naming a value.
     `ALTER TABLE token_overrides ADD COLUMN resolved_engine TEXT`,
   ],
@@ -240,6 +240,22 @@ const MIGRATIONS: string[][] = [
     `ALTER TABLE kits_new RENAME TO kits`,
     `CREATE UNIQUE INDEX kits_group_version ON kits (group_id, version) WHERE scope = 'group'`,
     `CREATE UNIQUE INDEX kits_library_version ON kits (version) WHERE scope IN ('library', 'selection')`,
+  ],
+  [
+    // Ingot's richer whole-library artifact is now `design-kit.md`: the
+    // `DESIGN.md` filename belongs to the Google Labs format spec, which Ingot
+    // now also exports, and one product cannot ship two different documents
+    // under one name. The column is renamed rather than re-derived because the
+    // stored string is the *evidence* -- the engine's own bytes for that kit
+    // version, which `effectiveKit()` replays overrides on top of. Re-rendering
+    // it under a new column would silently restate every historical kit in
+    // today's engine's words, which is precisely what storing the bytes exists
+    // to prevent.
+    //
+    // A database written by an older Ingot arrives here with `design_md` and
+    // leaves with `design_kit_md` holding the same bytes; nothing is rewritten
+    // and no kit is lost.
+    `ALTER TABLE kits RENAME COLUMN design_md TO design_kit_md`,
   ],
 ]
 

@@ -97,12 +97,12 @@ committed `examples/`:
 - the set's id, name and description come from the group, which an import copies
   from the incoming set.
 
-A `design.md` downloaded from the panel is byte-for-byte the one `pnpm skeleton`
+A `design-kit.md` downloaded from the panel is byte-for-byte the one `pnpm skeleton`
 writes for the same captures. If that stops being true, the bug is in the
 server.
 
 Overrides do not weaken that. A kit row stores the engine's own output --
-`tokensJson` and `designMd` exactly as `distill` and `renderDesignMarkdown`
+`tokensJson` and `designKitMd` exactly as `distill` and `renderDesignKitMarkdown`
 wrote them -- and the reviewer's values are replayed over it on read
 (`effectiveKit` in `src/kit.ts`). A scope with no overrides hands back the
 stored strings themselves rather than a re-rendered copy, so "no overrides" is
@@ -126,10 +126,10 @@ Everything except `/api/health` and `/api/pairing*` requires the token.
 | `GET/POST /api/groups`, `GET/PATCH/DELETE /api/groups/:id` | Groups. |
 | `POST /api/groups/:id/captures`, `DELETE /api/groups/:id/captures/:captureId` | Membership. |
 | `POST /api/kits` | Run the engine over a group, the whole library, or an explicit `captureIds` selection. |
-| `GET /api/kits`, `GET /api/kits/latest`, `GET /api/kits/:id` | Kit retrieval: the kit, its effective tokens, `design.md`, and the review state behind them. |
-| `GET /api/kits/:id/{tokens.json,design.md}` | Downloads. |
+| `GET /api/kits`, `GET /api/kits/latest`, `GET /api/kits/:id` | Kit retrieval: the kit, its effective tokens, `design-kit.md`, and the review state behind them. |
+| `GET /api/kits/:id/{tokens.json,design-kit.md}` | Downloads. |
 | `GET /api/kits/:id/components/:component.md` | One component, self-sufficient. |
-| `GET /api/export/{tokens.json,design.md}`, `GET /api/export/components/:component.md` | The latest kit for a scope, as a file. |
+| `GET /api/export/{tokens.json,design-kit.md}`, `GET /api/export/components/:component.md` | The latest kit for a scope, as a file. |
 | `GET /api/reviews` | The overrides and accepted decisions for a scope. Answers before a kit exists. |
 | `PUT/DELETE /api/reviews/overrides` | Set or clear one token override. Answers with the whole effective kit. |
 | `PUT /api/reviews/decisions` | Accept or reopen one decision card. |
@@ -326,7 +326,7 @@ through `planOverrideWrite` and `store.reviews.setOverride`, the same two calls
 the Tokens editor makes, with `suggestedBy: 'assistant'` set. That is a
 provenance fact, not a different kind of value: the strategy stays
 `user-override` because a person chose it, and where the candidate came from is
-recorded beside it and stated in `design.md`.
+recorded beside it and stated in `design-kit.md`.
 
 Proposal cards render in the Review queue alongside the engine's own findings,
 with their own icon, tone, left rule and an "Assistant suggestion" label, and

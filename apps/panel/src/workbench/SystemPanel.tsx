@@ -93,7 +93,7 @@ export interface SystemPanelProps {
   busy: boolean
   error: string | null
   onGenerate: () => void
-  onDownload: (file: 'tokens.json' | 'design.md') => void
+  onDownload: (file: 'tokens.json' | 'design-kit.md') => void
   onDownloadComponent: (component: ComponentDocId) => void
   onDownloadDocs: () => void
   onOverride: (path: string, value: string, note?: string) => void
@@ -283,7 +283,7 @@ function ReviewTab({
   }
 
   // The reason already standing at a card's path. A card that resolves a value
-  // must not blank it: the reason is the reviewer's own writing and design.md
+  // must not blank it: the reason is the reviewer's own writing and design-kit.md
   // prints it, so a card writes one only where there is none to lose.
   const notes = new Map(
     (review?.overrides ?? []).filter((entry) => entry.note !== '').map((entry) => [entry.path, entry.note]),
@@ -565,7 +565,7 @@ function TokensTab({
   // The engine's own sentence about an absent error colour, shown where the
   // palette is actually edited. Read from the document rather than restated
   // here: a second copy would be a second opinion, and this one is the one the
-  // review queue and `design.md` also carry.
+  // review queue and `design-kit.md` also carry.
   const errorNotice = tokens.diagnostics.find((diagnostic) => diagnostic.code === 'color.no-destructive')
 
   const grouped = new Map<OverrideGroup, TokenSlot[]>()
@@ -671,7 +671,7 @@ function ExportTab({
         <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
           {carried === 0
             ? 'Every value in these files is distilled evidence.'
-            : `Every file below carries your ${carried} override${carried === 1 ? '' : 's'}, and design.md names ${carried === 1 ? 'it' : 'them'} with your reason.`}
+            : `Every file below carries your ${carried} override${carried === 1 ? '' : 's'}, and design-kit.md names ${carried === 1 ? 'it' : 'them'} with your reason.`}
         </p>
         {dropped.length === 0 ? null : (
           <p className="mt-1 text-[11px] leading-relaxed text-amber-600 dark:text-amber-500">
@@ -687,9 +687,9 @@ function ExportTab({
           The whole kit
         </h3>
         <div className="flex flex-col gap-1.5">
-          <Button size="sm" variant="outline" onClick={() => onDownload('design.md')}>
+          <Button size="sm" variant="outline" onClick={() => onDownload('design-kit.md')}>
             <Download aria-hidden />
-            design.md
+            design-kit.md
           </Button>
           <Button size="sm" variant="outline" onClick={() => onDownload('tokens.json')}>
             <Download aria-hidden />
@@ -728,7 +728,7 @@ function ExportTab({
         <p className="text-[11px] leading-relaxed text-muted-foreground">
           {suggested === 0
             ? 'Every value in these files was chosen by the engine or by you. The Assistant tab can propose more, and nothing it proposes reaches a file until you accept it.'
-            : `${suggested === 1 ? 'One value' : `${suggested} values`} in these files came from an assistant suggestion you accepted. design.md names ${suggested === 1 ? 'it' : 'them'}, because where a value came from is part of what makes it traceable.`}
+            : `${suggested === 1 ? 'One value' : `${suggested} values`} in these files came from an assistant suggestion you accepted. design-kit.md names ${suggested === 1 ? 'it' : 'them'}, because where a value came from is part of what makes it traceable.`}
         </p>
       </section>
     </div>

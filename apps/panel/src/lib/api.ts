@@ -154,7 +154,7 @@ export interface ReviewState {
 export interface KitPayload {
   kit: KitSummary
   tokens: TokensDocument
-  designMd: string
+  designKitMd: string
   review: ReviewState
 }
 
@@ -452,7 +452,7 @@ export const api = {
    * price of not putting the token in a URL, where it would end up in history
    * and in logs.
    */
-  async download(kitId: string, file: 'tokens.json' | 'design.md'): Promise<void> {
+  async download(kitId: string, file: 'tokens.json' | 'design-kit.md'): Promise<void> {
     const response = await send(`/api/kits/${encodeURIComponent(kitId)}/${file}`)
     saveBlob(await response.blob(), suggestedFilename(response, file))
   },

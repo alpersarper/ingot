@@ -101,7 +101,7 @@ describe('sqlite adapter', () => {
     ])
     // The payloads came through the copy byte for byte, which is the whole risk
     // a table rebuild carries.
-    expect((await store.kits.get('k1'))?.designMd).toBe('# Warm')
+    expect((await store.kits.get('k1'))?.designKitMd).toBe('# Warm')
     // And the upgraded table admits what it was rebuilt for, in the library's
     // lineage: the next version after the library kit that was already there.
     const selection = await store.kits.create({
@@ -112,7 +112,7 @@ describe('sqlite adapter', () => {
       engineVersion: '0.2.0',
       captureIds: ['c-one'],
       tokensJson: '{}',
-      designMd: '# Sel',
+      designKitMd: '# Sel',
       warningCount: 0,
     })
     expect(selection.version).toBe(2)

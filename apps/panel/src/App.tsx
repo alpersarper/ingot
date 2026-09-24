@@ -400,7 +400,7 @@ export function App(): ReactNode {
     })
   }
 
-  async function onDownload(file: 'tokens.json' | 'design.md'): Promise<void> {
+  async function onDownload(file: 'tokens.json' | 'design-kit.md'): Promise<void> {
     if (kit === null) return
     try {
       await api.download(kit.kit.id, file)

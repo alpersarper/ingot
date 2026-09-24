@@ -138,7 +138,7 @@ export type KitScope = 'group' | 'library' | 'selection'
 /**
  * One generated kit: the engine's output frozen with the inputs that produced it.
  *
- * `tokensJson` and `designMd` are stored as the exact strings the engine
+ * `tokensJson` and `designKitMd` are stored as the exact strings the engine
  * emitted rather than as a re-serialised object, so a download is a byte-for-byte
  * copy of what `pnpm skeleton` would have written for the same captures.
  */
@@ -178,15 +178,15 @@ export interface Kit {
   captureIds: string[]
   /** `serializeTokens()` output, verbatim. */
   tokensJson: string
-  /** `renderDesignMarkdown()` output, verbatim. */
-  designMd: string
+  /** `renderDesignKitMarkdown()` output, verbatim. */
+  designKitMd: string
   /** Count of `warning`-level diagnostics, denormalised so lists need no parse. */
   warningCount: number
   createdAt: string
 }
 
 /** A kit without its two large payloads, for listing. */
-export type KitSummary = Omit<Kit, 'tokensJson' | 'designMd'>
+export type KitSummary = Omit<Kit, 'tokensJson' | 'designKitMd'>
 
 export interface KitInput {
   groupId: string | null
@@ -201,7 +201,7 @@ export interface KitInput {
   engineVersion: string
   captureIds: string[]
   tokensJson: string
-  designMd: string
+  designKitMd: string
   warningCount: number
 }
 
@@ -321,7 +321,7 @@ export interface StoredOverride {
    *
    * The decision is still theirs -- the assistant has no write path into a kit
    * -- so this changes nothing about how the row is applied. It is what lets
-   * the panel and `design.md` say where the candidate came from. Absent is the
+   * the panel and `design-kit.md` say where the candidate came from. Absent is the
    * ordinary case and means the reviewer wrote the value.
    */
   suggestedBy?: 'assistant'

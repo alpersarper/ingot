@@ -15,7 +15,7 @@
  *     a question about which of the three kit documents was consulted, and
  *     `planOverrideWrite` answers all of them at once. What comes back is the
  *     row to persist. The route stores it and does not second-guess a field of
- *     it -- an approximation here is how `design.md` came to announce
+ *     it -- an approximation here is how `design-kit.md` came to announce
  *     disagreements that were never reported.
  *   - **The engine's answer is read on the server, never taken from the
  *     client.** A browser could get it wrong or stale, and it is the whole
@@ -39,11 +39,11 @@ import type { Kit, ReviewScope } from '../storage/store'
 import { optionalNullableString, optionalString, readJsonBody, requireString } from '../validate'
 
 /**
- * The longest reason the panel will carry into `design.md`.
+ * The longest reason the panel will carry into `design-kit.md`.
  *
  * A reason is a sentence explaining a decision, and it is rendered in a table
  * cell in the kit's primary deliverable. Bounding it at the boundary keeps one
- * paste of a whole document out of every reader's `design.md`.
+ * paste of a whole document out of every reader's `design-kit.md`.
  */
 const NOTE_MAX = 500
 
@@ -75,11 +75,11 @@ export function scopeFrom(value: string | null | undefined): ReviewScope {
  * together.
  */
 export function kitPayload(effective: EffectiveKit): Record<string, unknown> {
-  const { tokensJson: _tokens, designMd: _design, ...summary } = effective.kit
+  const { tokensJson: _tokens, designKitMd: _design, ...summary } = effective.kit
   return {
     kit: summary,
     tokens: effective.tokens,
-    designMd: effective.designMd,
+    designKitMd: effective.designKitMd,
     review: {
       overrides: effective.overrides,
       conflicts: effective.report.conflicts,

@@ -579,7 +579,7 @@ export interface CollapsedShade extends ShadeRelation {
 /**
  * The one sentence every surface says about a set of collapsed states.
  *
- * `design.md`, the distiller's diagnostic and the override replay's restatement
+ * `design-kit.md`, the distiller's diagnostic and the override replay's restatement
  * all say it, so it is written once. It distinguishes "identical" from "too
  * close to tell apart", because after the chroma rescue the second is the
  * common case and a kit that called a 1.04:1 difference "the same colour" would

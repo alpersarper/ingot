@@ -76,7 +76,7 @@ interface KitRow {
   engine_version: string
   capture_ids: string
   tokens_json: string
-  design_md: string
+  design_kit_md: string
   warning_count: number
   created_at: string
 }
@@ -193,7 +193,7 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
       engineVersion: row.engine_version,
       captureIds: JSON.parse(row.capture_ids) as string[],
       tokensJson: row.tokens_json,
-      designMd: row.design_md,
+      designKitMd: row.design_kit_md,
       warningCount: row.warning_count,
       createdAt: row.created_at,
     }
@@ -443,7 +443,7 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
   }
 
   const KIT_SUMMARY_COLUMNS = `id, group_id, scope, version, set_id, name, engine_version, capture_ids,
-       '' AS tokens_json, '' AS design_md, warning_count, created_at`
+       '' AS tokens_json, '' AS design_kit_md, warning_count, created_at`
 
   /**
    * The library scope's kits: distilled from the whole pool, or from a
@@ -466,7 +466,7 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
         )
         .all(...params)
       return rows.map((row): KitSummary => {
-        const { tokensJson: _tokens, designMd: _design, ...summary } = hydrateKit(row)
+        const { tokensJson: _tokens, designKitMd: _design, ...summary } = hydrateKit(row)
         return summary
       })
     },
@@ -512,7 +512,7 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
         const id = idFactory()
         db.prepare(
           `INSERT INTO kits (id, group_id, scope, version, set_id, name, engine_version, capture_ids,
-                             tokens_json, design_md, warning_count, created_at)
+                             tokens_json, design_kit_md, warning_count, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           id,
@@ -524,7 +524,7 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
           input.engineVersion,
           JSON.stringify(input.captureIds),
           input.tokensJson,
-          input.designMd,
+          input.designKitMd,
           input.warningCount,
           clock(),
         )

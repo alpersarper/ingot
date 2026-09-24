@@ -1,7 +1,7 @@
 /**
  * What a kit tells a consumer about drawing an error.
  *
- * One owner, three readers: `design.md`'s colour rules, `design.md`'s state
+ * One owner, three readers: `design-kit.md`'s colour rules, `design-kit.md`'s state
  * table, and the per-component docs for the field a form actually invalidates.
  * They have to agree, because they are read by the same LLM in the same sitting
  * and a document that forbids a red in one section and prescribes one in

@@ -8,7 +8,7 @@
  * it makes this module part of the engine rather than part of the panel:
  *
  *   - it must be **pure and deterministic**, because a kit with overrides is
- *     still a kit and `design.md` still has to be byte-identical run to run;
+ *     still a kit and `design-kit.md` still has to be byte-identical run to run;
  *   - it must **re-check what the override invalidated**. A hand-set colour that
  *     drops a guaranteed pair under its floor has to say so out loud, exactly as
  *     a distilled one would;
@@ -140,7 +140,7 @@ export interface TokenOverride {
    * another reports disagreements neither of them ever had.
    */
   baseValue?: string
-  /** The reviewer's own reason, carried into `design.md`. */
+  /** The reviewer's own reason, carried into `design-kit.md`. */
   note?: string
   /**
    * The conflict this value was chosen in answer to, when it was.
@@ -150,7 +150,7 @@ export interface TokenOverride {
    * report, so what retired it is recorded on the token rather than the report
    * simply going quiet. It describes one answered disagreement and is not a
    * standing claim: a later value change that answered nothing arrives without
-   * it, and a path the engine reports as still in conflict is one `design.md`
+   * it, and a path the engine reports as still in conflict is one `design-kit.md`
    * does not describe as answered.
    */
   resolvedConflict?: ResolvedConflict
@@ -179,7 +179,7 @@ export interface AppliedOverride {
  *
  * The override still wins -- an override that new evidence could quietly undo
  * would not be an override. This is a report, and it is deliberately a warning
- * diagnostic so it travels into `design.md` with everything else the kit is
+ * diagnostic so it travels into `design-kit.md` with everything else the kit is
  * honest about.
  */
 export interface OverrideConflict {
@@ -718,7 +718,7 @@ function ordering(overrides: readonly TokenOverride[]): TokenOverride[] {
  *
  * It is the engine's job rather than a caller's precisely so that the write
  * boundary and {@link applyOverrides} cannot end up asking about two different
- * documents -- which is how `design.md` came to report a conflict that had been
+ * documents -- which is how `design-kit.md` came to report a conflict that had been
  * answered against a value nobody ever saw. Engine-internal for the same
  * reason: it is not exported from the package, so no caller can hold a baseline
  * at all, let alone ask it the wrong question.
@@ -857,7 +857,7 @@ function conflictBetween(
  * report `override.conflict`, asked of one override on its own.
  * {@link planOverrideWrite} needs it to know whether an edit *answered* a
  * conflict; it stays inside the engine because a caller that reimplemented the
- * predicate would drift from it, and `design.md` would go on to state that a
+ * predicate would drift from it, and `design-kit.md` would go on to state that a
  * disagreement was answered when none was ever reported.
  */
 export function standingConflict(
@@ -1012,7 +1012,7 @@ export type OverrideWriteReport =
  * standing, and what number was it standing against -- is a question about the
  * *baseline*, the stored distillation with every other override replayed and
  * this path's own left out. A caller answering any of them from the document it
- * happens to be holding is how `design.md` came to announce a disagreement
+ * happens to be holding is how `design-kit.md` came to announce a disagreement
  * answered against a value nobody was ever shown.
  *
  * `standing` is the review state as it is now, this path's own override
@@ -1158,7 +1158,7 @@ function present(names: readonly string[]): string {
  * Write one parsed value into the document and restamp its provenance.
  *
  * Restamping is the point: after this the token *is* a user override, and every
- * surface that reads provenance -- the panel, `design.md`, a per-component md --
+ * surface that reads provenance -- the panel, `design-kit.md`, a per-component md --
  * says so without being told separately.
  */
 function write(
@@ -1713,7 +1713,7 @@ function restateCollapsedStates(tokens: TokensDocument): void {
  * the same for a shade it recomputed, precisely so the kit does not credit the
  * engine with a move it did not make -- but the sentence saying so lived on,
  * naming two hexes the document no longer holds, and `color.contrast-unmet` is
- * a warning, so `design.md` kept declaring a pair unmet that now passes.
+ * a warning, so `design-kit.md` kept declaring a pair unmet that now passes.
  *
  * So the note goes wherever the record went, and one that survives has its level
  * re-decided from the ratios now measured, by the same rule the distiller uses:
@@ -1913,7 +1913,7 @@ export function hasOverrides(tokens: TokensDocument): boolean {
 /**
  * Where a token's value came from, as one word.
  *
- * `design.md` and the panel both need to label a value's authority, and both
+ * `design-kit.md` and the panel both need to label a value's authority, and both
  * need to label it the same way, so the mapping lives here rather than twice.
  */
 export type TokenOrigin = 'overridden' | 'adjusted' | 'observed' | 'derived' | 'filled'

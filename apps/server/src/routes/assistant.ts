@@ -199,7 +199,7 @@ export function assistantRoutes(context: AppContext): Hono<AppEnv> {
         value: proposal.value,
         // The assistant's rationale becomes the reviewer's reason only where
         // they have not written one. Their own words are never overwritten by a
-        // draft, and `design.md` prints whichever is there.
+        // draft, and `design-kit.md` prints whichever is there.
         ...(standing.some((entry) => entry.path === proposal.path && entry.note !== '')
           ? {}
           : { note: proposal.rationale.slice(0, 500) }),

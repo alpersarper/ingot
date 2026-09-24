@@ -58,7 +58,7 @@ export interface ContrastAdjustment {
   floor: number
   /** False when the floor could not be reached even at the gamut boundary. */
   met: boolean
-  /** Stable explanation of the walk, for the panel and for `design.md`. */
+  /** Stable explanation of the walk, for the panel and for `design-kit.md`. */
   reason: string
 }
 

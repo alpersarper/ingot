@@ -13,7 +13,7 @@
  * second, quietly different, idea of what "10px" means.
  *
  * The one place the assistant appears here is the reason field, and only on an
- * override that has none. That reason is what `design.md` prints as the whole
+ * override that has none. That reason is what `design-kit.md` prints as the whole
  * explanation for a value disagreeing with the evidence, so an empty one is a
  * real gap -- and drafting prose from the evidence is exactly the judgement a
  * language model is good at. It fills the box; it never sends it. The reviewer
@@ -91,7 +91,7 @@ export function TokenRow({
     const next = draft.trim()
     const nextReason = reason.trim()
     // The reason is part of the override, not decoration on it: it is what
-    // `design.md` prints in its overrides section. So a note-only edit on a
+    // `design-kit.md` prints in its overrides section. So a note-only edit on a
     // standing override is a real edit and is sent. On a token nobody has
     // overridden there is nothing for a reason to attach to, and re-sending the
     // engine's own value to carry one would be refused as an override that
@@ -167,7 +167,7 @@ export function TokenRow({
           <Input
             className="h-7 text-xs"
             value={reason}
-            placeholder="Why (optional) — it goes into design.md"
+            placeholder="Why (optional) — it goes into design-kit.md"
             aria-label={`Reason for overriding ${slot.path}`}
             onChange={(event) => setReason(event.target.value)}
           />
@@ -254,7 +254,7 @@ export function TokenRow({
           {decision.suggestedBy === undefined ? null : (
             <p className="text-violet-600 dark:text-violet-400">
               The assistant proposed this value and you accepted it. The decision is yours; where the candidate came
-              from is recorded beside it, and <span className="font-mono">design.md</span> says so too.
+              from is recorded beside it, and <span className="font-mono">design-kit.md</span> says so too.
             </p>
           )}
           {decision.derivation === undefined ? null : (

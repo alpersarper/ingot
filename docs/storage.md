@@ -112,7 +112,7 @@ move. The path is always derived from the capture id and never from caller
 input, which is what makes traversal impossible rather than merely filtered.
 
 **Anything the engine produced, re-derived.** A kit stores the exact strings
-`serializeTokens()` and `renderDesignMarkdown()` returned. Re-serialising a
+`serializeTokens()` and `renderDesignKitMarkdown()` returned. Re-serialising a
 parsed tokens document on the way out would produce a file that differs from
 what `pnpm skeleton` writes, which is the thing this whole layer exists not to
 do.

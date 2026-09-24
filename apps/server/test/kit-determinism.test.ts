@@ -2,7 +2,7 @@
  * Determinism through the server.
  *
  * The engine's guarantee is that the same capture set produces byte-identical
- * `tokens.json` and `design.md`. The server can break that without touching the
+ * `tokens.json` and `design-kit.md`. The server can break that without touching the
  * engine -- by reordering captures, by re-serialising a record on the way in or
  * out, by inventing set metadata. This suite is the guard: every committed
  * example must come back out of the API byte for byte.
@@ -45,10 +45,10 @@ async function importAndGenerate(setId: string): Promise<string> {
 }
 
 describe.each(setIds)('%s through the server', (setId) => {
-  it('downloads the same design.md the skeleton writes', async () => {
+  it('downloads the same design-kit.md the skeleton writes', async () => {
     const kitId = await importAndGenerate(setId)
-    const downloaded = await (await harness.call(`/api/kits/${kitId}/design.md`)).text()
-    expect(downloaded).toBe(await readFile(`${ROOT}examples/${setId}/design.md`, 'utf8'))
+    const downloaded = await (await harness.call(`/api/kits/${kitId}/design-kit.md`)).text()
+    expect(downloaded).toBe(await readFile(`${ROOT}examples/${setId}/design-kit.md`, 'utf8'))
   })
 
   it('downloads the same tokens.json the skeleton writes', async () => {
@@ -71,8 +71,8 @@ describe('what the server could break and does not', () => {
   it('produces the same bytes when the same set is imported twice and regenerated', async () => {
     const first = await importAndGenerate('stripe-light')
     const second = await importAndGenerate('stripe-light')
-    expect(await (await harness.call(`/api/kits/${second}/design.md`)).text()).toBe(
-      await (await harness.call(`/api/kits/${first}/design.md`)).text(),
+    expect(await (await harness.call(`/api/kits/${second}/design-kit.md`)).text()).toBe(
+      await (await harness.call(`/api/kits/${first}/design-kit.md`)).text(),
     )
   })
 

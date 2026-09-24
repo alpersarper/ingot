@@ -13,7 +13,7 @@
  * needs a fourth code path.
  *
  * The download routes serve the stored strings byte for byte. They are the path
- * the acceptance test walks: a `design.md` downloaded here must equal the one
+ * the acceptance test walks: a `design-kit.md` downloaded here must equal the one
  * `pnpm skeleton` writes from the same captures.
  */
 import { Hono } from 'hono'
@@ -43,11 +43,23 @@ function componentIdFrom(raw: string): ComponentDocId {
   return id as ComponentDocId
 }
 
+/** The three whole-kit downloads, and the stem each one is saved under. */
+const DOWNLOAD_STEMS = {
+  'tokens.json': 'tokens',
+  'design-kit.md': 'design-kit',
+  // Deliberately keeps the spec's own capitalisation in the stem: the consumer
+  // of this file is an agent looking for a file called `DESIGN.md`, so the name
+  // in the user's downloads folder should be one rename away from the name the
+  // standard expects rather than one rename plus a guess at the case.
+  'DESIGN.md': 'DESIGN',
+} as const
+
+type DownloadName = keyof typeof DOWNLOAD_STEMS
+
 /** A filename a user can find later: the set id and the kit version. */
-function attachment(kit: Kit, file: 'tokens.json' | 'design.md'): string {
-  const base = file === 'tokens.json' ? 'tokens' : 'design'
+function attachment(kit: Kit, file: DownloadName): string {
   const extension = file === 'tokens.json' ? 'json' : 'md'
-  return `attachment; filename="${kit.setId}-v${kit.version}-${base}.${extension}"`
+  return `attachment; filename="${kit.setId}-v${kit.version}-${DOWNLOAD_STEMS[file]}.${extension}"`
 }
 
 function componentAttachment(kit: Kit, id: ComponentDocId): string {
@@ -124,11 +136,11 @@ export function kitRoutes(context: AppContext): Hono<AppEnv> {
     })
   })
 
-  app.get('/:id/design.md', async (c) => {
+  app.get('/:id/design-kit.md', async (c) => {
     const effective = await load(c.req.param('id'))
-    return c.body(effective.designMd, 200, {
+    return c.body(effective.designKitMd, 200, {
       'Content-Type': 'text/markdown; charset=utf-8',
-      'Content-Disposition': attachment(effective.kit, 'design.md'),
+      'Content-Disposition': attachment(effective.kit, 'design-kit.md'),
     })
   })
 
@@ -158,7 +170,7 @@ export function kitRoutes(context: AppContext): Hono<AppEnv> {
  * The export routes: the latest kit for a scope, as a file.
  *
  * Separate from `/api/kits/:id/...` because a user downloading their library's
- * `design.md` should not have to know a kit id. They are reads: generating is
+ * `design-kit.md` should not have to know a kit id. They are reads: generating is
  * always an explicit `POST /api/kits`, so a download can never silently produce
  * a different kit than the one on screen.
  */
@@ -182,11 +194,11 @@ export function exportRoutes(context: AppContext): Hono<AppEnv> {
     })
   })
 
-  app.get('/design.md', async (c) => {
+  app.get('/design-kit.md', async (c) => {
     const effective = await latestOrFail(c)
-    return c.body(effective.designMd, 200, {
+    return c.body(effective.designKitMd, 200, {
       'Content-Type': 'text/markdown; charset=utf-8',
-      'Content-Disposition': attachment(effective.kit, 'design.md'),
+      'Content-Disposition': attachment(effective.kit, 'design-kit.md'),
     })
   })
 

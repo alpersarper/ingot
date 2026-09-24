@@ -1,7 +1,7 @@
 /**
  * Per-component markdown: one file that is enough on its own.
  *
- * The whole-library `design.md` is the right document when someone is building
+ * The whole-library `design-kit.md` is the right document when someone is building
  * a screen. It is the wrong one when someone is building *a button*: they get
  * six hundred lines about spacing bands and elevation to find eight numbers,
  * and an LLM given the whole file spends its attention on the wrong parts.
@@ -14,7 +14,7 @@
  * that apply — plus a pasteable custom-property block so the values arrive in
  * code rather than in prose.
  *
- * A sibling of `design-md.ts`, per the architecture rule: target-specific
+ * A sibling of `design-kit-md.ts`, per the architecture rule: target-specific
  * output lives in `src/export/`, never in the token model.
  */
 import { componentDoc, docRoles, hoverSurfaceOf } from './component-doc'
@@ -63,7 +63,7 @@ export function renderComponentMarkdown(tokens: TokensDocument, id: ComponentDoc
   push(
     `# ${doc.title} — ${tokens.source.name}`,
     '',
-    `Everything needed to build this component is in this file. It is a slice of the \`${tokens.source.setId}\` design system distilled by ${tokens.engine.name} ${tokens.engine.version}; the whole system is in \`design.md\`, but you do not need it to build ${buildTarget(doc)} correctly.`,
+    `Everything needed to build this component is in this file. It is a slice of the \`${tokens.source.setId}\` design system distilled by ${tokens.engine.name} ${tokens.engine.version}; the whole system is in \`design-kit.md\`, but you do not need it to build ${buildTarget(doc)} correctly.`,
     '',
     doc.summary,
     '',
