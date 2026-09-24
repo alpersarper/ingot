@@ -148,4 +148,28 @@ describe('the same panel in a container', () => {
       expect(settings?.settings.llm.baseUrl).toBe('http://host.docker.internal:11434/v1')
     })
   })
+
+  it('stores the endpoint field\'s key as the endpoint key, never as the Anthropic key', async () => {
+    await serve({ cli: SIGNED_IN, containerized: true })
+    const user = userEvent.setup()
+    await reachTheWorkbench(user)
+
+    await user.click(within(systemPanel()).getByRole('radio', { name: /OpenAI-compatible endpoint/ }))
+    const keyField = await screen.findByLabelText('API key (optional)')
+    fireEvent.change(keyField, { target: { value: 'sk-or-v1-PANELWIREDENDPOINTKEY' } })
+    await user.click(within(systemPanel()).getByRole('button', { name: 'Save endpoint key' }))
+
+    // The credential lands in the endpoint's own slot: the Anthropic key stays
+    // empty, so switching connections can never send one key to the other's
+    // endpoint -- which is the property this field exists to keep.
+    await waitFor(async () => {
+      expect(await harness?.store.settings.get('llm.endpointKey')).toBe('sk-or-v1-PANELWIREDENDPOINTKEY')
+    })
+    expect(await harness?.store.settings.get('llm.apiKey')).toBeNull()
+    const settings = await harness?.json<{
+      settings: { llm: { endpointKeyConfigured: boolean; source: string } }
+    }>('/api/settings')
+    expect(settings?.settings.llm.endpointKeyConfigured).toBe(true)
+    expect(settings?.settings.llm.source).toBe('none')
+  })
 })

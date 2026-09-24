@@ -224,12 +224,18 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
   three: [docs/assistant.md](docs/assistant.md). Prompt templates live in
   `assistant/prompts.ts`, in code, versioned, and the version travels with every
   proposal.
-- **The API key goes in and never comes out, and that is tested by scanning.**
-  A key is passed only to a connection that declares it takes one, so a stored
-  Anthropic key is never a bearer token against somebody's Ollama.
-  No endpoint returns it; it is redacted -- with a visible `[redacted]` marker,
-  including from truncated fragments -- from every log and error message,
-  provider-SDK errors included. Assistant endpoints are rate-limited
+- **The API keys go in and never come out, and that is tested by scanning.**
+  Each connection has its own credential setting -- `llm.apiKey` is the
+  Anthropic key, `llm.endpointKey` the OpenAI-compatible endpoint's bearer
+  token, the CLI takes neither -- and each client is handed only the one saved
+  for it, so a stored Anthropic key is never a bearer token against somebody's
+  Ollama and a connection switch carries nothing across. The panel-stored
+  endpoint URL is scoped the same way; only env `INGOT_LLM_BASE_URL` reaches
+  the Anthropic client, for the hosted-proxy deployment. No endpoint returns
+  either key; both are redacted -- with a visible `[redacted]` marker,
+  including from truncated fragments, at the `structuredClient` seam so the
+  guarantee covers response bodies as well as logs -- from every log and error
+  message, provider-SDK errors included. Assistant endpoints are rate-limited
   server-side, because they are the only ones where a copied pairing token costs
   money rather than privacy. Each property has a test in
   `apps/server/test/assistant.test.ts`; adding an assistant route means adding

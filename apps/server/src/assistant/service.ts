@@ -43,7 +43,13 @@ import type { Candidate, RefusedProposal } from './proposals'
 import { readAnswer, readNaming, readProposals, readRationale } from './capabilities'
 import type { Naming } from './capabilities'
 import { createRedactingLogger } from './redact'
-import { LLM_API_KEY_SETTING, LLM_BASE_URL_SETTING, LLM_CONNECTION_SETTING, LLM_MODEL_SETTING } from './settings-keys'
+import {
+  LLM_API_KEY_SETTING,
+  LLM_BASE_URL_SETTING,
+  LLM_CONNECTION_SETTING,
+  LLM_ENDPOINT_KEY_SETTING,
+  LLM_MODEL_SETTING,
+} from './settings-keys'
 import type { ServerConfig } from '../config'
 import type { ReviewScope, StoredOverride, StoredProposal, Store } from '../storage/store'
 
@@ -80,6 +86,10 @@ export interface AssistantStatus {
   /** The OpenAI-compatible endpoint, when one is configured. Not a secret. */
   baseUrl: string | undefined
   baseUrlManagedByEnvironment: boolean
+  /** True when a bearer token for the OpenAI-compatible endpoint is stored. Never the token. */
+  endpointKeyConfigured: boolean
+  /** True when that token is pinned in the environment and cannot be edited here. */
+  endpointKeyManagedByEnvironment: boolean
   /** True when this server cannot start a process on the user's machine. */
   containerized: boolean
   /** Every connection, whether it is ready, and what to do about it if not. */
@@ -225,10 +235,11 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
   // the old one would let the new one through.
   const logger = createRedactingLogger(secrets, deps.logSink)
 
-  // The last key this service saw, held only so the logger can redact a key
+  // The last keys this service saw, held only so the logger can redact a key
   // that has since been replaced in storage but is still quoted in an error
   // that is on its way to being logged. Never read to make a request.
   let cachedKey: string | undefined
+  let cachedEndpointKey: string | undefined
 
   /**
    * Every secret this process holds.
@@ -238,13 +249,33 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
    * pairing token or a stored key belonging to a connection nobody selected.
    */
   function secrets(): readonly (string | undefined)[] {
-    return [config.llmApiKey, cachedKey, config.pairingToken, deps.pairingToken]
+    return [
+      config.llmApiKey,
+      cachedKey,
+      config.llmEndpointKey,
+      cachedEndpointKey,
+      config.pairingToken,
+      deps.pairingToken,
+    ]
   }
 
-  /** The key to use, or `null`. The environment wins, as it does for settings. */
+  /** The Anthropic key, or `null`. The environment wins, as it does for settings. */
   async function apiKey(): Promise<string | null> {
     const key = config.llmApiKey ?? (await store.settings.get(LLM_API_KEY_SETTING))
     if (key !== null && key !== undefined) cachedKey = key
+    return key ?? null
+  }
+
+  /**
+   * The OpenAI-compatible endpoint's bearer token, or `null`.
+   *
+   * Its own setting rather than a reuse of the Anthropic key, because reuse is
+   * the leak: one shared slot would send a stored `sk-ant-…` key to whatever
+   * address the endpoint field held the day somebody switched connections.
+   */
+  async function endpointKey(): Promise<string | null> {
+    const key = config.llmEndpointKey ?? (await store.settings.get(LLM_ENDPOINT_KEY_SETTING))
+    if (key !== null && key !== undefined) cachedEndpointKey = key
     return key ?? null
   }
 
@@ -285,6 +316,7 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
     const probed = runtime.containerized ? undefined : await cli()
     return {
       hasApiKey: key !== null,
+      apiKeyPinned: config.llmApiKey !== undefined,
       baseUrl: url,
       model: model ?? '',
       cli: probed === undefined ? undefined : { available: probed.available, signedIn: probed.signedIn, detail: probed.detail },
@@ -316,6 +348,16 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
    * provider rejected. The sentence is the connection's own `blocked` line,
    * which is the same text the panel is already showing beside that connection
    * -- one wording, not two that can drift.
+   *
+   * The config each arm assembles is the scoping guarantee: a connection
+   * receives only the credential and the endpoint *saved for it*, never
+   * whatever another connection left in storage. The Anthropic arm reads the
+   * Anthropic key and, for the hosted-proxy deployment, the env-pinned base
+   * URL only -- a panel-stored endpoint belongs to the OpenAI-compatible
+   * connection and must not follow a switch here. The OpenAI-compatible arm
+   * reads its own bearer token and the endpoint; the CLI arm gets neither,
+   * because it is signed in rather than keyed. `acceptsApiKey` cannot carry
+   * this: it says a connection *takes* a key, not *whose* key it takes.
    */
   async function client(): Promise<LlmClient> {
     const current = await facts()
@@ -331,24 +373,36 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
       )
     }
 
-    const key = await apiKey()
-    if (connection === 'anthropic-api' && key !== null && !looksLikeAnthropicKey(key)) {
-      // Said before a request is spent, and said as a warning about shape
-      // rather than a verdict: the provider decides whether a key is valid.
-      logger.warn('the stored LLM API key does not look like an Anthropic key; sending it anyway')
+    const model = modelFor(connection, current.model)
+
+    if (connection === 'anthropic-api') {
+      const key = await apiKey()
+      if (key !== null && !looksLikeAnthropicKey(key)) {
+        // Said before a request is spent, and said as a warning about shape
+        // rather than a verdict: the provider decides whether a key is valid.
+        logger.warn('the stored LLM API key does not look like an Anthropic key; sending it anyway')
+      }
+      return llmFactory({
+        connection,
+        model,
+        secrets,
+        ...(key === null ? {} : { apiKey: key }),
+        ...(config.llmBaseUrl === undefined ? {} : { baseUrl: config.llmBaseUrl }),
+      })
     }
 
-    const url = await baseUrl()
-    return llmFactory({
-      connection,
-      model: modelFor(connection, current.model),
-      secrets,
-      // A key is passed only where the connection can use one, so a stored
-      // Anthropic key is not quietly sent as a bearer token to whatever
-      // endpoint somebody pointed the OpenAI-compatible connection at.
-      ...(key !== null && CONNECTIONS[connection].acceptsApiKey ? { apiKey: key } : {}),
-      ...(url === undefined ? {} : { baseUrl: url }),
-    })
+    if (connection === 'openai-compatible') {
+      const [key, url] = await Promise.all([endpointKey(), baseUrl()])
+      return llmFactory({
+        connection,
+        model,
+        secrets,
+        ...(key === null ? {} : { apiKey: key }),
+        ...(url === undefined ? {} : { baseUrl: url }),
+      })
+    }
+
+    return llmFactory({ connection, model, secrets })
   }
 
   /** The kit and the review state, as the model is shown them. */
@@ -392,6 +446,8 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
           : (await store.settings.get(LLM_API_KEY_SETTING)) === null
             ? 'none'
             : 'settings'
+      const endpointKeyConfigured =
+        config.llmEndpointKey !== undefined || (await store.settings.get(LLM_ENDPOINT_KEY_SETTING)) !== null
       const current = await facts()
       const connection = await selected(current)
       const reports = connectionReports(current)
@@ -408,6 +464,8 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
         modelManagedByEnvironment: config.llmModel !== undefined,
         baseUrl: current.baseUrl,
         baseUrlManagedByEnvironment: config.llmBaseUrl !== undefined,
+        endpointKeyConfigured,
+        endpointKeyManagedByEnvironment: config.llmEndpointKey !== undefined,
         containerized: runtime.containerized,
         connections: reports,
         promptVersion: PROMPT_VERSION,

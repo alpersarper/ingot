@@ -27,15 +27,22 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { distill } from '@ingot/engine'
 import type { CaptureSet, PristineTokens } from '@ingot/engine'
 import { checkProposals } from '../src/assistant/proposals'
+import { LlmError } from '../src/assistant/llm'
 import { REDACTION_MARKER } from '../src/assistant/redact'
-import { LLM_API_KEY_SETTING, LLM_MODEL_SETTING } from '../src/assistant/settings-keys'
-import { createHarness, body } from './harness'
+import { LLM_API_KEY_SETTING, LLM_ENDPOINT_KEY_SETTING, LLM_MODEL_SETTING } from '../src/assistant/settings-keys'
+import { createHarness, body, put } from './harness'
 import type { Harness } from './harness'
+import type { CliProbe } from '../src/assistant/claude-cli'
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 
 /** A key shaped like a real one, so a shape warning does not muddy a test. */
 const KEY = 'sk-ant-api03-TESTKEYTESTKEYTESTKEYTESTKEY'
+
+/** The OpenAI-compatible endpoint's own bearer token. Never the Anthropic key. */
+const ENDPOINT_KEY = 'sk-or-v1-ENDPOINTKEYENDPOINTKEYENDPOINTKEY'
+
+const SIGNED_IN: CliProbe = { available: true, version: '2.1.236', signedIn: true, detail: '2.1.236 and signed in' }
 
 let harness: Harness
 
@@ -498,9 +505,10 @@ describe('what leaves the machine', () => {
 /* -------------------------------------------------------------- security -- */
 
 describe('the API key never comes out', () => {
-  it('is absent from every response the API will produce', async () => {
+  it('is absent from every response the API will produce -- the endpoint key too', async () => {
     await importAndGenerate()
     await storeKey()
+    await harness.call('/api/settings', put({ llmEndpointKey: ENDPOINT_KEY }))
     await harness.call('/api/settings', { method: 'PUT', body: JSON.stringify({ llmModel: 'claude-opus-5' }) })
     harness.llm.reply({ proposals: [] })
     await harness.call('/api/assistant/suggest', body({ capability: 'derive' }))
@@ -526,12 +534,16 @@ describe('the API key never comes out', () => {
       const response = await harness.call(path)
       const text = await response.text()
       expect(text, `${path} body`).not.toContain(KEY)
+      expect(text, `${path} body`).not.toContain(ENDPOINT_KEY)
       // Headers too: a key echoed into a header would pass a body scan.
-      expect(JSON.stringify([...response.headers]), `${path} headers`).not.toContain(KEY)
+      const headers = JSON.stringify([...response.headers])
+      expect(headers, `${path} headers`).not.toContain(KEY)
+      expect(headers, `${path} headers`).not.toContain(ENDPOINT_KEY)
     }
 
-    // And it really is stored -- the point is that it is stored *and* invisible.
+    // And both really are stored -- the point is stored *and* invisible.
     expect(await harness.store.settings.get(LLM_API_KEY_SETTING)).toBe(KEY)
+    expect(await harness.store.settings.get(LLM_ENDPOINT_KEY_SETTING)).toBe(ENDPOINT_KEY)
   })
 
   it('has no read endpoint: set, replace and delete exist, and nothing returns it', async () => {
@@ -554,6 +566,42 @@ describe('the API key never comes out', () => {
     for (const path of ['/api/settings/llm-key', '/api/settings/key', '/api/assistant/key']) {
       expect((await harness.call(path)).status, path).toBe(404)
     }
+  })
+
+  it('gives the endpoint key the same write-only lifecycle: set, replace, clear, presence only', async () => {
+    await harness.call('/api/settings', put({ llmEndpointKey: ENDPOINT_KEY }))
+    expect(await harness.store.settings.get(LLM_ENDPOINT_KEY_SETTING)).toBe(ENDPOINT_KEY)
+
+    const settings = await harness.json<{
+      settings: { llm: { endpointKeyConfigured: boolean } & Record<string, unknown> }
+    }>('/api/settings')
+    expect(settings.settings.llm.endpointKeyConfigured).toBe(true)
+    expect(JSON.stringify(settings)).not.toContain(ENDPOINT_KEY)
+
+    await harness.call('/api/settings', put({ llmEndpointKey: 'sk-or-v1-SECONDSECONDSECONDSECOND' }))
+    expect(await harness.store.settings.get(LLM_ENDPOINT_KEY_SETTING)).toBe('sk-or-v1-SECONDSECONDSECONDSECOND')
+
+    await harness.call('/api/settings', put({ llmEndpointKey: null }))
+    expect(await harness.store.settings.get(LLM_ENDPOINT_KEY_SETTING)).toBeNull()
+    const cleared = await harness.json<{ settings: { llm: { endpointKeyConfigured: boolean } } }>('/api/settings')
+    expect(cleared.settings.llm.endpointKeyConfigured).toBe(false)
+  })
+
+  it('redacts a secret quoted by a provider-built LlmError from the response body, not only the log', async () => {
+    await importAndGenerate()
+    await storeKey()
+
+    // What the new transports actually do: build an LlmError whose detail
+    // quotes the upstream body -- which, on a hostile or broken endpoint, can
+    // echo the credential it rejected. The seam must scrub it on the way out,
+    // because the route returns this message verbatim.
+    harness.llm.fail(new LlmError('auth', `the endpoint rejected this key: Bearer ${KEY} is not valid`, 401))
+
+    const response = await harness.call('/api/assistant/suggest', body({ capability: 'derive' }))
+    const text = await response.text()
+    expect(text).not.toContain(KEY)
+    expect(text).toContain(REDACTION_MARKER)
+    expect(harness.logs.join('\n')).not.toContain(KEY)
   })
 
   it('redacts the key from a provider error, in the log and in the response', async () => {
@@ -589,6 +637,105 @@ describe('the API key never comes out', () => {
     const logged = harness.logs.join('\n')
     expect(logged).not.toContain(KEY.slice(0, 24))
     expect(logged).toContain(REDACTION_MARKER)
+  })
+})
+
+describe('a credential and an endpoint belong to one connection', () => {
+  it('carries nothing across a connection switch: each client gets only what was saved for it', async () => {
+    await importAndGenerate()
+    await storeKey()
+
+    // The reviewer tries Ollama-through-OpenRouter: an endpoint, a model, and
+    // that endpoint's own bearer token. The docs encourage exactly this switch.
+    await harness.call('/api/settings', put({ llmConnection: 'openai-compatible' }))
+    await harness.call('/api/settings', put({ llmBaseUrl: 'http://localhost:11434/v1' }))
+    await harness.call('/api/settings', put({ llmModel: 'llama3.2' }))
+    await harness.call('/api/settings', put({ llmEndpointKey: ENDPOINT_KEY }))
+
+    harness.llm.reply({ proposals: [] })
+    await harness.call('/api/assistant/suggest', body({ capability: 'derive' }))
+    const openAi = harness.llm.configs.at(-1)
+    expect(openAi?.connection).toBe('openai-compatible')
+    expect(openAi?.apiKey).toBe(ENDPOINT_KEY)
+    expect(openAi?.baseUrl).toBe('http://localhost:11434/v1')
+
+    // Switching back: the Anthropic client gets the Anthropic key, and neither
+    // the Ollama endpoint nor its token follows the switch.
+    await harness.call('/api/settings', put({ llmConnection: 'anthropic-api' }))
+    harness.llm.reply({ proposals: [] })
+    await harness.call('/api/assistant/suggest', body({ capability: 'derive' }))
+    const anthropic = harness.llm.configs.at(-1)
+    expect(anthropic?.connection).toBe('anthropic-api')
+    expect(anthropic?.apiKey).toBe(KEY)
+    expect(anthropic?.baseUrl).toBeUndefined()
+  })
+
+  it('sends no key at all to a keyless endpoint, even with an Anthropic key stored', async () => {
+    await importAndGenerate()
+    await storeKey()
+    await harness.call('/api/settings', put({ llmConnection: 'openai-compatible' }))
+    await harness.call('/api/settings', put({ llmBaseUrl: 'http://localhost:11434/v1' }))
+    await harness.call('/api/settings', put({ llmModel: 'llama3.2' }))
+
+    harness.llm.reply({ proposals: [] })
+    await harness.call('/api/assistant/suggest', body({ capability: 'derive' }))
+    const config = harness.llm.configs.at(-1)
+    expect(config?.connection).toBe('openai-compatible')
+    expect(config?.apiKey).toBeUndefined()
+  })
+
+  it('hands the local CLI neither key and no endpoint', async () => {
+    const local = await createHarness({ cli: SIGNED_IN })
+    try {
+      const set = JSON.parse(await readFile(`${ROOT}fixtures/ghost-warm/set.json`, 'utf8')) as unknown
+      await local.call('/api/captures/import', body(set))
+      await local.call('/api/kits', body({ groupId: null }))
+      await local.call('/api/settings', put({ llmApiKey: KEY }))
+      await local.call('/api/settings', put({ llmEndpointKey: ENDPOINT_KEY }))
+      await local.call('/api/settings', put({ llmBaseUrl: 'http://localhost:11434/v1' }))
+
+      local.llm.reply({ proposals: [] })
+      await local.call('/api/assistant/suggest', body({ capability: 'derive' }))
+      const config = local.llm.configs.at(-1)
+      expect(config?.connection).toBe('claude-cli')
+      expect(config?.apiKey).toBeUndefined()
+      expect(config?.baseUrl).toBeUndefined()
+    } finally {
+      await local.close()
+    }
+  })
+
+  it('resolves a v1 environment -- pinned key, proxy URL, no connection -- to the Anthropic client', async () => {
+    // Before INGOT_LLM_CONNECTION existed, this was the whole configuration of
+    // a proxied deployment. The proxy URL also satisfies the OpenAI-compatible
+    // readiness check, and dispatching there would send the pinned key as a
+    // bearer token to an endpoint that is not a chat completion API.
+    const pinned = await createHarness({
+      env: {
+        INGOT_LLM_API_KEY: KEY,
+        INGOT_LLM_BASE_URL: 'https://llm-proxy.example.com',
+        INGOT_LLM_MODEL: 'claude-sonnet-5',
+      },
+    })
+    try {
+      const set = JSON.parse(await readFile(`${ROOT}fixtures/ghost-warm/set.json`, 'utf8')) as unknown
+      await pinned.call('/api/captures/import', body(set))
+      await pinned.call('/api/kits', body({ groupId: null }))
+
+      const status = await pinned.json<{ assistant: { connection: string } }>('/api/assistant')
+      expect(status.assistant.connection).toBe('anthropic-api')
+
+      pinned.llm.reply({ proposals: [] })
+      await pinned.call('/api/assistant/suggest', body({ capability: 'derive' }))
+      const config = pinned.llm.configs.at(-1)
+      expect(config?.connection).toBe('anthropic-api')
+      expect(config?.apiKey).toBe(KEY)
+      // The env-pinned base URL is the documented hosted-proxy seam and still
+      // reaches the Anthropic client -- unlike a panel-stored endpoint.
+      expect(config?.baseUrl).toBe('https://llm-proxy.example.com')
+    } finally {
+      await pinned.close()
+    }
   })
 })
 

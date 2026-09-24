@@ -110,6 +110,25 @@ describe('which connections are ready', () => {
     expect(reportFor('anthropic-api', { ...BARE, hasApiKey: true }).ready).toBe(true)
   })
 
+  it('lets an environment-pinned key outrank the OpenAI-compatible connection, but not the free CLI', () => {
+    // The v1 deployment: INGOT_LLM_API_KEY plus a proxy INGOT_LLM_BASE_URL and
+    // a model, from before INGOT_LLM_CONNECTION existed. The proxy URL makes
+    // the OpenAI-compatible connection ready, and dispatching there would send
+    // the pinned key as a bearer token to a URL that is not a chat endpoint.
+    const pinned: ConnectionFacts = {
+      ...BARE,
+      hasApiKey: true,
+      apiKeyPinned: true,
+      baseUrl: 'https://llm-proxy.example.com',
+      model: 'claude-sonnet-5',
+    }
+    expect(resolveConnection(pinned)).toBe('anthropic-api')
+    // A key that merely exists in settings expresses no such intent.
+    expect(resolveConnection({ ...pinned, apiKeyPinned: false })).toBe('openai-compatible')
+    // And the path that costs nothing still comes first where it works.
+    expect(resolveConnection({ ...pinned, cli: CLI_READY })).toBe('claude-cli')
+  })
+
   it('gives each connection its own default model, and none to an endpoint it cannot guess for', () => {
     expect(modelFor('claude-cli', undefined)).toBe('claude-sonnet-5')
     expect(modelFor('anthropic-api', undefined)).toBe('claude-sonnet-5')

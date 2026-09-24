@@ -33,9 +33,10 @@ Environment (all optional; see `apps/server/src/config.ts`):
 | `INGOT_PANEL_ORIGIN` | `http://localhost:5173` | Comma-separated CORS allowlist. |
 | `INGOT_PAIRING_TOKEN` | minted on first run | Pin to skip the first-run screen. |
 | `INGOT_LLM_CONNECTION` | unset | Pin the assistant's connection: `claude-cli`, `openai-compatible` or `anthropic-api`. Unset, the server uses whichever is ready. |
-| `INGOT_LLM_API_KEY` | unset | Pin the key instead of typing it into the panel. |
+| `INGOT_LLM_API_KEY` | unset | Pin the Anthropic key instead of typing it into the panel. Sent only by the Anthropic connection. |
+| `INGOT_LLM_ENDPOINT_KEY` | unset | Pin the OpenAI-compatible endpoint's bearer token. Sent only by that connection. |
 | `INGOT_LLM_MODEL` | per connection | Pin the assistant's model; otherwise it is a panel setting. |
-| `INGOT_LLM_BASE_URL` | unset | The OpenAI-compatible endpoint, or a hosted proxy for the Anthropic connection. |
+| `INGOT_LLM_BASE_URL` | unset | The OpenAI-compatible endpoint, or a hosted proxy for the Anthropic connection. The panel-stored endpoint reaches only the OpenAI-compatible connection. |
 | `INGOT_CLAUDE_CLI_PATH` | `claude` | Full path to the Claude Code binary, when it is not on the server's PATH. |
 | `INGOT_IN_CONTAINER` | set by the image | Declares that host processes are unreachable, which disables the local-CLI connection with an explanation. |
 | `INGOT_ASSISTANT_RATE_LIMIT` | `20` | Assistant calls allowed per window. |
@@ -406,9 +407,13 @@ Five properties, each with a test in `apps/server/test/assistant.test.ts`:
   `DELETE /api/settings/llm-key` removes, `GET` reports presence only. The
   *endpoint* is deliberately readable -- it is not a secret, and a typo in it
   has to be visible to be fixed.
-- **A key goes only where it belongs.** A connection declares whether it takes
-  one; a stored Anthropic key is never sent as a bearer token to whatever
-  endpoint somebody pointed the OpenAI-compatible connection at.
+- **A key goes only where it was saved.** The Anthropic key and the
+  OpenAI-compatible endpoint's bearer token are separate settings, each read
+  only by its own connection, and the panel-stored endpoint URL reaches only
+  the OpenAI-compatible connection. Switching connections carries no credential
+  and no endpoint across, so a stored Anthropic key is never sent as a bearer
+  token to whatever endpoint somebody pointed the OpenAI-compatible connection
+  at.
 - **The existing guards still apply**: pairing token and CORS lock, both before
   a request reaches an assistant route.
 

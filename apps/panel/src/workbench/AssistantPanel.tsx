@@ -51,7 +51,10 @@ export interface AssistantTabProps {
   onSuggest: (capability: 'derive' | 'merge') => Promise<void>
   onAsk: (question: string) => Promise<AssistantAnswer>
   onName: () => Promise<AssistantNaming>
+  /** Stores the Anthropic key. The endpoint's token has its own handler. */
   onSaveLlmKey: (key: string) => Promise<void>
+  /** Stores the OpenAI-compatible endpoint's bearer token, and nothing else. */
+  onSaveLlmEndpointKey: (key: string) => Promise<void>
   onSaveLlmModel: (model: string) => Promise<void>
   onSaveLlmConnection: (connection: ConnectionId) => Promise<void>
   onSaveLlmBaseUrl: (baseUrl: string) => Promise<void>
@@ -107,6 +110,7 @@ function ConnectionSection({
   status,
   busy,
   onSaveLlmKey,
+  onSaveLlmEndpointKey,
   onSaveLlmModel,
   onSaveLlmConnection,
   onSaveLlmBaseUrl,
@@ -163,6 +167,7 @@ function ConnectionSection({
           connection={selected}
           busy={busy}
           onSaveLlmKey={onSaveLlmKey}
+          onSaveLlmEndpointKey={onSaveLlmEndpointKey}
           onSaveLlmModel={onSaveLlmModel}
           onSaveLlmBaseUrl={onSaveLlmBaseUrl}
         />
@@ -236,6 +241,7 @@ function ConnectionSetup({
   connection,
   busy,
   onSaveLlmKey,
+  onSaveLlmEndpointKey,
   onSaveLlmModel,
   onSaveLlmBaseUrl,
 }: {
@@ -243,6 +249,7 @@ function ConnectionSetup({
   connection: ConnectionReport
   busy: boolean
   onSaveLlmKey: (key: string) => Promise<void>
+  onSaveLlmEndpointKey: (key: string) => Promise<void>
   onSaveLlmModel: (model: string) => Promise<void>
   onSaveLlmBaseUrl: (baseUrl: string) => Promise<void>
 }): ReactNode {
@@ -250,7 +257,12 @@ function ConnectionSetup({
     <div className="flex flex-col gap-3 rounded-md border border-border p-3">
       {connection.id === 'claude-cli' ? <ClaudeCliSetup status={status} /> : null}
       {connection.id === 'openai-compatible' ? (
-        <OpenAiSetup status={status} busy={busy} onSaveLlmBaseUrl={onSaveLlmBaseUrl} onSaveLlmKey={onSaveLlmKey} />
+        <OpenAiSetup
+          status={status}
+          busy={busy}
+          onSaveLlmBaseUrl={onSaveLlmBaseUrl}
+          onSaveLlmEndpointKey={onSaveLlmEndpointKey}
+        />
       ) : null}
       {connection.id === 'anthropic-api' ? <AnthropicSetup status={status} onSaveLlmKey={onSaveLlmKey} /> : null}
 
@@ -294,12 +306,12 @@ function OpenAiSetup({
   status,
   busy,
   onSaveLlmBaseUrl,
-  onSaveLlmKey,
+  onSaveLlmEndpointKey,
 }: {
   status: AssistantStatus
   busy: boolean
   onSaveLlmBaseUrl: (baseUrl: string) => Promise<void>
-  onSaveLlmKey: (key: string) => Promise<void>
+  onSaveLlmEndpointKey: (key: string) => Promise<void>
 }): ReactNode {
   const [url, setUrl] = useState(status.baseUrl ?? '')
   const [key, setKey] = useState('')
@@ -374,7 +386,11 @@ function OpenAiSetup({
         </div>
       )}
 
-      {status.managedByEnvironment ? null : (
+      {status.endpointKeyManagedByEnvironment ? (
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          A key for this endpoint is pinned by <span className="font-mono">INGOT_LLM_ENDPOINT_KEY</span> on the server.
+        </p>
+      ) : (
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="assistant-endpoint-key" className="text-[11px] font-semibold">
             API key (optional)
@@ -385,7 +401,7 @@ function OpenAiSetup({
               type="password"
               className="h-7 font-mono text-xs"
               value={key}
-              placeholder={status.source === 'none' ? 'not needed for a local model' : 'a key is stored'}
+              placeholder={status.endpointKeyConfigured ? 'a key is stored' : 'not needed for a local model'}
               autoComplete="off"
               onChange={(event) => setKey(event.target.value)}
             />
@@ -397,7 +413,7 @@ function OpenAiSetup({
               disabled={busy || saving !== null || key.trim() === ''}
               onClick={() =>
                 void save('key', async () => {
-                  await onSaveLlmKey(key.trim())
+                  await onSaveLlmEndpointKey(key.trim())
                   setKey('')
                 })
               }

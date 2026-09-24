@@ -120,6 +120,7 @@ export interface SystemPanelProps {
   onAsk: (question: string) => Promise<AssistantAnswer>
   onName: () => Promise<AssistantNaming>
   onSaveLlmKey: (key: string) => Promise<void>
+  onSaveLlmEndpointKey: (key: string) => Promise<void>
   onSaveLlmModel: (model: string) => Promise<void>
   onSaveLlmConnection: (connection: ConnectionId) => Promise<void>
   onSaveLlmBaseUrl: (baseUrl: string) => Promise<void>

@@ -33,8 +33,16 @@ export interface ServerConfig {
   allowedOrigins: string[]
   /** Pairing token from the environment; otherwise one is generated at first run. */
   pairingToken: string | undefined
-  /** LLM API key from the environment; otherwise it arrives via settings. */
+  /**
+   * Anthropic API key from the environment; otherwise it arrives via settings.
+   *
+   * This is the Anthropic connection's credential and nobody else's: the
+   * OpenAI-compatible endpoint has its own (`llmEndpointKey`), so a key stored
+   * for one connection is never transmitted by another.
+   */
   llmApiKey: string | undefined
+  /** Bearer token for the OpenAI-compatible endpoint, pinned in the environment. */
+  llmEndpointKey: string | undefined
   /**
    * The connection the assistant uses, pinned in the environment.
    *
@@ -58,10 +66,13 @@ export interface ServerConfig {
   /**
    * Provider endpoint, when it is not the SDK's own.
    *
-   * Two uses, one setting. A hosted proxy for the Anthropic connection -- an
-   * organisation that wants assistant traffic to leave through something it
-   * operates points this at it and nothing else changes -- and the endpoint of
-   * the OpenAI-compatible connection, where it is not optional.
+   * Two uses, one *environment* setting. A hosted proxy for the Anthropic
+   * connection -- an organisation that wants assistant traffic to leave through
+   * something it operates points this at it and nothing else changes -- and the
+   * endpoint of the OpenAI-compatible connection, where it is not optional.
+   * The panel-stored endpoint is narrower on purpose: it reaches only the
+   * OpenAI-compatible connection, so a URL typed for Ollama cannot follow a
+   * connection switch to the Anthropic client.
    */
   llmBaseUrl: string | undefined
   /**
@@ -151,6 +162,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     allowedOrigins: configured.length > 0 ? configured : [DEV_PANEL_ORIGIN],
     pairingToken: optional(env, 'INGOT_PAIRING_TOKEN'),
     llmApiKey: optional(env, 'INGOT_LLM_API_KEY'),
+    llmEndpointKey: optional(env, 'INGOT_LLM_ENDPOINT_KEY'),
     llmConnection: connectionFromEnv(env),
     llmModel: optional(env, 'INGOT_LLM_MODEL'),
     llmBaseUrl: optional(env, 'INGOT_LLM_BASE_URL'),

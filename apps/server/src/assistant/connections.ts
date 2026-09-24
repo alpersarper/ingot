@@ -100,7 +100,18 @@ export const CONNECTIONS: Record<ConnectionId, ConnectionShape> = {
  * ever has to be handed one.
  */
 export interface ConnectionFacts {
+  /** True when an Anthropic key exists, wherever it came from. */
   hasApiKey: boolean
+  /**
+   * True when the Anthropic key is pinned by the environment.
+   *
+   * Presence and provenance are different facts here: a pinned key is a
+   * deployment's explicit statement, made before `INGOT_LLM_CONNECTION`
+   * existed, and {@link resolveConnection} honours it so a v1 deployment that
+   * pinned a key (and possibly an Anthropic proxy URL) keeps reaching the
+   * Anthropic client rather than having its proxy mistaken for a chat endpoint.
+   */
+  apiKeyPinned?: boolean
   baseUrl: string | undefined
   model: string
   /** The host CLI, as `probeClaudeCli` found it. Absent when it was not probed. */
@@ -230,14 +241,26 @@ function report(shape: ConnectionShape, facts: ConnectionFacts): ConnectionRepor
  * the local CLI the default wherever it works -- the captain's instruction, and
  * also the only default that costs a first-time user nothing.
  *
+ * One exception, for the deployments that predate choosing: an Anthropic key
+ * *pinned in the environment* outranks the OpenAI-compatible connection. A v1
+ * deployment pinned `INGOT_LLM_API_KEY` -- possibly with `INGOT_LLM_BASE_URL`
+ * naming an Anthropic proxy -- before `INGOT_LLM_CONNECTION` existed, and that
+ * proxy URL satisfying the OpenAI-compatible readiness check must not quietly
+ * re-route the pinned key to a client it was never meant for. The local CLI
+ * still comes first where it works: it costs nothing, and a pinned key says
+ * "use Anthropic", not "pay when the free path is signed in".
+ *
  * When *none* is ready the answer is still a connection rather than a null,
  * because the panel has to render a setup state for something and the service
  * has to produce a specific error. The fallback is the one whose setup path is
  * written out in full, which is the Anthropic key.
  */
 export function resolveConnection(facts: ConnectionFacts): ConnectionId {
-  const ready = connectionReports(facts).find((entry) => entry.ready)
-  return ready?.id ?? 'anthropic-api'
+  const reports = connectionReports(facts)
+  const ready = (id: ConnectionId): boolean => reports.find((entry) => entry.id === id)?.ready === true
+  if (ready('claude-cli')) return 'claude-cli'
+  if (facts.apiKeyPinned === true && ready('anthropic-api')) return 'anthropic-api'
+  return reports.find((entry) => entry.ready)?.id ?? 'anthropic-api'
 }
 
 /**

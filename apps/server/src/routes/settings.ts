@@ -1,13 +1,16 @@
 /**
  * Settings, including the LLM API key and the model the assistant asks.
  *
- * The rule this file exists to enforce: **the key goes in and never comes out.**
- * `GET` reports whether one is configured and where it came from; `PUT` stores
- * or replaces it and `DELETE` removes it. There is no endpoint, and no code
- * path, that returns the value -- not to the panel, not in an error, not in a
- * log. The key lives server-side because the browser is the one place it must
- * not be: an extension, a bookmarklet or a stray script in the panel's own
- * origin can read anything the page holds.
+ * The rule this file exists to enforce: **a key goes in and never comes out.**
+ * That covers both of them -- the Anthropic key and the OpenAI-compatible
+ * endpoint's bearer token, each stored under its own setting so a connection
+ * switch can never carry one to an endpoint it was not saved for. `GET`
+ * reports whether one is configured and where it came from; `PUT` stores or
+ * replaces it and `DELETE` removes it. There is no endpoint, and no code
+ * path, that returns either value -- not to the panel, not in an error, not in
+ * a log. The keys live server-side because the browser is the one place they
+ * must not be: an extension, a bookmarklet or a stray script in the panel's
+ * own origin can read anything the page holds.
  *
  * The model, the connection and the endpoint are the opposite kind of setting
  * and are treated as one. None is a secret, the panel shows all three, and a
@@ -32,6 +35,7 @@ import {
   LLM_API_KEY_SETTING,
   LLM_BASE_URL_SETTING,
   LLM_CONNECTION_SETTING,
+  LLM_ENDPOINT_KEY_SETTING,
   LLM_MODEL_SETTING,
 } from '../assistant/settings-keys'
 import { CONNECTION_IDS, isConnectionId } from '../assistant/connections'
@@ -39,7 +43,13 @@ import { BASE_URL_MAX, isUsableBaseUrl } from '../assistant/openai-compatible'
 import type { AppContext, AppEnv } from '../context'
 import { isRecord, optionalString, readJsonBody } from '../validate'
 
-export { LLM_API_KEY_SETTING, LLM_BASE_URL_SETTING, LLM_CONNECTION_SETTING, LLM_MODEL_SETTING }
+export {
+  LLM_API_KEY_SETTING,
+  LLM_BASE_URL_SETTING,
+  LLM_CONNECTION_SETTING,
+  LLM_ENDPOINT_KEY_SETTING,
+  LLM_MODEL_SETTING,
+}
 
 /** Where a configured key came from. Never the key itself. */
 export type LlmKeySource = 'environment' | 'settings' | 'none'
@@ -77,6 +87,9 @@ export function settingsRoutes(context: AppContext): Hono<AppEnv> {
       modelManagedByEnvironment: llm.modelManagedByEnvironment,
       baseUrl: llm.baseUrl,
       baseUrlManagedByEnvironment: llm.baseUrlManagedByEnvironment,
+      /** Presence only, like the Anthropic key: the token itself never comes out. */
+      endpointKeyConfigured: llm.endpointKeyConfigured,
+      endpointKeyManagedByEnvironment: llm.endpointKeyManagedByEnvironment,
       containerized: llm.containerized,
       connections: llm.connections,
     }
@@ -96,11 +109,14 @@ export function settingsRoutes(context: AppContext): Hono<AppEnv> {
   app.put('/', async (c) => {
     const body = await readJsonBody(c.req.raw)
     const touchesKey = 'llmApiKey' in body
+    const touchesEndpointKey = 'llmEndpointKey' in body
     const touchesModel = 'llmModel' in body
     const touchesConnection = 'llmConnection' in body
     const touchesBaseUrl = 'llmBaseUrl' in body
-    if (!touchesKey && !touchesModel && !touchesConnection && !touchesBaseUrl) {
-      throw ApiError.badRequest('nothing to update; send llmApiKey, llmConnection, llmBaseUrl or llmModel')
+    if (!touchesKey && !touchesEndpointKey && !touchesModel && !touchesConnection && !touchesBaseUrl) {
+      throw ApiError.badRequest(
+        'nothing to update; send llmApiKey, llmEndpointKey, llmConnection, llmBaseUrl or llmModel',
+      )
     }
 
     if (touchesKey) {
@@ -114,6 +130,22 @@ export function settingsRoutes(context: AppContext): Hono<AppEnv> {
         await store.settings.set(LLM_API_KEY_SETTING, value.trim())
       } else {
         throw ApiError.badRequest('llmApiKey must be a non-empty string, or null to clear it')
+      }
+    }
+
+    if (touchesEndpointKey) {
+      if (config.llmEndpointKey !== undefined) {
+        throw ApiError.conflict(
+          'the endpoint key is pinned by INGOT_LLM_ENDPOINT_KEY and cannot be changed from the panel',
+        )
+      }
+      const value = isRecord(body) ? body['llmEndpointKey'] : undefined
+      if (value === null) {
+        await store.settings.delete(LLM_ENDPOINT_KEY_SETTING)
+      } else if (typeof value === 'string' && value.trim() !== '') {
+        await store.settings.set(LLM_ENDPOINT_KEY_SETTING, value.trim())
+      } else {
+        throw ApiError.badRequest('llmEndpointKey must be a non-empty string, or null to clear it')
       }
     }
 

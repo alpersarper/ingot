@@ -196,6 +196,9 @@ export interface LlmSettings {
   /** The OpenAI-compatible endpoint. Not a secret -- a typo has to be visible. */
   baseUrl?: string
   baseUrlManagedByEnvironment: boolean
+  /** True when the endpoint's bearer token is stored. The token never comes out. */
+  endpointKeyConfigured: boolean
+  endpointKeyManagedByEnvironment: boolean
   /** True when the server is in a container and cannot start a host process. */
   containerized: boolean
   connections: ConnectionReport[]
@@ -319,8 +322,20 @@ export const api = {
     return (await get<{ settings: PanelSettings }>('/api/settings')).settings
   },
 
+  /** The Anthropic key. Only the Anthropic connection ever transmits it. */
   async saveLlmKey(key: string | null): Promise<void> {
     await write('/api/settings', 'PUT', { llmApiKey: key })
+  },
+
+  /**
+   * The bearer token for the OpenAI-compatible endpoint. `null` clears it.
+   *
+   * Deliberately not the same setting as the Anthropic key: each connection
+   * reads only the credential saved for it, so switching connections cannot
+   * send one key to the other's endpoint.
+   */
+  async saveLlmEndpointKey(key: string | null): Promise<void> {
+    await write('/api/settings', 'PUT', { llmEndpointKey: key })
   },
 
   /** The model the assistant asks. `null` takes the server's default back. */

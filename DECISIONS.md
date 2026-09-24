@@ -164,11 +164,14 @@ history owns the chronology.
 
 ## Security & keys
 
-- **The LLM API key is server-side only and write-only.** No endpoint returns
-  it, it is redacted from logs (tested), and LLM endpoints are pairing-gated and
-  rate-limited. The assistant *endpoint URL* is deliberately readable: it is not
-  a secret and a typo in it has to be visible. A key is passed only to a
-  connection that declares it takes one.
+- **The LLM keys are server-side only and write-only.** Both of them: the
+  Anthropic key and the OpenAI-compatible endpoint's bearer token are separate
+  settings, each read only by its own connection, so switching connections
+  never carries a credential — or a panel-stored endpoint URL — to a connection
+  it was not saved for. No endpoint returns either key, both are redacted from
+  logs and response bodies (tested), and LLM endpoints are pairing-gated and
+  rate-limited. The assistant *endpoint URL* is deliberately readable: it is
+  not a secret and a typo in it has to be visible.
 - **The local CLI is spawned with an argument array and never a shell.** The
   prompt goes on stdin, tools and settings sources are switched off, and the
   working directory is neutral. Forbids shell interpolation on that path and

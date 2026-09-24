@@ -172,8 +172,9 @@ and becomes read-only there, which is how a deployment fixes a choice.
 | --- | --- |
 | `INGOT_LLM_CONNECTION` | `claude-cli`, `openai-compatible` or `anthropic-api`. Unset: whichever is ready. An unknown value fails at start-up rather than silently falling back. |
 | `INGOT_LLM_MODEL` | The model to ask. Unset: the connection's own default (`claude-sonnet-5` for both Claude connections; an OpenAI-compatible endpoint has no default and must be told). |
-| `INGOT_LLM_BASE_URL` | The OpenAI-compatible endpoint — or a hosted proxy for the Anthropic connection. |
-| `INGOT_LLM_API_KEY` | The key, for the connections that take one. |
+| `INGOT_LLM_BASE_URL` | The OpenAI-compatible endpoint — or a hosted proxy for the Anthropic connection. The *panel-stored* endpoint is narrower: it reaches only the OpenAI-compatible connection, so a URL typed for Ollama cannot follow a connection switch to the Anthropic client. |
+| `INGOT_LLM_API_KEY` | The Anthropic key. Only the Anthropic connection ever transmits it. |
+| `INGOT_LLM_ENDPOINT_KEY` | The OpenAI-compatible endpoint's bearer token (OpenRouter, Groq, Gemini). Stored separately from the Anthropic key on purpose — see below. |
 | `INGOT_CLAUDE_CLI_PATH` | Full path to the `claude` binary, when it is not on the server's `PATH`. |
 | `INGOT_IN_CONTAINER` | Set to `1` by the image. Declares that host processes are unreachable; the CLI connection is disabled and explained. |
 
@@ -184,14 +185,21 @@ for a panel that shows one connection at a time.
 
 ## What this does not change
 
-- **The API key is still write-only.** No endpoint returns it, from any
-  connection, and it is redacted from every log and error message — including
-  provider-SDK errors and truncated fragments. The endpoint URL *is* returned,
-  deliberately: it is not a secret and a typo in it has to be visible.
-- **A key is only ever sent where it belongs.** A stored Anthropic key is not
-  quietly used as a bearer token against whatever endpoint you pointed the
-  OpenAI-compatible connection at; the connection declares whether it takes a
-  key, and the service passes one only where it does.
+- **The API keys are still write-only.** Both of them — the Anthropic key and
+  the endpoint's bearer token. No endpoint returns either, from any connection,
+  and both are redacted from every log and error message — including
+  provider-SDK errors, truncated fragments, and upstream error bodies that echo
+  the credential they rejected. The endpoint URL *is* returned, deliberately:
+  it is not a secret and a typo in it has to be visible.
+- **A key is only ever sent where it was saved.** Each connection has its own
+  credential slot: `INGOT_LLM_API_KEY` / the panel's Anthropic field belong to
+  the Anthropic connection, `INGOT_LLM_ENDPOINT_KEY` / the endpoint's own key
+  field belong to the OpenAI-compatible one, and the local CLI takes neither.
+  Switching connections carries nothing across, so a stored Anthropic key is
+  never sent as a bearer token to whatever endpoint the OpenAI-compatible
+  connection points at — and an Ollama URL saved in the panel never redirects
+  the Anthropic client. (The Anthropic hosted-proxy seam is env-only:
+  `INGOT_LLM_BASE_URL`.)
 - **The assistant still never writes a token.** Every proposal, from every
   connection, goes through the engine's own `applyOverrides` before it becomes a
   card, and becomes a value only when a person accepts it.
