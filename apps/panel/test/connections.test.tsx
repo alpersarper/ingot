@@ -109,6 +109,37 @@ describe('a machine with the Claude CLI signed in', () => {
     await screen.findByLabelText('Anthropic API key')
     expect(within(systemPanel()).getByText(/does not include API usage/)).toBeTruthy()
   })
+
+  it('does not carry the Claude model over to an endpoint that has no model yet', async () => {
+    await serve({ cli: SIGNED_IN })
+    const user = userEvent.setup()
+    await reachTheWorkbench(user)
+    await screen.findByRole('button', { name: /Fill the gaps/ })
+    expect((within(systemPanel()).getByLabelText('Assistant model') as HTMLInputElement).value).toBe('claude-sonnet-5')
+
+    // Each connection has its own default model: the two Claude connections
+    // start on claude-sonnet-5, the endpoint deliberately on nothing, because
+    // the server cannot know what an Ollama or OpenRouter endpoint serves.
+    await user.click(within(systemPanel()).getByRole('radio', { name: /OpenAI-compatible endpoint/ }))
+    await screen.findByLabelText('Endpoint URL')
+    expect((within(systemPanel()).getByLabelText('Assistant model') as HTMLInputElement).value).toBe('')
+
+    await user.click(within(systemPanel()).getByRole('radio', { name: /Anthropic API key/ }))
+    await screen.findByLabelText('Anthropic API key')
+    expect((within(systemPanel()).getByLabelText('Assistant model') as HTMLInputElement).value).toBe('claude-sonnet-5')
+
+    // Back to the endpoint, from one setup screen to another this time. The
+    // field is a different field for a different connection: it must show that
+    // connection's model, and Save must not be offering to store
+    // claude-sonnet-5 as the model an Ollama endpoint serves.
+    await user.click(within(systemPanel()).getByRole('radio', { name: /OpenAI-compatible endpoint/ }))
+    await screen.findByLabelText('Endpoint URL')
+    const model = within(systemPanel()).getByLabelText('Assistant model') as HTMLInputElement
+    expect(model.value).toBe('')
+    expect(model.placeholder).toBe('the model this endpoint serves')
+    expect((within(systemPanel()).getByRole('button', { name: 'Save model' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(await harness?.store.settings.get('llm.model')).toBeNull()
+  })
 })
 
 describe('the same panel in a container', () => {

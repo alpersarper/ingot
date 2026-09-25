@@ -266,7 +266,13 @@ function ConnectionSetup({
       ) : null}
       {connection.id === 'anthropic-api' ? <AnthropicSetup status={status} onSaveLlmKey={onSaveLlmKey} /> : null}
 
-      <ModelField status={status} busy={busy} connection={connection} onSaveLlmModel={onSaveLlmModel} />
+      <ModelField
+        key={connection.id}
+        status={status}
+        busy={busy}
+        connection={connection}
+        onSaveLlmModel={onSaveLlmModel}
+      />
     </div>
   )
 }
