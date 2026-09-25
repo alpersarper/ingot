@@ -39,7 +39,13 @@ function repositoryRoot(): string {
 
 const CAPTURE_SET = JSON.parse(readFileSync(join(repositoryRoot(), 'fixtures/ghost-warm/set.json'), 'utf8')) as unknown
 
-const SIGNED_IN: CliProbe = { available: true, version: '2.1.236', signedIn: true, detail: '2.1.236 and signed in' }
+const SIGNED_IN: CliProbe = {
+  available: true,
+  version: '2.1.236',
+  signedIn: true,
+  auth: 'subscription',
+  detail: '2.1.236 and signed in',
+}
 
 let harness: Harness | undefined
 
@@ -139,6 +145,23 @@ describe('a machine with the Claude CLI signed in', () => {
     expect(model.placeholder).toBe('the model this endpoint serves')
     expect((within(systemPanel()).getByRole('button', { name: 'Save model' }) as HTMLButtonElement).disabled).toBe(true)
     expect(await harness?.store.settings.get('llm.model')).toBeNull()
+  })
+})
+
+describe('a machine whose CLI is signed in with an API key', () => {
+  it('says so on the connection row and in its setup, instead of calling it key-free', async () => {
+    await serve({ cli: { ...SIGNED_IN, auth: 'api-key', detail: '2.1.236 and signed in via console' } })
+    const user = userEvent.setup()
+    await reachTheWorkbench(user)
+    await screen.findByRole('button', { name: /Fill the gaps/ })
+
+    // Still the working state -- a keyed CLI answers -- but the label is the
+    // observation, not the promise.
+    const cli = within(systemPanel()).getByRole('radio', { name: /Local Claude Code CLI/ })
+    expect(cli.textContent).toContain('signed in with an API key')
+    expect(cli.textContent).not.toContain('No API key')
+    expect(within(systemPanel()).getByRole('heading', { name: 'Signed in with an API key' })).toBeTruthy()
+    expect(within(systemPanel()).queryByRole('heading', { name: 'No API key needed' })).toBeNull()
   })
 })
 

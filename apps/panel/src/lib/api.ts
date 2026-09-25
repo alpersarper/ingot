@@ -181,6 +181,8 @@ export interface ConnectionReport {
   acceptsApiKey: boolean
   requiresBaseUrl: boolean
   defaultModel: string
+  /** How the local CLI is signed in, when the server could tell. CLI connection only. */
+  cliAuth?: 'subscription' | 'api-key'
 }
 
 /** Everything the panel needs to render the assistant's setup, with no secrets. */

@@ -53,6 +53,18 @@ hooks, project settings and `CLAUDE.md` are all switched off for the run, and
 the working directory is a neutral one, so what reaches the model is the kit
 brief and Ingot's own template and nothing that happens to be lying around.
 
+The run inherits the server's environment — proxies, certificates, config
+directories, everything the CLI needs to work on your machine — **minus the
+variables that would change who answers or who pays**: `ANTHROPIC_API_KEY`,
+`ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL` and the other `ANTHROPIC_*`
+credential and endpoint overrides, every `CLAUDE_CODE_USE_*` provider switch,
+and every `INGOT_*` variable. The CLI honours an exported `ANTHROPIC_API_KEY`
+over its own login, which would bill every call to that key while the panel
+still said "no API key"; withholding it is what makes the label true. The
+probe runs in the same scrubbed environment, and the connection row reports
+how the CLI is actually signed in — with your subscription, or with an API key
+(a Console login), in which case it says so and tells you it is billed.
+
 **It is slower than the API.** A `derive` over a full kit takes roughly 100
 seconds on Haiku and 150 on Sonnet, because a headless run starts a process,
 authenticates and thinks before it answers. That is the trade: this connection

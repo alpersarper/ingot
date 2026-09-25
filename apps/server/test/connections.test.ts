@@ -26,6 +26,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   claudeBinary,
+  cliEnvironment,
   createClaudeCliClient,
   probeClaudeCli,
   renderPrompt,
@@ -129,6 +130,27 @@ describe('which connections are ready', () => {
     expect(resolveConnection({ ...pinned, cli: CLI_READY })).toBe('claude-cli')
   })
 
+  it('states how the CLI is signed in rather than promising "no API key" on faith', () => {
+    const subscription = reportFor('claude-cli', { ...BARE, cli: { ...CLI_READY, auth: 'subscription' } })
+    expect(subscription.ready).toBe(true)
+    expect(subscription.cliAuth).toBe('subscription')
+    expect(subscription.summary).toContain('No API key')
+    expect(subscription.summary).toContain('subscription')
+
+    // A Console login answers perfectly well -- and bills every call to API
+    // credit. The connection stays usable; the label stops claiming otherwise.
+    const keyed = reportFor('claude-cli', { ...BARE, cli: { ...CLI_READY, auth: 'api-key' } })
+    expect(keyed.ready).toBe(true)
+    expect(keyed.cliAuth).toBe('api-key')
+    expect(keyed.summary).not.toContain('No API key')
+    expect(keyed.summary).toMatch(/signed in with an API key/)
+    expect(keyed.summary).toMatch(/billed/)
+
+    // Could not tell: the shape's own line, and no claim either way.
+    const unknown = reportFor('claude-cli', { ...BARE, cli: CLI_READY })
+    expect(unknown.cliAuth).toBeUndefined()
+  })
+
   it('gives each connection its own default model, and none to an endpoint it cannot guess for', () => {
     expect(modelFor('claude-cli', undefined)).toBe('claude-sonnet-5')
     expect(modelFor('anthropic-api', undefined)).toBe('claude-sonnet-5')
@@ -178,13 +200,63 @@ interface Invocation {
   command: string
   args: string[]
   stdin: string | undefined
+  env: NodeJS.ProcessEnv | undefined
 }
 
 function runnerReturning(result: Partial<CommandResult>, seen: Invocation[] = []): CommandRunner {
   return async (command, args, options) => {
-    seen.push({ command, args: [...args], stdin: options.stdin })
+    seen.push({ command, args: [...args], stdin: options.stdin, env: options.env })
     return { code: 0, stdout: '', stderr: '', timedOut: false, ...result }
   }
+}
+
+/**
+ * A server environment as a developer's shell would leave it: proxies and
+ * certificates the CLI needs, a key the CLI would bill against instead of the
+ * login, a provider switch that redirects the call, and this server's own
+ * secrets, which a spawned model-driven process has no use for.
+ */
+const SERVER_ENV: NodeJS.ProcessEnv = {
+  PATH: '/usr/local/bin:/usr/bin',
+  HOME: '/home/reviewer',
+  HTTPS_PROXY: 'http://proxy.corp.example:3128',
+  NODE_EXTRA_CA_CERTS: '/etc/ssl/corp.pem',
+  XDG_CONFIG_HOME: '/home/reviewer/.config',
+  CLAUDE_CONFIG_DIR: '/home/reviewer/.claude',
+  CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-subscription-token',
+  ANTHROPIC_PROFILE: 'work',
+  ANTHROPIC_API_KEY: 'sk-ant-api03-SHELLKEY',
+  ANTHROPIC_AUTH_TOKEN: 'bearer-SHELLTOKEN',
+  ANTHROPIC_BASE_URL: 'https://proxy.example/anthropic',
+  ANTHROPIC_CUSTOM_HEADERS: 'x-corp: 1',
+  ANTHROPIC_BEDROCK_BASE_URL: 'https://bedrock.example',
+  ANTHROPIC_FOUNDRY_API_KEY: 'foundry-KEY',
+  CLAUDE_CODE_USE_BEDROCK: '1',
+  CLAUDE_CODE_USE_VERTEX: '1',
+  AWS_BEARER_TOKEN_BEDROCK: 'aws-BEARER',
+  INGOT_LLM_API_KEY: 'sk-ant-api03-SERVERKEY',
+  INGOT_LLM_ENDPOINT_KEY: 'sk-or-v1-SERVERENDPOINTKEY',
+  INGOT_PAIRING_TOKEN: 'pairing-SECRET',
+  INGOT_CLAUDE_CLI_PATH: '/opt/claude',
+}
+
+const INHERITED = [
+  'PATH',
+  'HOME',
+  'HTTPS_PROXY',
+  'NODE_EXTRA_CA_CERTS',
+  'XDG_CONFIG_HOME',
+  'CLAUDE_CONFIG_DIR',
+  'CLAUDE_CODE_OAUTH_TOKEN',
+  'ANTHROPIC_PROFILE',
+]
+
+const WITHHELD = Object.keys(SERVER_ENV).filter((name) => !INHERITED.includes(name))
+
+function expectScrubbed(env: NodeJS.ProcessEnv | undefined): void {
+  if (env === undefined) throw new Error('the runner was handed no environment at all')
+  for (const name of INHERITED) expect(env[name], name).toBe(SERVER_ENV[name])
+  for (const name of WITHHELD) expect(env, name).not.toHaveProperty(name)
 }
 
 const ASK: LlmRequest<{ answer: string }> = {
@@ -221,6 +293,50 @@ describe('the local Claude CLI as a provider', () => {
     expect(call.args).toEqual(expect.arrayContaining(['--tools', '']))
     expect(call.args).toContain('--strict-mcp-config')
     expect(call.args).toContain('--no-session-persistence')
+  })
+
+  it('withholds every key, endpoint override and server secret from the child, and inherits the rest', async () => {
+    const seen: Invocation[] = []
+    const client = createClaudeCliClient(
+      { connection: 'claude-cli', model: 'claude-sonnet-5' },
+      { run: runnerReturning({ stdout: cliSuccess({ answer: 'x' }) }, seen), binary: 'claude', env: SERVER_ENV },
+    )
+    await client.complete(ASK)
+    expectScrubbed(seen[0]?.env)
+  })
+
+  it('probes in the same scrubbed environment the completion runs in', async () => {
+    // Otherwise the probe would report the auth of a different process than
+    // the one that answers, which is exactly the inconsistency being closed.
+    const seen: Invocation[] = []
+    const run: CommandRunner = async (command, args, options) => {
+      seen.push({ command, args: [...args], stdin: options.stdin, env: options.env })
+      return args[0] === '--version'
+        ? { code: 0, stdout: '2.1.236 (Claude Code)\n', stderr: '', timedOut: false }
+        : { code: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: 'claude.ai' }), stderr: '', timedOut: false }
+    }
+    await probeClaudeCli(run, 'claude', SERVER_ENV)
+    expect(seen.map((call) => call.args[0])).toEqual(['--version', 'auth'])
+    for (const call of seen) expectScrubbed(call.env)
+  })
+
+  it('scrubs inside the real spawner too, so no runner path can hand the CLI a key', async () => {
+    // A real child, printing the environment it actually received.
+    const result = await spawnRunner(process.execPath, ['-e', 'process.stdout.write(JSON.stringify(process.env))'], {
+      timeoutMs: 20_000,
+      env: { ...SERVER_ENV, PATH: process.env['PATH'] ?? SERVER_ENV['PATH'] },
+    })
+    expect(result.code).toBe(0)
+    const received = JSON.parse(result.stdout) as NodeJS.ProcessEnv
+    for (const name of INHERITED.filter((entry) => entry !== 'PATH')) expect(received[name], name).toBe(SERVER_ENV[name])
+    for (const name of WITHHELD) expect(received, name).not.toHaveProperty(name)
+  })
+
+  it('leaves the identity-selecting variables alone and keeps the rule by meaning', () => {
+    const child = cliEnvironment(SERVER_ENV)
+    expectScrubbed(child)
+    // An unset value is not carried as the string "undefined".
+    expect(cliEnvironment({ EMPTY: undefined, KEPT: 'yes' })).toEqual({ KEPT: 'yes' })
   })
 
   it('reports the tokens the call actually cost, cache included', async () => {
@@ -364,12 +480,28 @@ describe('probing the local CLI', () => {
     const probe = await probeClaudeCli(run, 'claude')
     expect(probe.available).toBe(true)
     expect(probe.signedIn).toBe(true)
+    expect(probe.auth).toBe('subscription')
     expect(probe.detail).toContain('2.1.236')
     expect(probe.detail).toContain('max')
     // The account is none of the panel's business, and a field never read is a
     // field that cannot end up in a log line.
     expect(probe.detail).not.toContain('someone@example.com')
     expect(probe.detail).not.toContain('org_123')
+  })
+
+  it('recognises a Console login as API-key auth, and leaves an unknown method unknown', async () => {
+    const probing = (authMethod: string): CommandRunner => async (_command, args) =>
+      args[0] === '--version'
+        ? { code: 0, stdout: '2.1.236 (Claude Code)\n', stderr: '', timedOut: false }
+        : { code: 0, stdout: JSON.stringify({ loggedIn: true, authMethod, email: 'x@example.com' }), stderr: '', timedOut: false }
+
+    const console_ = await probeClaudeCli(probing('console'), 'claude')
+    expect(console_.signedIn).toBe(true)
+    expect(console_.auth).toBe('api-key')
+    expect(console_.detail).not.toContain('x@example.com')
+
+    expect((await probeClaudeCli(probing('api_key'), 'claude')).auth).toBe('api-key')
+    expect((await probeClaudeCli(probing('something-new'), 'claude')).auth).toBeUndefined()
   })
 
   it('says the binary is missing rather than throwing', async () => {
@@ -584,7 +716,13 @@ describe('an OpenAI-compatible endpoint as a provider', () => {
 
 /* -------------------------------------------------------------- the API -- */
 
-const SIGNED_IN: CliProbe = { available: true, version: '2.1.236', signedIn: true, detail: '2.1.236 and signed in' }
+const SIGNED_IN: CliProbe = {
+  available: true,
+  version: '2.1.236',
+  signedIn: true,
+  auth: 'subscription',
+  detail: '2.1.236 and signed in',
+}
 
 /**
  * Undefined until an API describe block builds one.

@@ -32,6 +32,12 @@ export function isConnectionId(value: unknown): value is ConnectionId {
   return typeof value === 'string' && (CONNECTION_IDS as readonly string[]).includes(value)
 }
 
+/**
+ * How the local CLI is signed in, reduced to the distinction that changes who
+ * pays: a Claude subscription, or an API key (a Console login) billed per call.
+ */
+export type CliAuth = 'subscription' | 'api-key'
+
 /** What a connection needs from configuration before it can serve a call. */
 export interface ConnectionShape {
   id: ConnectionId
@@ -115,7 +121,7 @@ export interface ConnectionFacts {
   baseUrl: string | undefined
   model: string
   /** The host CLI, as `probeClaudeCli` found it. Absent when it was not probed. */
-  cli: { available: boolean; signedIn: boolean | undefined; detail: string } | undefined
+  cli: { available: boolean; signedIn: boolean | undefined; auth?: CliAuth | undefined; detail: string } | undefined
   containerized: boolean
 }
 
@@ -146,6 +152,15 @@ export interface ConnectionReport {
   acceptsApiKey: boolean
   requiresBaseUrl: boolean
   defaultModel: string
+  /**
+   * How the local CLI is actually signed in, when the probe could tell.
+   *
+   * Only the CLI connection carries this. It is what lets the panel say
+   * "signed in with your subscription" or "signed in with an API key, so this
+   * is billed" as an observation rather than repeating the key-free summary on
+   * faith -- a label that can be wrong silently is worse than no label.
+   */
+  cliAuth?: CliAuth
 }
 
 export function connectionReports(facts: ConnectionFacts): ConnectionReport[] {
@@ -196,6 +211,28 @@ function report(shape: ConnectionShape, facts: ConnectionFacts): ConnectionRepor
       // with no `auth status`, say. That is not a reason to refuse: the call
       // itself will report an auth failure perfectly well, and refusing on a
       // probe we could not run would break a working setup.
+      const auth = facts.cli.auth
+      if (auth === 'api-key') {
+        return {
+          ...base,
+          summary:
+            'The `claude` CLI on this machine is signed in with an API key, so each call is billed to that key rather than covered by a subscription.',
+          cliAuth: auth,
+          ready: true,
+          unreachable: false,
+          blocked: '',
+        }
+      }
+      if (auth === 'subscription') {
+        return {
+          ...base,
+          summary: 'No API key. Uses the `claude` CLI on this machine, signed in with your Claude subscription.',
+          cliAuth: auth,
+          ready: true,
+          unreachable: false,
+          blocked: '',
+        }
+      }
       return { ...base, ready: true, unreachable: false, blocked: '' }
     }
 

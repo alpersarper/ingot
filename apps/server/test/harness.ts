@@ -83,6 +83,7 @@ const NO_CLI: CliProbe = {
   available: false,
   version: undefined,
   signedIn: undefined,
+  auth: undefined,
   detail: '`claude` is not on this server’s PATH',
 }
 

@@ -42,7 +42,13 @@ const KEY = 'sk-ant-api03-TESTKEYTESTKEYTESTKEYTESTKEY'
 /** The OpenAI-compatible endpoint's own bearer token. Never the Anthropic key. */
 const ENDPOINT_KEY = 'sk-or-v1-ENDPOINTKEYENDPOINTKEYENDPOINTKEY'
 
-const SIGNED_IN: CliProbe = { available: true, version: '2.1.236', signedIn: true, detail: '2.1.236 and signed in' }
+const SIGNED_IN: CliProbe = {
+  available: true,
+  version: '2.1.236',
+  signedIn: true,
+  auth: 'subscription',
+  detail: '2.1.236 and signed in',
+}
 
 let harness: Harness
 

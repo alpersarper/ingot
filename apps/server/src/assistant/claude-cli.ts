@@ -39,9 +39,23 @@
  * can still quote a pairing token or an unrelated stored key, and redaction
  * being a property of the seam rather than of a provider is the whole reason
  * the seam is shaped the way it is.
+ *
+ * **The child does not inherit the server's whole environment.** This is the
+ * free subscription path, and the panel says so: "No API key". The `claude`
+ * CLI honours `ANTHROPIC_API_KEY` over its own login, so a developer's shell
+ * with that variable exported would have every call billed to the key while
+ * the label stayed the same -- a wrong label with no error, which defeats the
+ * point of the connection. The server's own `INGOT_*` secrets have no business
+ * in a spawned model-driven process either. So {@link cliEnvironment} removes
+ * those before every spawn, probes included, and inherits everything else:
+ * an allowlist was considered and rejected because a machine behind a
+ * corporate proxy or a custom CA (`HTTPS_PROXY`, `NODE_EXTRA_CA_CERTS`,
+ * `XDG_CONFIG_HOME` and friends) would present as "the CLI connection is
+ * broken on my machine".
  */
 import { spawn } from 'node:child_process'
 import { tmpdir } from 'node:os'
+import type { CliAuth } from './connections'
 import { LlmError, structuredClient } from './llm'
 import type { LlmClient, LlmClientConfig, LlmMessage } from './llm'
 
@@ -62,6 +76,40 @@ const DEFAULT_TIMEOUT_MS = 240_000
 
 /** The version and auth probes. Cheap by construction -- neither reaches a model. */
 const PROBE_TIMEOUT_MS = 10_000
+
+/* ----------------------------------------------------------- environment -- */
+
+/**
+ * Whether a variable is withheld from the CLI.
+ *
+ * The rule is by *meaning*, so it survives the CLI growing a sibling: a
+ * variable is withheld when it would change **who pays** or **where the call
+ * goes** -- a credential the CLI would use instead of its login, an endpoint
+ * override, a third-party provider switch -- or when it is one of this
+ * server's own. Variables that select *which signed-in identity* to use
+ * (`ANTHROPIC_PROFILE`, `ANTHROPIC_CONFIG_DIR`, an organisation id) are left
+ * alone, as is `CLAUDE_CODE_OAUTH_TOKEN`, which is a subscription login in
+ * another form rather than a key.
+ */
+export function isWithheldFromCli(name: string): boolean {
+  if (name.startsWith('INGOT_')) return true
+  if (name.startsWith('CLAUDE_CODE_USE_')) return true
+  if (name === 'AWS_BEARER_TOKEN_BEDROCK') return true
+  if (!name.startsWith('ANTHROPIC_')) return false
+  return CLI_OVERRIDE_SUFFIXES.some((suffix) => name.endsWith(suffix))
+}
+
+/** The `ANTHROPIC_*` endings that name a credential or an endpoint. */
+const CLI_OVERRIDE_SUFFIXES = ['_API_KEY', '_AUTH_TOKEN', '_BASE_URL', '_CUSTOM_HEADERS', '_UNIX_SOCKET'] as const
+
+/** The environment a `claude` child is given: the server's, minus {@link isWithheldFromCli}. */
+export function cliEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const child: NodeJS.ProcessEnv = {}
+  for (const [name, value] of Object.entries(env)) {
+    if (value !== undefined && !isWithheldFromCli(name)) child[name] = value
+  }
+  return child
+}
 
 /* --------------------------------------------------------- running things -- */
 
@@ -85,7 +133,7 @@ export interface CommandResult {
 export type CommandRunner = (
   command: string,
   args: readonly string[],
-  options: { stdin?: string; timeoutMs: number; cwd?: string },
+  options: { stdin?: string; timeoutMs: number; cwd?: string; env?: NodeJS.ProcessEnv },
 ) => Promise<CommandResult>
 
 export const spawnRunner: CommandRunner = (command, args, options) =>
@@ -94,6 +142,9 @@ export const spawnRunner: CommandRunner = (command, args, options) =>
       // Never `shell: true`. See the file header.
       shell: false,
       cwd: options.cwd ?? tmpdir(),
+      // Scrubbed here as well as by the callers, so no runner path -- probe or
+      // completion, present or future -- can hand the CLI a key. See the header.
+      env: cliEnvironment(options.env ?? process.env),
       stdio: ['pipe', 'pipe', 'pipe'],
     })
 
@@ -159,8 +210,27 @@ export interface CliProbe {
    * connection that works.
    */
   signedIn: boolean | undefined
+  /**
+   * How it is signed in, when the CLI said and this code recognised it.
+   *
+   * `undefined` is "could not tell", never "not with a key". The panel states
+   * this rather than asserting "no API key" on faith: a Console login is
+   * billed to API credit however the connection is labelled.
+   */
+  auth: CliAuth | undefined
   /** One line for the panel and the log. Never carries anything identifying. */
   detail: string
+}
+
+/**
+ * The CLI's `authMethod` vocabulary, reduced to the one distinction that
+ * changes who pays. Anything unrecognised is left unknown rather than guessed.
+ */
+export function classifyCliAuth(method: string): CliAuth | undefined {
+  const lowered = method.toLowerCase()
+  if (lowered === 'claude.ai' || lowered === 'oauth') return 'subscription'
+  if (lowered === 'console' || lowered.replace(/[-_]/g, '') === 'apikey') return 'api-key'
+  return undefined
 }
 
 /** The binary this server will run, from the environment or the default. */
@@ -186,15 +256,20 @@ export function claudeBinary(env: NodeJS.ProcessEnv = process.env): string {
 export async function probeClaudeCli(
   run: CommandRunner = spawnRunner,
   binary: string = claudeBinary(),
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<CliProbe> {
+  // The same environment the completion runs in, so the probe reports the auth
+  // of the process that will actually answer rather than of a different one.
+  const childEnv = cliEnvironment(env)
   let version: string
   try {
-    const result = await run(binary, ['--version'], { timeoutMs: PROBE_TIMEOUT_MS })
+    const result = await run(binary, ['--version'], { timeoutMs: PROBE_TIMEOUT_MS, env: childEnv })
     if (result.code !== 0) {
       return {
         available: false,
         version: undefined,
         signedIn: undefined,
+        auth: undefined,
         detail: `\`${binary} --version\` exited ${String(result.code)}`,
       }
     }
@@ -205,20 +280,23 @@ export async function probeClaudeCli(
       available: false,
       version: undefined,
       signedIn: undefined,
+      auth: undefined,
       detail: code === 'ENOENT' ? `\`${binary}\` is not on this server’s PATH` : `\`${binary}\` could not be run`,
     }
   }
 
   let signedIn: boolean | undefined
+  let auth: CliAuth | undefined
   let how = ''
   try {
-    const result = await run(binary, ['auth', 'status'], { timeoutMs: PROBE_TIMEOUT_MS })
+    const result = await run(binary, ['auth', 'status'], { timeoutMs: PROBE_TIMEOUT_MS, env: childEnv })
     const parsed = JSON.parse(result.stdout) as unknown
     if (typeof parsed === 'object' && parsed !== null && typeof (parsed as { loggedIn?: unknown }).loggedIn === 'boolean') {
       const status = parsed as { loggedIn: boolean; authMethod?: unknown; subscriptionType?: unknown }
       signedIn = status.loggedIn
       const method = typeof status.authMethod === 'string' ? status.authMethod : ''
       const plan = typeof status.subscriptionType === 'string' ? status.subscriptionType : ''
+      auth = signedIn && method !== '' ? classifyCliAuth(method) : undefined
       how = signedIn ? ` and signed in${method === '' ? '' : ` via ${method}`}${plan === '' ? '' : ` (${plan})`}` : ' but not signed in'
     }
   } catch {
@@ -226,7 +304,7 @@ export async function probeClaudeCli(
     // `undefined`: unknown, not unauthenticated.
   }
 
-  return { available: true, version, signedIn, detail: `${version}${how}` }
+  return { available: true, version, signedIn, auth, detail: `${version}${how}` }
 }
 
 /* ----------------------------------------------------------------- client -- */
@@ -234,12 +312,15 @@ export async function probeClaudeCli(
 export interface ClaudeCliOptions {
   run?: CommandRunner
   binary?: string
+  /** The environment to scrub and inherit from. The process's own by default. */
+  env?: NodeJS.ProcessEnv
 }
 
 export function createClaudeCliClient(config: LlmClientConfig, options: ClaudeCliOptions = {}): LlmClient {
   const run = options.run ?? spawnRunner
   const binary = options.binary ?? claudeBinary()
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const env = cliEnvironment(options.env ?? process.env)
 
   return structuredClient({
     model: config.model,
@@ -270,7 +351,7 @@ export function createClaudeCliClient(config: LlmClientConfig, options: ClaudeCl
 
       let result: CommandResult
       try {
-        result = await run(binary, args, { stdin: renderPrompt(request.messages), timeoutMs })
+        result = await run(binary, args, { stdin: renderPrompt(request.messages), timeoutMs, env })
       } catch (error) {
         if ((error as { code?: string }).code === 'ENOENT') {
           throw new LlmError(

@@ -255,7 +255,7 @@ function ConnectionSetup({
 }): ReactNode {
   return (
     <div className="flex flex-col gap-3 rounded-md border border-border p-3">
-      {connection.id === 'claude-cli' ? <ClaudeCliSetup status={status} /> : null}
+      {connection.id === 'claude-cli' ? <ClaudeCliSetup status={status} connection={connection} /> : null}
       {connection.id === 'openai-compatible' ? (
         <OpenAiSetup
           status={status}
@@ -277,15 +277,32 @@ function ConnectionSetup({
   )
 }
 
-function ClaudeCliSetup({ status }: { status: AssistantStatus }): ReactNode {
+function ClaudeCliSetup({
+  status,
+  connection,
+}: {
+  status: AssistantStatus
+  connection: ConnectionReport
+}): ReactNode {
+  const keyed = connection.cliAuth === 'api-key'
   return (
     <div>
-      <h4 className="text-[11px] font-semibold">No API key needed</h4>
-      <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-        This runs the <span className="font-mono text-foreground">claude</span> command on the machine the server is on,
-        in headless mode, using the account it is already signed into. Nothing is billed per call: your Claude
-        subscription covers it, and the usage limits are the ones you already have.
-      </p>
+      <h4 className="text-[11px] font-semibold">{keyed ? 'Signed in with an API key' : 'No API key needed'}</h4>
+      {keyed ? (
+        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+          This runs the <span className="font-mono text-foreground">claude</span> command on the machine the server is
+          on, in headless mode — but that command is signed in with an API key, so each call is billed to that key
+          rather than covered by a subscription. To use the free path, sign it into your Claude account:{' '}
+          <span className="font-mono text-foreground">claude auth login</span>.
+        </p>
+      ) : (
+        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+          This runs the <span className="font-mono text-foreground">claude</span> command on the machine the server is
+          on, in headless mode, using the account it is already signed into. Nothing is billed per call: your Claude
+          subscription covers it, and the usage limits are the ones you already have. The server hands it none of its
+          own keys, so a key in the environment cannot quietly change who pays.
+        </p>
+      )}
       {status.containerized ? (
         <p className="mt-2 rounded bg-muted/60 px-2 py-1.5 text-[11px] leading-relaxed text-muted-foreground">
           <span className="font-medium text-foreground">This server is in a container.</span> A container cannot start a

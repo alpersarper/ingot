@@ -319,7 +319,10 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
       apiKeyPinned: config.llmApiKey !== undefined,
       baseUrl: url,
       model: model ?? '',
-      cli: probed === undefined ? undefined : { available: probed.available, signedIn: probed.signedIn, detail: probed.detail },
+      cli:
+        probed === undefined
+          ? undefined
+          : { available: probed.available, signedIn: probed.signedIn, auth: probed.auth, detail: probed.detail },
       containerized: runtime.containerized,
     }
   }
