@@ -124,10 +124,10 @@ export function FirstRun({ onPaired }: { onPaired: () => void }): ReactNode {
                   picked it up before they get back.
                 */}
                 <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                  <span className="font-medium text-foreground">You may not need one.</span> If the{' '}
-                  <span className="font-mono">claude</span> CLI is installed and signed in on this machine, the
-                  assistant uses that and needs no key from you. A model running locally under Ollama works too. Skip
-                  this and the Assistant tab will show you what it found, and what it costs.
+                  <span className="font-medium text-foreground">You may not need one.</span> On the local run (
+                  <span className="font-mono">pnpm dev</span>), a <span className="font-mono">claude</span> CLI that is
+                  installed and signed in is picked up as it is, with no key from you. A model running locally under
+                  Ollama works too. Skip this and the Assistant tab will show you what it found, and what it costs.
                 </p>
               </div>
             </div>

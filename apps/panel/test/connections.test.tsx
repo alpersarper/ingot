@@ -241,6 +241,30 @@ describe('the same panel in a container', () => {
     })
   })
 
+  it('settles Save into the saved state when the endpoint was typed with a trailing slash', async () => {
+    await serve({ cli: SIGNED_IN, containerized: true })
+    const user = userEvent.setup()
+    await reachTheWorkbench(user)
+
+    await user.click(within(systemPanel()).getByRole('radio', { name: /OpenAI-compatible endpoint/ }))
+    const endpoint = await screen.findByLabelText('Endpoint URL')
+    const saveEndpoint = (): HTMLButtonElement =>
+      within(systemPanel()).getByRole('button', { name: 'Save endpoint' }) as HTMLButtonElement
+
+    fireEvent.change(endpoint, { target: { value: 'http://host.docker.internal:11434/v1/' } })
+    expect(saveEndpoint().disabled).toBe(false)
+    await user.click(saveEndpoint())
+
+    // The server keeps the URL without the slash. The control has to read as
+    // saved against that value, not re-enable as if the write had not happened.
+    await waitFor(async () => {
+      const settings = await harness?.json<{ settings: { llm: { baseUrl?: string } } }>('/api/settings')
+      expect(settings?.settings.llm.baseUrl).toBe('http://host.docker.internal:11434/v1')
+    })
+    await waitFor(() => expect(saveEndpoint().disabled).toBe(true))
+    expect((endpoint as HTMLInputElement).value).toBe('http://host.docker.internal:11434/v1/')
+  })
+
   it('stores the endpoint field\'s key as the endpoint key, never as the Anthropic key', async () => {
     await serve({ cli: SIGNED_IN, containerized: true })
     const user = userEvent.setup()

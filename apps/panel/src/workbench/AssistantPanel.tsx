@@ -347,6 +347,17 @@ function ClaudeCliSetup({
   )
 }
 
+/**
+ * The value the server keeps for a typed endpoint URL. Mirrors the store rule
+ * in `apps/server/src/routes/settings.ts` (`PUT /api/settings`, `llmBaseUrl`:
+ * trim, then strip trailing slashes) and must match it: the Save control
+ * compares against what came back from the server, so comparing the raw field
+ * text would re-enable it right after a URL typed with a trailing slash saved.
+ */
+function storedBaseUrl(value: string): string {
+  return value.trim().replace(/\/+$/, '')
+}
+
 function OpenAiSetup({
   status,
   busy,
@@ -421,7 +432,9 @@ function OpenAiSetup({
               // Three "Save" buttons can be on screen at once. The visible
               // label stays short; the accessible one says which.
               aria-label="Save endpoint"
-              disabled={busy || saving !== null || url.trim() === '' || url.trim() === (status.baseUrl ?? '')}
+              disabled={
+                busy || saving !== null || url.trim() === '' || storedBaseUrl(url) === (status.baseUrl ?? '')
+              }
               onClick={() => void save('url', () => onSaveLlmBaseUrl(url.trim()))}
             >
               {saving === 'url' ? <Loader2 className="animate-spin" aria-hidden /> : <Check aria-hidden />}
