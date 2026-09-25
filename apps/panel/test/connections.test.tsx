@@ -102,6 +102,20 @@ describe('a machine with the Claude CLI signed in', () => {
     expect(chosen.getAttribute('aria-checked')).toBe('true')
   })
 
+  it('names the key its chrome button is about, so a keyless CLI is not called keyless in general', async () => {
+    await serve({ cli: SIGNED_IN })
+    const user = userEvent.setup()
+    await reachTheWorkbench(user)
+    await screen.findByRole('button', { name: /Fill the gaps/ })
+
+    // The Topbar button writes the Anthropic key and only ever knew about that
+    // one. With two keys in the product, its tooltip must say which one is
+    // absent: an endpoint bearer token may well be stored.
+    const button = screen.getByRole('button', { name: /Add LLM key/ })
+    expect(button.title).toContain('without an Anthropic key')
+    expect(button.title).toContain('Assistant tab')
+  })
+
   it('switches to the Anthropic connection and shows its setup, on one click', async () => {
     await serve({ cli: SIGNED_IN })
     const user = userEvent.setup()

@@ -101,7 +101,7 @@ export function Topbar({ settings, onSaveLlmKey, onUnpair }: TopbarProps): React
               settings?.llm.managedByEnvironment === true
                 ? 'Pinned by INGOT_LLM_API_KEY on the server'
                 : settings?.llm.configured === true && settings.llm.source === 'none'
-                  ? 'The assistant is already connected without a key — see the Assistant tab'
+                  ? 'The assistant is already connected without an Anthropic key — see the Assistant tab'
                   : 'Stored server-side; never returned to this browser'
             }
           >
