@@ -18,7 +18,10 @@ panel lists them, which is the order of what they cost you:
 You do not have to choose up front. With nothing configured, the server uses
 **whichever connection is ready**, checked in that same order — so if you have
 Claude Code installed and signed in, the assistant simply works, and this page
-is something you never had to read.
+is something you never had to read. The one refinement is that the order is
+about cost: a CLI signed in with a Console key is billed per call, so by default
+a ready OpenAI-compatible endpoint is used ahead of it. It stays available, and
+choosing it or pinning it is honoured as-is.
 
 The whole of this is behind one interface (`LlmClient`), so which connection you
 use changes *who answers* and nothing else: the same versioned prompts, the same

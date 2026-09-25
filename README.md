@@ -96,7 +96,8 @@ beside the engine's own findings; you accept or dismiss it, and it can never
 write a token itself. **Every other feature works without it.**
 
 It needs a model to ask, and there are three ways to give it one. With nothing
-configured the panel uses whichever is ready, in this order:
+configured the panel uses whichever is ready, in this order (a CLI signed in
+with a Console key is billed per call, so a ready endpoint is preferred to it):
 
 1. **The Claude Code CLI you already have.** If `claude` is on this machine and
    signed in, that is the whole setup — no API key, nothing billed per call,

@@ -194,7 +194,12 @@ history owns the chronology.
   user: the local Claude Code CLI, then an OpenAI-compatible endpoint (Ollama
   locally, or a hosted free tier), then a BYOK Anthropic key. With nothing
   configured the server uses whichever connection is ready, in that order, so a
-  machine with Claude Code signed in needs no setup. An API key is not a
+  machine with Claude Code signed in needs no setup. The order is a cost
+  ranking, and it is completed rather than amended for the one case where the
+  first path is knowably not free: a CLI whose own login is a Console key is
+  billed per call, so a ready OpenAI-compatible endpoint outranks it by
+  default -- and only by default; it stays ready, selectable and honoured when
+  chosen or pinned. An API key is not a
   claude.ai subscription, and telling someone to buy Console credit before
   mentioning the CLI they already have is advice that wastes their evening.
   Forbids making the key the default, and forbids a first run that fails

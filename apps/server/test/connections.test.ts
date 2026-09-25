@@ -130,6 +130,32 @@ describe('which connections are ready', () => {
     expect(resolveConnection({ ...pinned, cli: CLI_READY })).toBe('claude-cli')
   })
 
+  it('lets a free endpoint outrank a CLI that is signed in with a Console key, by default only', () => {
+    // The ranking's rule is "the paths that cost nothing come first". A CLI
+    // whose login is a Console key answers, and bills every answer -- the one
+    // case where the first path is knowably not free.
+    const keyed: ConnectionFacts['cli'] = { ...CLI_READY, auth: 'api-key' }
+    const endpoint = { baseUrl: 'http://localhost:11434/v1', model: 'llama3.2' }
+
+    expect(resolveConnection({ ...BARE, ...endpoint, cli: keyed })).toBe('openai-compatible')
+    // Still ready, still selectable: only the default moved.
+    expect(reportFor('claude-cli', { ...BARE, ...endpoint, cli: keyed }).ready).toBe(true)
+    // With no free connection ready, a working keyed CLI still beats setup.
+    expect(resolveConnection({ ...BARE, cli: keyed })).toBe('claude-cli')
+    expect(resolveConnection({ ...BARE, hasApiKey: true, cli: keyed })).toBe('claude-cli')
+
+    // A subscription login is the free path and stays first; so does an auth
+    // the probe could not read, because a probe that could not run must never
+    // demote a working setup.
+    expect(resolveConnection({ ...BARE, ...endpoint, cli: { ...CLI_READY, auth: 'subscription' } })).toBe('claude-cli')
+    expect(resolveConnection({ ...BARE, ...endpoint, cli: CLI_READY })).toBe('claude-cli')
+
+    // The pinned-key exception keeps working alongside it.
+    expect(resolveConnection({ ...BARE, ...endpoint, hasApiKey: true, apiKeyPinned: true, cli: keyed })).toBe(
+      'anthropic-api',
+    )
+  })
+
   it('states how the CLI is signed in rather than promising "no API key" on faith', () => {
     const subscription = reportFor('claude-cli', { ...BARE, cli: { ...CLI_READY, auth: 'subscription' } })
     expect(subscription.ready).toBe(true)
@@ -857,6 +883,38 @@ describe('the API reports and switches connections', () => {
     expect(text).toContain('[redacted]')
     expect(must().logs.join('\n')).not.toContain(key)
     expect(must().logs.join('\n')).toContain('[redacted]')
+  })
+})
+
+describe('a CLI signed in with a Console key', () => {
+  const KEYED: CliProbe = { ...SIGNED_IN, auth: 'api-key', detail: '2.1.236 and signed in via console' }
+
+  async function configureFreeEndpoint(): Promise<void> {
+    await must().call('/api/settings', put({ llmBaseUrl: 'http://localhost:11434/v1' }))
+    await must().call('/api/settings', put({ llmModel: 'llama3.2' }))
+  }
+
+  it('yields the default to a free endpoint, and is taken again when chosen', async () => {
+    harness = await createHarness({ cli: KEYED })
+    // Nothing free is ready, so the keyed CLI is still the working answer.
+    expect((await must().json<StatusBody>('/api/assistant')).assistant.connection).toBe('claude-cli')
+    expect((await must().json<StatusBody>('/api/assistant')).assistant.configured).toBe(true)
+
+    await configureFreeEndpoint()
+    const status = await must().json<StatusBody>('/api/assistant')
+    expect(status.assistant.connection).toBe('openai-compatible')
+    // The CLI is still offered as ready; only the default moved.
+    expect(status.assistant.connections.find((entry) => entry.id === 'claude-cli')?.ready).toBe(true)
+
+    // An explicit choice is honoured unchanged.
+    await must().call('/api/settings', put({ llmConnection: 'claude-cli' }))
+    expect((await must().json<StatusBody>('/api/assistant')).assistant.connection).toBe('claude-cli')
+  })
+
+  it('is honoured unchanged when the environment pins it', async () => {
+    harness = await createHarness({ cli: KEYED, env: { INGOT_LLM_CONNECTION: 'claude-cli' } })
+    await configureFreeEndpoint()
+    expect((await must().json<StatusBody>('/api/assistant')).assistant.connection).toBe('claude-cli')
   })
 })
 

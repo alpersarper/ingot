@@ -287,6 +287,18 @@ function report(shape: ConnectionShape, facts: ConnectionFacts): ConnectionRepor
  * still comes first where it works: it costs nothing, and a pinned key says
  * "use Anthropic", not "pay when the free path is signed in".
  *
+ * The rule is completed, not amended, for a CLI whose own login is a Console
+ * key: that CLI answers and is billed per call, so it is the one case where
+ * the first path is knowably not free. With nothing chosen it yields to a
+ * ready OpenAI-compatible endpoint, which is free or the user's own, and is
+ * taken again when no free connection is ready -- a working keyed CLI still
+ * beats setup. It stays ready, selectable and honoured when chosen or pinned;
+ * only the default moves. Since the child's environment is scrubbed, an
+ * inherited `ANTHROPIC_API_KEY` cannot cause this; only the CLI's stored login
+ * can. An auth the probe could not read counts as the free path, on the same
+ * principle as `signedIn: undefined`: a probe that could not run never
+ * demotes a working setup.
+ *
  * When *none* is ready the answer is still a connection rather than a null,
  * because the panel has to render a setup state for something and the service
  * has to produce a specific error. The fallback is the one whose setup path is
@@ -295,8 +307,11 @@ function report(shape: ConnectionShape, facts: ConnectionFacts): ConnectionRepor
 export function resolveConnection(facts: ConnectionFacts): ConnectionId {
   const reports = connectionReports(facts)
   const ready = (id: ConnectionId): boolean => reports.find((entry) => entry.id === id)?.ready === true
-  if (ready('claude-cli')) return 'claude-cli'
+  const cliBilled = facts.cli?.auth === 'api-key'
+  if (ready('claude-cli') && !cliBilled) return 'claude-cli'
   if (facts.apiKeyPinned === true && ready('anthropic-api')) return 'anthropic-api'
+  if (ready('openai-compatible')) return 'openai-compatible'
+  if (ready('claude-cli')) return 'claude-cli'
   return reports.find((entry) => entry.ready)?.id ?? 'anthropic-api'
 }
 

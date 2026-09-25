@@ -237,7 +237,11 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
 
   // The last keys this service saw, held only so the logger can redact a key
   // that has since been replaced in storage but is still quoted in an error
-  // that is on its way to being logged. Never read to make a request.
+  // that is on its way to being logged. Never read to make a request, and
+  // written by exactly one function, `credentials`, which reads both keys at
+  // once: there is no way to fetch one credential without warming the other,
+  // so the secrets list below is complete on every path -- the CLI connection
+  // included -- rather than only after the connection that uses a key ran.
   let cachedKey: string | undefined
   let cachedEndpointKey: string | undefined
 
@@ -259,24 +263,36 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
     ]
   }
 
-  /** The Anthropic key, or `null`. The environment wins, as it does for settings. */
-  async function apiKey(): Promise<string | null> {
-    const key = config.llmApiKey ?? (await store.settings.get(LLM_API_KEY_SETTING))
-    if (key !== null && key !== undefined) cachedKey = key
-    return key ?? null
+  interface Credentials {
+    /** The Anthropic key, or `null`. The environment wins, as it does for settings. */
+    apiKey: string | null
+    /**
+     * The OpenAI-compatible endpoint's bearer token, or `null`.
+     *
+     * Its own setting rather than a reuse of the Anthropic key, because reuse
+     * is the leak: one shared slot would send a stored `sk-ant-…` key to
+     * whatever address the endpoint field held the day somebody switched
+     * connections.
+     */
+    endpointKey: string | null
   }
 
   /**
-   * The OpenAI-compatible endpoint's bearer token, or `null`.
+   * Both stored credentials, read together.
    *
-   * Its own setting rather than a reuse of the Anthropic key, because reuse is
-   * the leak: one shared slot would send a stored `sk-ant-…` key to whatever
-   * address the endpoint field held the day somebody switched connections.
+   * The only reader of the two key settings and the only writer of the caches
+   * above. Reading them as a pair is what makes redaction independent of call
+   * order: `facts()` runs before every status and every call, so both caches
+   * are warm whichever connection is then selected.
    */
-  async function endpointKey(): Promise<string | null> {
-    const key = config.llmEndpointKey ?? (await store.settings.get(LLM_ENDPOINT_KEY_SETTING))
-    if (key !== null && key !== undefined) cachedEndpointKey = key
-    return key ?? null
+  async function credentials(): Promise<Credentials> {
+    const [storedKey, storedEndpointKey] = await Promise.all([
+      config.llmApiKey === undefined ? store.settings.get(LLM_API_KEY_SETTING) : config.llmApiKey,
+      config.llmEndpointKey === undefined ? store.settings.get(LLM_ENDPOINT_KEY_SETTING) : config.llmEndpointKey,
+    ])
+    if (storedKey !== null) cachedKey = storedKey
+    if (storedEndpointKey !== null) cachedEndpointKey = storedEndpointKey
+    return { apiKey: storedKey, endpointKey: storedEndpointKey }
   }
 
   async function baseUrl(): Promise<string | undefined> {
@@ -312,10 +328,10 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
    * reached whatever the answer is, so the subprocesses are not spent.
    */
   async function facts(): Promise<ConnectionFacts> {
-    const [key, url, model] = await Promise.all([apiKey(), baseUrl(), storedModel()])
+    const [keys, url, model] = await Promise.all([credentials(), baseUrl(), storedModel()])
     const probed = runtime.containerized ? undefined : await cli()
     return {
-      hasApiKey: key !== null,
+      hasApiKey: keys.apiKey !== null,
       apiKeyPinned: config.llmApiKey !== undefined,
       baseUrl: url,
       model: model ?? '',
@@ -379,7 +395,7 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
     const model = modelFor(connection, current.model)
 
     if (connection === 'anthropic-api') {
-      const key = await apiKey()
+      const key = (await credentials()).apiKey
       if (key !== null && !looksLikeAnthropicKey(key)) {
         // Said before a request is spent, and said as a warning about shape
         // rather than a verdict: the provider decides whether a key is valid.
@@ -395,7 +411,8 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
     }
 
     if (connection === 'openai-compatible') {
-      const [key, url] = await Promise.all([endpointKey(), baseUrl()])
+      const [keys, url] = await Promise.all([credentials(), baseUrl()])
+      const key = keys.endpointKey
       return llmFactory({
         connection,
         model,
@@ -443,14 +460,10 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
 
   return {
     async status() {
+      const keys = await credentials()
       const source: LlmKeySource =
-        config.llmApiKey !== undefined
-          ? 'environment'
-          : (await store.settings.get(LLM_API_KEY_SETTING)) === null
-            ? 'none'
-            : 'settings'
-      const endpointKeyConfigured =
-        config.llmEndpointKey !== undefined || (await store.settings.get(LLM_ENDPOINT_KEY_SETTING)) !== null
+        config.llmApiKey !== undefined ? 'environment' : keys.apiKey === null ? 'none' : 'settings'
+      const endpointKeyConfigured = keys.endpointKey !== null
       const current = await facts()
       const connection = await selected(current)
       const reports = connectionReports(current)

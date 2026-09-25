@@ -711,6 +711,34 @@ describe('a credential and an endpoint belong to one connection', () => {
     }
   })
 
+  it('redacts a stored endpoint key from an error raised on a connection that never received it', async () => {
+    // The pair to the Anthropic-key case in the connections suite: the CLI
+    // connection is handed neither key, so the redactor has to know both from
+    // the service rather than from whichever connection last ran. Before the
+    // credentials were read as a pair, this token was only known after the
+    // OpenAI-compatible connection had been used once.
+    const local = await createHarness({ cli: SIGNED_IN })
+    try {
+      const set = JSON.parse(await readFile(`${ROOT}fixtures/ghost-warm/set.json`, 'utf8')) as unknown
+      await local.call('/api/captures/import', body(set))
+      await local.call('/api/kits', body({ groupId: null }))
+      await local.call('/api/settings', put({ llmEndpointKey: ENDPOINT_KEY }))
+
+      local.llm.fail(new Error(`the CLI died holding ${ENDPOINT_KEY}`))
+      const response = await local.call('/api/assistant/suggest', body({ capability: 'derive' }))
+      expect(local.llm.configs[0]?.connection).toBe('claude-cli')
+      expect(local.llm.configs[0]?.apiKey).toBeUndefined()
+
+      const text = await response.text()
+      expect(text).not.toContain(ENDPOINT_KEY)
+      expect(text).toContain(REDACTION_MARKER)
+      expect(local.logs.join('\n')).not.toContain(ENDPOINT_KEY)
+      expect(local.logs.join('\n')).toContain(REDACTION_MARKER)
+    } finally {
+      await local.close()
+    }
+  })
+
   it('resolves a v1 environment -- pinned key, proxy URL, no connection -- to the Anthropic client', async () => {
     // Before INGOT_LLM_CONNECTION existed, this was the whole configuration of
     // a proxied deployment. The proxy URL also satisfies the OpenAI-compatible
