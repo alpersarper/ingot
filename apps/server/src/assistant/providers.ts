@@ -13,7 +13,8 @@
  * having them:
  *
  *   - **`claude-cli`** spawns a process on this machine and uses the account it
- *     is already signed into. No key, no billing, no account to create.
+ *     is already signed into. No key and no account to create; what a call
+ *     costs is whatever that login costs (see `connections.ts`).
  *   - **`openai-compatible`** posts to an address the user named. Covers a
  *     model running on their own laptop and every hosted gateway that speaks
  *     the same body.

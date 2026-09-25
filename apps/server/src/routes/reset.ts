@@ -15,7 +15,7 @@
  *   - it answers with a count of exactly what it destroyed, which is what the
  *     panel states afterwards. Nothing disappears silently, this least of all.
  *
- * Settings survive: the pairing token and the LLM key are how the user reaches
+ * Settings survive: the pairing token and the LLM keys are how the user reaches
  * the panel at all, and re-pairing is not part of starting a library over.
  */
 import { Hono } from 'hono'

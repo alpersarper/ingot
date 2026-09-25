@@ -75,18 +75,22 @@ token is the guard there, as it is for `curl`.
 `apps/server/test/api.test.ts` derives the id from the manifest so the constant
 and the extension cannot drift apart.
 
-## The LLM key
+## The LLM keys
 
-Goes in, never comes out. `PUT /api/settings` stores or replaces it server-side,
-`DELETE /api/settings/llm-key` removes it, and `GET /api/settings` reports
-`{ configured, source, model }` -- no endpoint returns the value, and none ever
-will. It is server-side precisely because the browser is where it must not be:
-an extension, a bookmarklet or a stray script in the panel's own origin can read
-anything the page holds.
+There are two -- the Anthropic key and the OpenAI-compatible endpoint's bearer
+token, each read only by its own connection ([docs/assistant.md](assistant.md#configuration))
+-- and both go in and never come out. `PUT /api/settings` stores, replaces or
+clears (`null`) either one server-side, `DELETE /api/settings/llm-key` also
+clears the Anthropic key, and `GET /api/settings` reports presence and
+provenance only (`configured`, `source`, `endpointKeyConfigured`), beside the
+connection, endpoint, model and every connection's readiness -- no endpoint
+returns either value, and none ever will. They are server-side precisely
+because the browser is where they must not be: an extension, a bookmarklet or a
+stray script in the panel's own origin can read anything the page holds.
 
-It is also redacted from every log line and every error message the assistant
-path produces, including provider-SDK errors built from a request that carried
-it in a header. See [The assistant](#the-assistant) for the rest.
+Both are also redacted from every log line and every error message the
+assistant path produces, including provider-SDK errors built from a request
+that carried one in a header. See [The assistant](#the-assistant) for the rest.
 
 ## Determinism through the server
 
@@ -130,7 +134,7 @@ Everything except `/api/health` and `/api/pairing*` requires the token.
 | --- | --- |
 | `GET /api/health` | Open. Engine version and storage schema version. |
 | `GET /api/pairing`, `POST /api/pairing/verify` | Open. Pairing status and token check. |
-| `GET/PUT /api/settings` | Panel settings; stores the LLM key, never returns it. Also the assistant's connection, endpoint and model, and it reports every connection's readiness. |
+| `GET/PUT /api/settings` | Panel settings; stores both LLM keys, never returns them. Also the assistant's connection, endpoint and model, and it reports every connection's readiness. |
 | `GET/POST /api/captures`, `GET/PATCH/DELETE /api/captures/:id` | Capture CRUD. |
 | `POST /api/captures/import` | Bulk import. Accepts a fixture set verbatim, or `{ set }`. |
 | `PUT /api/captures/:id/tags`, `GET /api/captures/tags` | Replace a capture's tags; list every tag in use. |
@@ -149,7 +153,7 @@ Everything except `/api/health` and `/api/pairing*` requires the token.
 | `POST /api/assistant/suggest` | Run `derive` or `merge`. Stores what the engine would accept as proposals. Rate-limited. |
 | `POST /api/assistant/ask`, `/name`, `/rationale` | Content, not kit changes. Rate-limited. |
 | `POST /api/assistant/proposals/:id/{accept,dismiss}` | Accept writes an override through the ordinary boundary; dismiss writes nothing to the kit. |
-| `DELETE /api/settings/llm-key` | Remove the stored key. There is no endpoint that returns it. |
+| `DELETE /api/settings/llm-key` | Remove the stored Anthropic key; the endpoint key clears with `PUT { llmEndpointKey: null }`. There is no endpoint that returns either. |
 | `POST /api/reset` | Destroy the library. Requires `{ "confirm": "reset" }`. The only endpoint that deletes a kit; settings and pairing survive. |
 
 ## The workbench

@@ -2,7 +2,7 @@
  * Server configuration, resolved once from the environment.
  *
  * Every value has a working default so `pnpm dev` and `docker compose up` both
- * run with no setup. The two secrets -- the pairing token and the LLM API key --
+ * run with no setup. The secrets -- the pairing token and the two LLM keys --
  * may be supplied here, but neither has to be: both can be established at first
  * run instead, which is what the panel's first-run screen is for.
  */

@@ -1,12 +1,13 @@
 /**
- * Settings, including the LLM API key and the model the assistant asks.
+ * Settings, including the LLM keys and the model the assistant asks.
  *
  * The rule this file exists to enforce: **a key goes in and never comes out.**
  * That covers both of them -- the Anthropic key and the OpenAI-compatible
  * endpoint's bearer token, each stored under its own setting so a connection
  * switch can never carry one to an endpoint it was not saved for. `GET`
- * reports whether one is configured and where it came from; `PUT` stores or
- * replaces it and `DELETE` removes it. There is no endpoint, and no code
+ * reports whether one is configured and where it came from; `PUT` stores,
+ * replaces or clears it, and `DELETE /llm-key` also clears the Anthropic one.
+ * There is no endpoint, and no code
  * path, that returns either value -- not to the panel, not in an error, not in
  * a log. The keys live server-side because the browser is the one place they
  * must not be: an extension, a bookmarklet or a stray script in the panel's

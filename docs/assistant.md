@@ -188,7 +188,7 @@ and becomes read-only there, which is how a deployment fixes a choice.
 | `INGOT_LLM_CONNECTION` | `claude-cli`, `openai-compatible` or `anthropic-api`. Unset: whichever is ready. An unknown value fails at start-up rather than silently falling back. |
 | `INGOT_LLM_MODEL` | The model to ask. Unset: the connection's own default (`claude-sonnet-5` for both Claude connections; an OpenAI-compatible endpoint has no default and must be told). |
 | `INGOT_LLM_BASE_URL` | The OpenAI-compatible endpoint — or a hosted proxy for the Anthropic connection. The *panel-stored* endpoint is narrower: it reaches only the OpenAI-compatible connection, so a URL typed for Ollama cannot follow a connection switch to the Anthropic client. |
-| `INGOT_LLM_API_KEY` | The Anthropic key. Only the Anthropic connection ever transmits it. |
+| `INGOT_LLM_API_KEY` | The Anthropic key. Only the Anthropic connection ever transmits it. Pinned here, it also makes the Anthropic connection the default ahead of an OpenAI-compatible endpoint (the local CLI still comes first where it works), so a deployment that predates `INGOT_LLM_CONNECTION` keeps reaching the Anthropic client. |
 | `INGOT_LLM_ENDPOINT_KEY` | The OpenAI-compatible endpoint's bearer token (OpenRouter, Groq, Gemini). Stored separately from the Anthropic key on purpose — see below. |
 | `INGOT_CLAUDE_CLI_PATH` | Full path to the `claude` binary, when it is not on the server's `PATH`. |
 | `INGOT_IN_CONTAINER` | Set to `1` by the image. Declares that host processes are unreachable; the CLI connection is disabled and explained. |

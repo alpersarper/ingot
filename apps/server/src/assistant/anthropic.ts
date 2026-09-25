@@ -1,13 +1,14 @@
 /**
- * The one implementation of {@link LlmClient}, on the official Anthropic SDK.
+ * The Anthropic implementation of {@link LlmClient}, on the official SDK.
  *
  * This is the only file in the repository that imports an LLM SDK, and it is
  * deliberately the only one that could: everything above it takes
- * {@link LlmClient}, so a hosted proxy or a second provider is a sibling of
- * this file rather than a change to any capability. The engine, of course,
- * imports none of it -- `packages/engine/test/purity.test.ts` would fail if it
- * did, and the assistant is a server concern precisely because the engine has
- * to stay runnable anywhere.
+ * {@link LlmClient}, so the other connections (`claude-cli.ts`,
+ * `openai-compatible.ts`) are siblings of this file rather than a change to any
+ * capability, and `providers.ts` is the whole of the dispatch. The engine, of
+ * course, imports none of it -- `packages/engine/test/purity.test.ts` would
+ * fail if it did, and the assistant is a server concern precisely because the
+ * engine has to stay runnable anywhere.
  *
  * What is left here after {@link structuredClient} takes the shared half is
  * exactly the provider-specific part, and no more:
