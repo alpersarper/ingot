@@ -277,6 +277,20 @@ function ConnectionSetup({
   )
 }
 
+/**
+ * The CLI connection's setup block, and the one rule every cost sentence in
+ * this panel follows.
+ *
+ * **Never assert a cost or billing fact about the user's configuration unless
+ * this surface holds the evidence for it.** This block has `cliAuth`, so it
+ * may be specific: a subscription login is free per call, a Console key is
+ * billed, and a login the probe could not classify -- an older CLI, or an
+ * auth method this build does not recognise -- is described without a price,
+ * because unknown is unknown rather than suspicious. A surface without the
+ * classification (the first-run screen, the Anthropic block's aside, the
+ * CLI client's own errors) must not guess; it may say a key is not *needed*,
+ * which is a fact about Ingot, and no more.
+ */
 function ClaudeCliSetup({
   status,
   connection,
@@ -284,23 +298,31 @@ function ClaudeCliSetup({
   status: AssistantStatus
   connection: ConnectionReport
 }): ReactNode {
-  const keyed = connection.cliAuth === 'api-key'
+  const auth = connection.cliAuth
   return (
     <div>
-      <h4 className="text-[11px] font-semibold">{keyed ? 'Signed in with an API key' : 'No API key needed'}</h4>
-      {keyed ? (
+      <h4 className="text-[11px] font-semibold">
+        {auth === 'api-key' ? 'Signed in with an API key' : 'No API key needed'}
+      </h4>
+      {auth === 'api-key' ? (
         <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
           This runs the <span className="font-mono text-foreground">claude</span> command on the machine the server is
           on, in headless mode — but that command is signed in with an API key, so each call is billed to that key
           rather than covered by a subscription. To use the free path, sign it into your Claude account:{' '}
           <span className="font-mono text-foreground">claude auth login</span>.
         </p>
-      ) : (
+      ) : auth === 'subscription' ? (
         <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
           This runs the <span className="font-mono text-foreground">claude</span> command on the machine the server is
           on, in headless mode, using the account it is already signed into. Nothing is billed per call: your Claude
           subscription covers it, and the usage limits are the ones you already have. The server hands it none of its
           own keys, so a key in the environment cannot quietly change who pays.
+        </p>
+      ) : (
+        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+          This runs the <span className="font-mono text-foreground">claude</span> command on the machine the server is
+          on, in headless mode, using whichever account that command is signed into. The server hands it none of its
+          own keys.
         </p>
       )}
       {status.containerized ? (
@@ -500,7 +522,7 @@ function AnthropicSetup({
           <span className="font-medium text-foreground">A Claude subscription does not include API usage.</span> Claude
           Pro or Max pays for claude.ai; the API is billed separately, from prepaid credit on an Anthropic Console
           account. Having one does not give you the other, and this is the step nearly everybody is surprised by — if
-          you have Claude Code installed, the connection above uses that subscription instead and costs nothing.
+          you have Claude Code installed and signed into a Claude account, the connection above can use that instead.
         </p>
         <ol className="mt-2 flex list-decimal flex-col gap-1 pl-4 text-[11px] leading-relaxed text-muted-foreground">
           <li>

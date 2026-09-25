@@ -126,8 +126,8 @@ export function FirstRun({ onPaired }: { onPaired: () => void }): ReactNode {
                 <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
                   <span className="font-medium text-foreground">You may not need one.</span> If the{' '}
                   <span className="font-mono">claude</span> CLI is installed and signed in on this machine, the
-                  assistant uses that — no key, nothing billed per call. A model running locally under Ollama works too.
-                  Skip this and the Assistant tab will show you what it found.
+                  assistant uses that and needs no key from you. A model running locally under Ollama works too. Skip
+                  this and the Assistant tab will show you what it found, and what it costs.
                 </p>
               </div>
             </div>

@@ -165,6 +165,30 @@ describe('a machine whose CLI is signed in with an API key', () => {
   })
 })
 
+describe('what the CLI setup says it costs', () => {
+  it('claims the subscription covers it only when the probe saw a subscription login', async () => {
+    await serve({ cli: SIGNED_IN })
+    const user = userEvent.setup()
+    await reachTheWorkbench(user)
+    await screen.findByRole('button', { name: /Fill the gaps/ })
+    expect(within(systemPanel()).getByText(/Nothing is billed per call/)).toBeTruthy()
+  })
+
+  it('names no price at all when the probe could not classify the login', async () => {
+    // An older CLI, or an auth method this build does not recognise. Still
+    // usable, still key-free on Ingot's side -- and what it costs is unknown,
+    // so the panel says what it knows and no more.
+    await serve({ cli: { ...SIGNED_IN, auth: undefined, detail: '2.1.236 and signed in' } })
+    const user = userEvent.setup()
+    await reachTheWorkbench(user)
+    await screen.findByRole('button', { name: /Fill the gaps/ })
+    expect(within(systemPanel()).getByRole('heading', { name: 'No API key needed' })).toBeTruthy()
+    expect(within(systemPanel()).getByText(/whichever account that command is signed into/)).toBeTruthy()
+    expect(within(systemPanel()).queryByText(/billed/)).toBeNull()
+    expect(within(systemPanel()).queryByText(/subscription covers it/)).toBeNull()
+  })
+})
+
 describe('the same panel in a container', () => {
   it('disables the CLI connection and says what it is for, without hiding it', async () => {
     await serve({ cli: SIGNED_IN, containerized: true })

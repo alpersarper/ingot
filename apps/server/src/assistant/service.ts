@@ -421,7 +421,7 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
     }
 
     if (connection === 'openai-compatible') {
-      const url = await baseUrl()
+      const url = current.baseUrl
       const key = keys.endpointKey
       return llmFactory({
         connection,
