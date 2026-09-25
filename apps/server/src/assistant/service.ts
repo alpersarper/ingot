@@ -282,7 +282,7 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
    *
    * The only reader of the two key settings and the only writer of the caches
    * above. Reading them as a pair is what makes redaction independent of call
-   * order: `facts()` runs before every status and every call, so both caches
+   * order: `snapshot()` runs before every status and every call, so both caches
    * are warm whichever connection is then selected.
    */
   async function credentials(): Promise<Credentials> {
@@ -322,24 +322,34 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
   }
 
   /**
-   * Everything readiness is computed from, with no secrets in it.
+   * Everything readiness is computed from, with no secrets in it -- and,
+   * beside it, the credentials that were read to compute it.
+   *
+   * The two travel together so the one read of the key settings serves both
+   * the readiness arithmetic and the arm that needs the value, and so both
+   * caches are warm before any transport can throw, whichever connection is
+   * then selected. The facts themselves stay secret-free: the keys ride
+   * alongside, never inside.
    *
    * The CLI is probed only when it could matter: in a container it cannot be
    * reached whatever the answer is, so the subprocesses are not spent.
    */
-  async function facts(): Promise<ConnectionFacts> {
+  async function snapshot(): Promise<{ facts: ConnectionFacts; keys: Credentials }> {
     const [keys, url, model] = await Promise.all([credentials(), baseUrl(), storedModel()])
     const probed = runtime.containerized ? undefined : await cli()
     return {
-      hasApiKey: keys.apiKey !== null,
-      apiKeyPinned: config.llmApiKey !== undefined,
-      baseUrl: url,
-      model: model ?? '',
-      cli:
-        probed === undefined
-          ? undefined
-          : { available: probed.available, signedIn: probed.signedIn, auth: probed.auth, detail: probed.detail },
-      containerized: runtime.containerized,
+      keys,
+      facts: {
+        hasApiKey: keys.apiKey !== null,
+        apiKeyPinned: config.llmApiKey !== undefined,
+        baseUrl: url,
+        model: model ?? '',
+        cli:
+          probed === undefined
+            ? undefined
+            : { available: probed.available, signedIn: probed.signedIn, auth: probed.auth, detail: probed.detail },
+        containerized: runtime.containerized,
+      },
     }
   }
 
@@ -379,7 +389,7 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
    * this: it says a connection *takes* a key, not *whose* key it takes.
    */
   async function client(): Promise<LlmClient> {
-    const current = await facts()
+    const { facts: current, keys } = await snapshot()
     const connection = await selected(current)
     const report = connectionReports(current).find((entry) => entry.id === connection)
     if (report === undefined || !report.ready) {
@@ -395,7 +405,7 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
     const model = modelFor(connection, current.model)
 
     if (connection === 'anthropic-api') {
-      const key = (await credentials()).apiKey
+      const key = keys.apiKey
       if (key !== null && !looksLikeAnthropicKey(key)) {
         // Said before a request is spent, and said as a warning about shape
         // rather than a verdict: the provider decides whether a key is valid.
@@ -411,7 +421,7 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
     }
 
     if (connection === 'openai-compatible') {
-      const [keys, url] = await Promise.all([credentials(), baseUrl()])
+      const url = await baseUrl()
       const key = keys.endpointKey
       return llmFactory({
         connection,
@@ -460,11 +470,10 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
 
   return {
     async status() {
-      const keys = await credentials()
+      const { facts: current, keys } = await snapshot()
       const source: LlmKeySource =
         config.llmApiKey !== undefined ? 'environment' : keys.apiKey === null ? 'none' : 'settings'
       const endpointKeyConfigured = keys.endpointKey !== null
-      const current = await facts()
       const connection = await selected(current)
       const reports = connectionReports(current)
       return {

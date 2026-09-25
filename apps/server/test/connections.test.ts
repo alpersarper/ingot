@@ -434,7 +434,7 @@ describe('the local Claude CLI as a provider', () => {
     await expect(client.complete(ASK)).rejects.toThrow(/claude auth login/)
   })
 
-  it('calls a subscription limit a rate limit, and says nothing is being billed', async () => {
+  it('calls a usage limit a rate limit and carries the detail, without claiming what it costs', async () => {
     const client = createClaudeCliClient(
       { connection: 'claude-cli', model: 'claude-sonnet-5' },
       { run: runnerReturning({ stdout: cliFailure(429, 'Usage limit reached') }), binary: 'claude' },
@@ -442,7 +442,12 @@ describe('the local Claude CLI as a provider', () => {
     const error = await client.complete(ASK).catch((cause: unknown) => cause)
     expect(error).toBeInstanceOf(LlmError)
     expect((error as LlmError).kind).toBe('rate-limit')
-    expect((error as LlmError).message).toContain('nothing here is billed per call')
+    expect((error as LlmError).status).toBe(429)
+    expect((error as LlmError).message).toContain('usage limit')
+    expect((error as LlmError).message).toContain('Usage limit reached')
+    // The client cannot see how the CLI is signed in, so it must not say who
+    // pays: on a Console-keyed CLI this is a paid key's rate limit.
+    expect((error as LlmError).message).not.toMatch(/billed/)
   })
 
   it('reports stderr when stdout was not JSON at all', async () => {

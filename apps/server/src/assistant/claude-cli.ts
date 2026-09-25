@@ -495,6 +495,12 @@ function modelOf(modelUsage: unknown, configured: string): string {
  * class stops being recognised the week somebody rewords a sentence. The
  * messages themselves are the CLI's own, which are written for a person at a
  * terminal and read perfectly well in a panel.
+ *
+ * None of them asserts a billing fact. This client cannot know how the CLI is
+ * signed in -- a 429 on a Console-keyed CLI is a paid key's rate limit, and
+ * "nothing here is billed" would be a knowably wrong label with no error. The
+ * connection's summary and the panel row say what is billed, because they
+ * have the probe's auth classification and this client does not.
  */
 function cliError(envelope: Envelope, binary: string): LlmError {
   const detail = envelope.result === '' ? 'the CLI reported an error with no detail' : envelope.result
@@ -508,11 +514,7 @@ function cliError(envelope: Envelope, binary: string): LlmError {
     )
   }
   if (status === 429) {
-    return new LlmError(
-      'rate-limit',
-      `the local Claude CLI hit a usage limit: ${detail}. Subscription limits reset on their own; nothing here is billed per call.`,
-      status,
-    )
+    return new LlmError('rate-limit', `the local Claude CLI hit a usage limit: ${detail}`, status)
   }
   if (status !== undefined && status >= 400 && status < 500) {
     return new LlmError('invalid-request', `the local Claude CLI refused the request: ${detail}`, status)
