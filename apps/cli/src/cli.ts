@@ -14,7 +14,7 @@ import { spawn } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { ENGINE_NAME } from '@ingot/engine'
-import { loadConfig, PAIRING_TOKEN_ROTATED_NOTICE, startPanel } from '@ingot/server'
+import { loadConfig, startPanel } from '@ingot/server'
 import type { PanelHandle } from '@ingot/server'
 import { HELP, parseArgs } from './args'
 import { packagedPanelDir, pairingUrl, panelEnv, panelUrl, portHeld } from './resolve'
@@ -64,10 +64,16 @@ async function ingotAnswersOn(url: string): Promise<boolean> {
   }
 }
 
-function isPairingTokenConflict(cause: unknown): cause is Error {
-  return (
-    cause instanceof Error && (cause as { code?: unknown }).code === 'INGOT_PAIRING_TOKEN_CONFLICT'
-  )
+/** A startup the server refused with a message meant for a person, not a crash. */
+function isRefusal(cause: unknown): cause is Error {
+  const code = cause instanceof Error ? (cause as { code?: unknown }).code : undefined
+  return code === 'INGOT_PAIRING_TOKEN_CONFLICT' || code === 'INGOT_CONFIG'
+}
+
+function refuse(cause: Error): undefined {
+  process.stderr.write(`\n  ingot: ${cause.message}\n\n`)
+  process.exitCode = 1
+  return undefined
 }
 
 function out(text: string): void {
@@ -92,22 +98,24 @@ export async function run(argv: readonly string[]): Promise<PanelHandle | undefi
     return undefined
   }
 
-  const config = loadConfig(
-    panelEnv(parsed.options, process.env, {
-      home: homedir(),
-      panelDir: packagedPanelDir(import.meta.url),
-    }),
-  )
+  let config
+  try {
+    config = loadConfig(
+      panelEnv(parsed.options, process.env, {
+        home: homedir(),
+        panelDir: packagedPanelDir(import.meta.url),
+      }),
+    )
+  } catch (cause) {
+    if (isRefusal(cause)) return refuse(cause)
+    throw cause
+  }
 
   let handle
   try {
     handle = await startPanel(config)
   } catch (cause) {
-    if (isPairingTokenConflict(cause)) {
-      process.stderr.write(`\n  ingot: ${cause.message}\n\n`)
-      process.exitCode = 1
-      return undefined
-    }
+    if (isRefusal(cause)) return refuse(cause)
     if (!isAddressInUse(cause)) throw cause
     const url = panelUrl(config.host, config.port)
     const outcome = portHeld(parsed.options, {
@@ -129,7 +137,7 @@ export async function run(argv: readonly string[]): Promise<PanelHandle | undefi
       `  Token     ${handle.pairingToken}\n` +
       `            also in ${handle.tokenFile}, and needed by the capture extension\n\n`,
   )
-  if (handle.pairingTokenRotated) out(`  ${PAIRING_TOKEN_ROTATED_NOTICE}\n\n`)
+  if (handle.pairingTokenNotice !== undefined) out(`  ${handle.pairingTokenNotice}\n\n`)
 
   if (parsed.options.open) {
     openBrowser(pairingUrl(handle.config.host, handle.port, handle.pairingToken))

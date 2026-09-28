@@ -99,7 +99,15 @@ screen that looks like a login invites someone to type a password into it.
 A pinned token that differs from the one the data directory stores refuses to
 start and changes nothing, because another panel may still be serving that
 library with the stored token. Replacing it -- a leaked token, say -- is a
-deliberate act: pin the new token *and* ask for rotation.
+deliberate act: pin the new token *and* ask for rotation. Rotation is a modifier
+on a pinned token, never an action by itself.
+
+Generate the new token the way the server mints them (32 random bytes,
+base64url):
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+```
 
 - npx: `npx ingot-workbench --token <new> --rotate-token`.
 - Docker compose: set `INGOT_PAIRING_TOKEN=<new>` and
@@ -107,11 +115,19 @@ deliberate act: pin the new token *and* ask for rotation.
   `docker compose up -d`.
 
 The startup output says the token was **rotated** and that every browser and
-extension paired with the old one must pair again. Pinning the token already
-stored is a no-op, so leaving both variables set afterwards is harmless. Under
-compose's `restart: unless-stopped` an unresolved conflict restarts the
-container over and over until it is resolved, which is why the error names
-`INGOT_PAIRING_TOKEN_ROTATE` and the stored token's file rather than a flag a
+extension paired with the old one must pair again. With the new token already
+stored, a later start that still asks for rotation changes nothing and says so,
+so leaving both variables set afterwards is harmless.
+
+The rotate setting *without* a pinned token -- `--rotate-token` alone, or
+`INGOT_PAIRING_TOKEN_ROTATE=1` with `INGOT_PAIRING_TOKEN` unset -- is a usage
+error that exits non-zero before opening anything. It deliberately does not mint
+a fresh token instead: left set in a compose file, that would mint on every
+restart and unpair the browser and the extension again each time.
+
+Under compose's `restart: unless-stopped` an unresolved conflict, or a rotate
+setting with no token, restarts the container over and over until it is
+resolved, which is why both errors name the variables rather than a flag a
 container cannot take.
 
 **CORS.** `apps/server/src/cors.ts` answers preflights for the allowlist and

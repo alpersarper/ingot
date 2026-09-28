@@ -60,10 +60,26 @@ export const PAIRING_TOKEN_ROTATED_NOTICE =
   'Pairing token ROTATED: the pinned token replaced the one this data directory stored. ' +
   'Browsers and extensions paired with the old token must pair again.'
 
-/** The token this server will accept, and whether establishing it replaced another. */
+/** Printed when rotation was asked for but the pinned token was already the stored one. */
+export const PAIRING_TOKEN_ALREADY_CURRENT_NOTICE =
+  'Pairing token rotation was asked for, but the pinned token is already the stored one: ' +
+  `nothing changed, and paired browsers and extensions stay paired. ${PAIRING_ROTATE_ENV} ` +
+  '(--rotate-token) can be dropped.'
+
+/** Printed when rotation was asked for on a data directory that had no token yet. */
+export const PAIRING_TOKEN_FIRST_NOTICE =
+  'Pairing token rotation was asked for, but this data directory had no token yet: the pinned ' +
+  `one is now its first, and nothing was unpaired. ${PAIRING_ROTATE_ENV} (--rotate-token) can be dropped.`
+
+/**
+ * The token this server will accept, whether establishing it replaced another,
+ * and -- whenever rotation was asked for -- the sentence a launcher must print
+ * about what happened.
+ */
 export interface ResolvedPairingToken {
   readonly token: string
   readonly rotated: boolean
+  readonly notice: string | undefined
 }
 
 /**
@@ -86,15 +102,20 @@ export async function resolvePairingToken(
 ): Promise<ResolvedPairingToken> {
   const existing = await store.settings.get(PAIRING_TOKEN_KEY)
   if (fromEnv !== undefined) {
-    if (existing === fromEnv) return { token: fromEnv, rotated: false }
+    if (existing === fromEnv) {
+      return { token: fromEnv, rotated: false, notice: rotate ? PAIRING_TOKEN_ALREADY_CURRENT_NOTICE : undefined }
+    }
     if (existing !== null && !rotate) throw new PairingTokenConflictError()
     await store.settings.set(PAIRING_TOKEN_KEY, fromEnv)
-    return { token: fromEnv, rotated: existing !== null }
+    if (existing === null) {
+      return { token: fromEnv, rotated: false, notice: rotate ? PAIRING_TOKEN_FIRST_NOTICE : undefined }
+    }
+    return { token: fromEnv, rotated: true, notice: PAIRING_TOKEN_ROTATED_NOTICE }
   }
-  if (existing !== null) return { token: existing, rotated: false }
+  if (existing !== null) return { token: existing, rotated: false, notice: undefined }
   const minted = generatePairingToken()
   await store.settings.set(PAIRING_TOKEN_KEY, minted)
-  return { token: minted, rotated: false }
+  return { token: minted, rotated: false, notice: undefined }
 }
 
 /** Constant-time compare, so a wrong token leaks nothing about the right one. */

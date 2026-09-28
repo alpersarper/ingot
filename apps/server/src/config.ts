@@ -11,6 +11,25 @@ import { DEFAULT_ASSISTANT_RATE_LIMIT, DEFAULT_ASSISTANT_RATE_WINDOW_MS } from '
 import { CONNECTION_IDS, isConnectionId } from './assistant/connections'
 import type { ConnectionId } from './assistant/connections'
 
+/**
+ * A configuration the server refuses before it opens anything.
+ *
+ * Its own class so both launchers can print it as the one-paragraph usage error
+ * it is, rather than as a crash with a stack trace.
+ */
+export class ConfigError extends Error {
+  readonly code = 'INGOT_CONFIG'
+
+  constructor(message: string) {
+    super(message)
+    this.name = 'ConfigError'
+  }
+}
+
+/** One line that mints a token the way the server does: 32 random bytes, base64url. */
+export const GENERATE_TOKEN_COMMAND =
+  `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`
+
 export interface ServerConfig {
   port: number
   host: string
@@ -96,7 +115,7 @@ function intFromEnv(env: NodeJS.ProcessEnv, key: string, fallback: number): numb
   if (raw === undefined || raw.trim() === '') return fallback
   const parsed = Number.parseInt(raw, 10)
   if (!/^\d+$/.test(raw.trim()) || parsed < 0 || parsed > 65535) {
-    throw new Error(`${key} must be a port number, received ${JSON.stringify(raw)}`)
+    throw new ConfigError(`${key} must be a port number, received ${JSON.stringify(raw)}`)
   }
   return parsed
 }
@@ -112,7 +131,7 @@ function countFromEnv(env: NodeJS.ProcessEnv, key: string, fallback: number): nu
   if (raw === undefined || raw.trim() === '') return fallback
   const parsed = Number.parseInt(raw, 10)
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`${key} must be a positive integer, received ${JSON.stringify(raw)}`)
+    throw new ConfigError(`${key} must be a positive integer, received ${JSON.stringify(raw)}`)
   }
   return parsed
 }
@@ -146,7 +165,7 @@ function flagFromEnv(env: NodeJS.ProcessEnv, key: string): boolean {
   const raw = env[key]?.trim().toLowerCase()
   if (raw === undefined || raw === '' || raw === '0' || raw === 'false') return false
   if (raw === '1' || raw === 'true') return true
-  throw new Error(`${key} must be 1 or 0, received ${JSON.stringify(env[key])}`)
+  throw new ConfigError(`${key} must be 1 or 0, received ${JSON.stringify(env[key])}`)
 }
 
 function optional(env: NodeJS.ProcessEnv, key: string): string | undefined {
@@ -161,6 +180,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const dataDir = resolve(env['INGOT_DATA_DIR'] ?? './data')
   const configured = listFromEnv(env, 'INGOT_PANEL_ORIGIN')
   const panelDir = optional(env, 'INGOT_PANEL_DIR')
+  const pairingToken = optional(env, 'INGOT_PAIRING_TOKEN')
+  const rotatePairingToken = flagFromEnv(env, 'INGOT_PAIRING_TOKEN_ROTATE')
+
+  // Rotation is a modifier on a pinned token, never an action by itself, and
+  // nothing goes quiet: alone it is refused here, before anything is opened.
+  // It does not mint a fresh token instead, because left set in a compose file
+  // under `restart: unless-stopped` that would mint on every restart and unpair
+  // the browser and the extension again each time.
+  if (rotatePairingToken && pairingToken === undefined) {
+    throw new ConfigError(
+      'INGOT_PAIRING_TOKEN_ROTATE (--rotate-token) rotates to a pinned token, and none is pinned, ' +
+        'so nothing was changed. Pin the new token with INGOT_PAIRING_TOKEN (--token) alongside ' +
+        `it, or drop the rotate setting. To generate one: ${GENERATE_TOKEN_COMMAND}`,
+    )
+  }
 
   return {
     port: intFromEnv(env, 'INGOT_PORT', 4310),
@@ -172,8 +206,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     // Without an explicit list, allow only the dev panel. Any other page that
     // wants in has to be named, which is the point of locking CORS down.
     allowedOrigins: configured.length > 0 ? configured : [DEV_PANEL_ORIGIN],
-    pairingToken: optional(env, 'INGOT_PAIRING_TOKEN'),
-    rotatePairingToken: flagFromEnv(env, 'INGOT_PAIRING_TOKEN_ROTATE'),
+    pairingToken,
+    rotatePairingToken,
     llmApiKey: optional(env, 'INGOT_LLM_API_KEY'),
     llmEndpointKey: optional(env, 'INGOT_LLM_ENDPOINT_KEY'),
     llmConnection: connectionFromEnv(env),

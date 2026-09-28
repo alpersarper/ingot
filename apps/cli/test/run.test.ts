@@ -55,9 +55,13 @@ beforeEach(async () => {
     stderr += String(chunk)
     return true
   })
+  // Every run reads the whole environment through `panelEnv`, so any ambient
+  // `INGOT_*` -- a pinned token, a rotate flag, a port -- would change what is
+  // under test. Clear them all, then set only what this suite means to.
+  for (const key of Object.keys(process.env)) {
+    if (key.startsWith('INGOT_')) vi.stubEnv(key, undefined)
+  }
   vi.stubEnv('INGOT_DATA_DIR', dir)
-  vi.stubEnv('INGOT_HOST', undefined)
-  vi.stubEnv('INGOT_PAIRING_TOKEN', undefined)
 })
 
 afterEach(async () => {
@@ -155,13 +159,43 @@ describe('a pinned token that disagrees with the library', () => {
     expect(await verifies(running.port, 'OLD')).toBe(401)
   })
 
-  it('says nothing about rotation when --rotate-token pins the token already stored', async () => {
+  it('notes, rather than announces a rotation, when --rotate-token pins the token already stored', async () => {
     const first = await startOwnPanel('OLD')
     await first.close()
 
     running = await run(['--no-open', '--token', 'OLD', '--rotate-token'])
     if (running === undefined) throw new Error('expected a running panel')
     expect(stdout).not.toContain('ROTATED')
+    expect(stdout).toContain('already the stored one')
+    expect(stdout).toContain('stay paired')
     expect(await verifies(running.port, 'OLD')).toBe(200)
+  })
+})
+
+describe('--rotate-token without a pinned token', () => {
+  it('is a usage error that opens and writes nothing', async () => {
+    const first = await startOwnPanel('OLD')
+    await first.close()
+    const before = await readFile(first.tokenFile)
+    const database = await readFile(first.config.databaseFile)
+
+    expect(await invoke(['--rotate-token'])).toBe(1)
+    expect(stderr).toContain('INGOT_PAIRING_TOKEN (--token)')
+    expect(stderr).toContain('drop the rotate setting')
+    expect(stderr).toContain("randomBytes(32).toString('base64url')")
+    expect(stdout).toBe('')
+
+    expect(await readFile(first.tokenFile)).toEqual(before)
+    expect(await readFile(first.config.databaseFile)).toEqual(database)
+  })
+
+  it('is refused the same way when it arrives from the environment', async () => {
+    const fresh = join(dir, 'fresh')
+    vi.stubEnv('INGOT_DATA_DIR', fresh)
+    vi.stubEnv('INGOT_PAIRING_TOKEN_ROTATE', '1')
+
+    expect(await invoke([])).toBe(1)
+    expect(stderr).toContain('INGOT_PAIRING_TOKEN_ROTATE (--rotate-token)')
+    await expect(stat(fresh)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 })

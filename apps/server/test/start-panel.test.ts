@@ -128,13 +128,20 @@ describe('startPanel', () => {
     expect(running.pairingToken).toBe('NEW')
   })
 
-  it('treats rotation to the token already stored, or onto a fresh library, as no rotation', async () => {
+  it('treats rotation to the token already stored, or onto a fresh library, as no rotation, and says so', async () => {
     running = await startPanel(config({ pairingToken: 'OLD', rotatePairingToken: true }))
     expect(running.pairingTokenRotated).toBe(false)
+    expect(running.pairingTokenNotice).toContain('had no token yet')
     await running.close()
 
     running = await startPanel(config({ pairingToken: 'OLD', rotatePairingToken: true }))
     expect(running.pairingTokenRotated).toBe(false)
+    expect(running.pairingTokenNotice).toContain('already the stored one')
+  })
+
+  it('prints nothing about rotation when none was asked for', async () => {
+    running = await startPanel(config({ pairingToken: 'OLD' }))
+    expect(running.pairingTokenNotice).toBeUndefined()
   })
 })
 
@@ -149,7 +156,13 @@ describe('the server entry point', () => {
   function launch(env: Record<string, string>): ChildProcess {
     return spawn(process.execPath, ['--import', 'tsx', entry], {
       cwd: root,
-      env: { ...process.env, INGOT_DATA_DIR: dir, INGOT_HOST: '127.0.0.1', INGOT_PORT: '0', ...env },
+      env: {
+        ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('INGOT_'))),
+        INGOT_DATA_DIR: dir,
+        INGOT_HOST: '127.0.0.1',
+        INGOT_PORT: '0',
+        ...env,
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
   }
@@ -204,5 +217,22 @@ describe('the server entry point', () => {
     expect(stdout).toContain('must pair again')
     expect(stdout.indexOf('ROTATED')).toBeLessThan(stdout.indexOf('Pairing token: NEW'))
     expect(await readFile(join(dir, 'pairing-token.txt'), 'utf8')).toBe('NEW\n')
+  }, 20_000)
+
+  it('refuses INGOT_PAIRING_TOKEN_ROTATE without a pinned token, cleanly and before writing anything', async () => {
+    await seed('OLD')
+    const before = await readFile(join(dir, 'pairing-token.txt'))
+    const database = await readFile(join(dir, 'ingot.db'))
+
+    const child = launch({ INGOT_PAIRING_TOKEN_ROTATE: '1' })
+    const output = collect(child)
+    expect(await exited(child)).toBe(1)
+
+    expect(output.stderr()).toContain('INGOT_PAIRING_TOKEN (--token)')
+    expect(output.stderr()).toContain("randomBytes(32).toString('base64url')")
+    expect(output.stderr()).not.toMatch(/^\s+at /m)
+    expect(output.stdout()).toBe('')
+    expect(await readFile(join(dir, 'pairing-token.txt'))).toEqual(before)
+    expect(await readFile(join(dir, 'ingot.db'))).toEqual(database)
   }, 20_000)
 })

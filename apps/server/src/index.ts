@@ -23,9 +23,9 @@ import type { ServerType } from '@hono/node-server'
 import { createApp } from './app'
 import { createAssistant } from './assistant/service'
 import { createRateLimiter } from './assistant/rate-limit'
-import { loadConfig } from './config'
+import { ConfigError, loadConfig } from './config'
 import { createScreenshotStore } from './screenshots'
-import { PAIRING_TOKEN_ROTATED_NOTICE, PairingTokenConflictError, resolvePairingToken } from './pairing'
+import { PairingTokenConflictError, resolvePairingToken } from './pairing'
 import { createSqliteStore } from './storage/sqlite'
 import { systemClock, uuidIdFactory } from './storage/ids'
 import type { AppContext } from './context'
@@ -34,14 +34,16 @@ import type { ServerConfig } from './config'
 // The CLI (`apps/cli`) starts this server in-process, so the entry point is the
 // seam it depends on: configuration and startup come from here rather than from
 // a deep path into the server's internals.
-export { loadConfig } from './config'
+export { ConfigError, loadConfig } from './config'
 export type { ServerConfig } from './config'
-export { PAIRING_TOKEN_ROTATED_NOTICE, PairingTokenConflictError } from './pairing'
+export { PairingTokenConflictError } from './pairing'
 
 /** Open the volume and the database, and establish the pairing token. */
 export async function createContext(
   config: ServerConfig,
-): Promise<AppContext & { readonly pairingTokenRotated: boolean }> {
+): Promise<
+  AppContext & { readonly pairingTokenRotated: boolean; readonly pairingTokenNotice: string | undefined }
+> {
   await mkdir(config.dataDir, { recursive: true })
   await mkdir(config.screenshotDir, { recursive: true })
 
@@ -56,8 +58,13 @@ export async function createContext(
 
   let pairingToken: string
   let pairingTokenRotated: boolean
+  let pairingTokenNotice: string | undefined
   try {
-    ;({ token: pairingToken, rotated: pairingTokenRotated } = await resolvePairingToken(
+    ;({
+      token: pairingToken,
+      rotated: pairingTokenRotated,
+      notice: pairingTokenNotice,
+    } = await resolvePairingToken(
       store,
       config.pairingToken,
       config.rotatePairingToken,
@@ -73,6 +80,7 @@ export async function createContext(
     screenshots: createScreenshotStore(config.screenshotDir),
     pairingToken,
     pairingTokenRotated,
+    pairingTokenNotice,
     // Built whether or not a key is configured: "no key" is an answer the
     // assistant gives, and the panel needs to be told it in order to show the
     // setup path. Nothing here reaches a provider until a route asks it to.
@@ -98,6 +106,8 @@ export interface PanelHandle {
   readonly tokenFile: string
   /** True when this start replaced a different stored token, which the caller must say. */
   readonly pairingTokenRotated: boolean
+  /** Set whenever rotation was asked for: what happened to the token, for the caller to print. */
+  readonly pairingTokenNotice: string | undefined
   /** Stop listening and close the database, as SIGINT/SIGTERM would, without exiting. */
   close(): Promise<void>
 }
@@ -198,6 +208,7 @@ export async function startPanel(config: ServerConfig = loadConfig()): Promise<P
     pairingToken: context.pairingToken,
     tokenFile,
     pairingTokenRotated: context.pairingTokenRotated,
+    pairingTokenNotice: context.pairingTokenNotice,
     close,
   }
 }
@@ -207,12 +218,12 @@ async function main(): Promise<void> {
   try {
     handle = await startPanel()
   } catch (cause) {
-    if (!(cause instanceof PairingTokenConflictError)) throw cause
+    if (!(cause instanceof PairingTokenConflictError) && !(cause instanceof ConfigError)) throw cause
     process.stderr.write(`\n  ${cause.message}\n\n`)
     process.exitCode = 1
     return
   }
-  if (handle.pairingTokenRotated) process.stdout.write(`\n  ${PAIRING_TOKEN_ROTATED_NOTICE}\n`)
+  if (handle.pairingTokenNotice !== undefined) process.stdout.write(`\n  ${handle.pairingTokenNotice}\n`)
   process.stdout.write(
     `\n  Pairing token: ${handle.pairingToken}\n` +
       `  Also written to ${handle.tokenFile}\n` +
