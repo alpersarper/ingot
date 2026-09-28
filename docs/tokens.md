@@ -27,7 +27,7 @@ document for the same captures apart from the two version stamps.
 Version 2 (engine 0.2.0) added the `components` section, the three state colour
 roles, and the `component`/`layout` banding on the spacing scale. Version 1
 described colour, type, spacing, radius, shadow and border and stopped there,
-which meant `design.md` could not say what a button was even in principle --
+which meant `design-kit.md` could not say what a button was even in principle --
 so every consumer invented its own control geometry, its own disabled state and
 its own page rhythm.
 
@@ -104,7 +104,7 @@ separately by `suggestedBy` on the decision. Absent -- the ordinary case -- mean
 the reviewer wrote the value themselves; `"assistant"` means they accepted one
 that was offered. It follows the value rather than the row: a note-only edit
 keeps it, because annotating a suggestion does not make you its author, and a
-later value change clears it, because the reviewer typed that one. `design.md`
+later value change clears it, because the reviewer typed that one. `design-kit.md`
 §10 names the tokens it applies to, since where a value came from is part of
 what makes it traceable. The full pipeline is in
 [docs/panel.md](panel.md#the-assistant).
@@ -124,7 +124,7 @@ deliberately *not* written into `tokens.json`. It is a statement about one
 replay against one review state, and a document carrying it would be presenting
 as evidence something that changes whenever a reviewer edits an override, with
 no captures behind it. Every surface that says what a reviewer answered takes
-the report instead, and `renderDesignMarkdown` takes either the stored
+the report instead, and `renderDesignKitMarkdown` takes either the stored
 distillation or the *whole* result — never an effective document on its own,
 which the document classes make unrepresentable. Writing an override is
 `planOverrideWrite`, which decides the same questions for a single write and
@@ -148,7 +148,7 @@ Applying one does three things beyond writing the value:
   reason does, so annotating an override does not quietly drop the report. A
   response that does retire one is itself recorded, as `resolvedConflict` on the
   override's own decision — the abandoned value, the engine's answer when it was
-  set, and the answer that was actually responded to — and `design.md` §10 names
+  set, and the answer that was actually responded to — and `design-kit.md` §10 names
   what was answered from the report's `retired` list rather than from the
   engine's answer in the current version, which after another regeneration is a
   number nobody answered. A warning that simply stopped appearing would be the
@@ -171,7 +171,7 @@ Applying one does three things beyond writing the value:
   palette now on screen, and a `color.contrast-adjusted` or
   `color.contrast-unmet` note is dropped wherever the token's own
   `contrastAdjustment` was dropped -- otherwise a sentence would keep describing
-  a walk between two hexes the document no longer holds, and `design.md` would
+  a walk between two hexes the document no longer holds, and `design-kit.md` would
   keep declaring a pair unmet that an override has since fixed.
 - **Distinguishes a candidate from a standing decision.** A *candidate* whose
   value already equals the engine's answer is not an override and is refused --
@@ -186,7 +186,7 @@ Applying one does three things beyond writing the value:
   engine yielded on, where claiming agreement would credit the engine with a
   move it stepped aside from.
 - **Says so out loud.** Every applied override is named in an `override.applied`
-  info diagnostic, and `design.md` grows a `## 10. User overrides` section
+  info diagnostic, and `design-kit.md` grows a `## 10. User overrides` section
   listing each value, the engine's own answer, and the reviewer's reason.
 - **Lets a reviewer supply the one thing the engine will not.** `color.roles.destructive`
   is an overridable slot even where the kit has none, and nominating a colour
@@ -212,7 +212,7 @@ so the compiler refuses the mix-up:
 
 `baselineFor(tokens, overrides, path)` is the only way to build a baseline, so
 the write boundary and `applyOverrides` cannot end up answering the same
-question from two different documents — which is how `design.md` came to report
+question from two different documents — which is how `design-kit.md` came to report
 that a conflict had been answered against a value nobody was ever shown.
 `baseValue` is recorded from the baseline for the same reason: it is an input to
 that comparison, and a value recorded from one document and compared against
@@ -237,7 +237,7 @@ A few slots share one token. A typography step carries a size, a line height and
 a weight behind a single provenance record, so an override there records which
 fields it set, in `fields` on the decision, and what stood in that field before,
 in `supersededValue`. Both are what every surface reads — the slot enumeration,
-the origin label, `design.md` §10 and the per-component markdown — so setting the
+the origin label, `design-kit.md` §10 and the per-component markdown — so setting the
 size of a step leaves its line height reading as measured, with the engine's own
 decision still attached, rather than claiming two values a human never touched;
 and overriding the line height reports the line height the engine chose rather
@@ -432,7 +432,7 @@ OKLab distance between the pair, against a floor that depends on the job:
 | `surfaceHover`/`surface`, `selectedSurface`/`surface`, `selectedSurface`/`surfaceHover` | **0.015** | A hovered or selected row marks a position rather than announcing a state, and is deliberately quieter. Judging it by the control floor would flood every kit with a note about a state that works. |
 
 `color.state-collapsed` is what remains when the palette really has no chroma
-left to spend, and `design.md` then tells the consumer to signal that state with
+left to spend, and `design-kit.md` then tells the consumer to signal that state with
 something other than the fill. The alternative was two tokens with one value
 under prose claiming they differ -- and, before the floor replaced an equality
 test, two tokens 1.04:1 apart under prose that said nothing at all.
@@ -467,7 +467,7 @@ and then left alone. It is the override path key (`spacing.steps.3`) and the
 `--kit-space-<name>` variable suffix, so a reviewer overriding a step to a length
 off the base scale keeps the name and every reference to it; `multiple` is the
 field that carries the arithmetic, and it stops being a whole number in exactly
-that case. `design.md` states the "every length is a multiple of the base unit"
+that case. `design-kit.md` states the "every length is a multiple of the base unit"
 rule only when the shipped steps really are all exact multiples.
 
 Snapping *is* the clustering: lengths that land on the same multiple are the same
@@ -570,7 +570,7 @@ Three sources of authority, distinguishable **per value** from the token's own
 | supplied by the engine | `sanctioned-default`, method `component-default` | badge padding, table radius: nothing in a capture set describes either |
 
 Padding is snapped onto the spacing scale with the same rule the scale itself
-used, so a recipe can never name an off-scale length. `design.md` prints the mix
+used, so a recipe can never name an off-scale length. `design-kit.md` prints the mix
 per recipe in a `From` column.
 
 Where derivation is impossible the engine emits a stated default rather than
@@ -620,7 +620,7 @@ Being an override is also what answers *who, when and what*. **What** is the
 path, the value and the reviewer's reason, all on the token's own decision, with
 the engine's answer at the time in `supersedes`. **When** is the override row's
 `createdAt`/`updatedAt` in the panel's store -- deliberately not in the exports,
-because a timestamp in `design.md` would break determinism. **Who** is the
+because a timestamp in `design-kit.md` would break determinism. **Who** is the
 reviewer: the panel is a single-user local workbench with no accounts, so
 `user-override` names the only person there is. A hosted, multi-user Ingot would
 have to put an identity on the row; the seam for it is `OverrideInput`.
@@ -632,7 +632,7 @@ engine then finishes the job -- `destructiveForeground` by the same
 best-contrast-pole rule `assignRoles` uses, the two contrast pairs, and the
 destructive button assembled by the same function the distiller calls.
 
-`design.md` states whichever is true. `unresolved` keeps the prohibition and
+`design-kit.md` states whichever is true. `unresolved` keeps the prohibition and
 prescribes nothing, because prescribing a substitute would settle a question the
 reviewer has not. `acknowledged` prescribes the non-colour error language in
 full -- an icon, the kit's emphasis weight, and an explicit `Error: ` prefix --

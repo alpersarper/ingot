@@ -320,7 +320,7 @@ describe('assistant proposals in the queue', () => {
  * The kit with no error colour.
  *
  * The absence is a decision somebody has to make, so it reaches the reviewer as
- * a card rather than as a line in `design.md` nobody opens -- and the card
+ * a card rather than as a line in `design-kit.md` nobody opens -- and the card
  * carries the exit the Tokens tab cannot offer in one click.
  */
 describe('the missing error colour', () => {

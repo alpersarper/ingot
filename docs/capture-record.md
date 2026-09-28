@@ -26,7 +26,7 @@ descriptions cannot drift apart silently.
 ```
 
 `id` becomes the output directory name under `examples/`. `name` and
-`description` are reproduced verbatim at the top of the generated `design.md`,
+`description` are reproduced verbatim at the top of the generated `design-kit.md`,
 so write them for the developer who will read the spec.
 
 ## Record

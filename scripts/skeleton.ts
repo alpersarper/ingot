@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 /**
- * The walking skeleton: fixtures in, `examples/<set>/tokens.json` and
- * `examples/<set>/design.md` out.
+ * The walking skeleton: fixtures in, `examples/<set>/tokens.json`,
+ * `examples/<set>/design-kit.md` and `examples/<set>/DESIGN.md` out.
  *
  *   pnpm skeleton          regenerate every example
  *   pnpm skeleton --check  regenerate in memory and fail on any drift
@@ -12,7 +12,7 @@
 import { readdir, readFile, mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { distill, renderDesignMarkdown, serializeTokens } from '@ingot/engine'
+import { distill, renderDesignKitMarkdown, renderSpecDesignMarkdown, serializeTokens } from '@ingot/engine'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const FIXTURES = join(ROOT, 'fixtures')
@@ -43,7 +43,8 @@ export async function renderSet(setId: string): Promise<Output[]> {
   }
   return [
     { path: join(EXAMPLES, setId, 'tokens.json'), contents: serializeTokens(tokens) },
-    { path: join(EXAMPLES, setId, 'design.md'), contents: renderDesignMarkdown(tokens) },
+    { path: join(EXAMPLES, setId, 'design-kit.md'), contents: renderDesignKitMarkdown(tokens) },
+    { path: join(EXAMPLES, setId, 'DESIGN.md'), contents: renderSpecDesignMarkdown(tokens) },
   ]
 }
 

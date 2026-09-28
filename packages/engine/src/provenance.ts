@@ -109,7 +109,7 @@ export interface DominantChoice {
    *
    * A typography step is one token carrying a size, a line height and a weight,
    * so one provenance record answers for three overridable positions. Without
-   * this, setting the size would mark all three as hand-set -- `design.md` would
+   * this, setting the size would mark all three as hand-set -- `design-kit.md` would
    * name three overrides for one edit and state an engine answer belonging to a
    * different field. This is the record of what was actually touched, and every
    * surface that labels a value reads it rather than approximating it.
@@ -318,7 +318,7 @@ export function sanction(chosen: string, derivation: Derivation): DominantChoice
  *
  * The engine's own decision is carried in `supersedes` rather than thrown away:
  * the panel needs it to report a conflict when fresh evidence disagrees with an
- * override, and `design.md` needs it to say what the kit would have chosen. An
+ * override, and `design-kit.md` needs it to say what the kit would have chosen. An
  * override never rewrites `observed` -- the evidence is what it is.
  *
  * `fields` and `supersededValue` are given only for a token that holds several

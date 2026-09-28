@@ -101,7 +101,7 @@ describe('sqlite adapter', () => {
     ])
     // The payloads came through the copy byte for byte, which is the whole risk
     // a table rebuild carries.
-    expect((await store.kits.get('k1'))?.designMd).toBe('# Warm')
+    expect((await store.kits.get('k1'))?.designKitMd).toBe('# Warm')
     // And the upgraded table admits what it was rebuilt for, in the library's
     // lineage: the next version after the library kit that was already there.
     const selection = await store.kits.create({
@@ -112,10 +112,40 @@ describe('sqlite adapter', () => {
       engineVersion: '0.2.0',
       captureIds: ['c-one'],
       tokensJson: '{}',
-      designMd: '# Sel',
+      designKitMd: '# Sel',
       warningCount: 0,
     })
     expect(selection.version).toBe(2)
+    await store.close()
+  })
+
+  /**
+   * The rename an older volume arrives needing.
+   *
+   * Ingot's richer artifact was `design.md` and its column was `design_md`;
+   * both are now `design-kit.md` / `design_kit_md`. The stored string is the
+   * engine's *own* bytes for that kit version -- what `effectiveKit()` replays
+   * overrides on top of -- so the migration renames the column and re-derives
+   * nothing. Re-rendering under a new column would restate every historical kit
+   * in today's engine's words, which is precisely what storing the bytes exists
+   * to prevent.
+   */
+  it('carries a pre-rename kit through the design_md to design_kit_md rename', async () => {
+    const file = join(await tempDir(), 'ingot.db')
+    const raw = new Database(file)
+    // One step short of the rename, so the row below really is written by the
+    // shape that shipped under the old name.
+    migrateTo(raw, 6)
+    expect(raw.pragma('table_info(kits)') as Array<{ name: string }>).toContainEqual(
+      expect.objectContaining({ name: 'design_md' }),
+    )
+    raw.exec(
+      `INSERT INTO kits VALUES ('k1', NULL, 'library', 1, 'library', 'Lib', '0.2.0', '["c-one"]', '{}', '# Old bytes', 0, 'then')`,
+    )
+    raw.close()
+
+    const store = createSqliteStore({ file, idFactory: countingIdFactory(), clock: steppingClock() })
+    expect((await store.kits.get('k1'))?.designKitMd).toBe('# Old bytes')
     await store.close()
   })
 

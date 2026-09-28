@@ -397,7 +397,7 @@ function fieldDoc(ctx: Context, id: 'input' | 'select', title: string, recipe: C
       `Help text is \`textMuted\` (${ctx.hex('textMuted') ?? 'n/a'}) at the smallest type step this kit has.`,
       ...(tokens.color.roles.destructive === undefined
         ? // The field is where a form's error state is actually drawn, so this
-          // page carries the same language `design.md` prescribes rather than a
+          // page carries the same language `design-kit.md` prescribes rather than a
           // shorter paraphrase of it -- per-component markdown is self-sufficient.
           [errorSignal.stateCell, ...errorSignal.language]
         : [

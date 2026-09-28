@@ -21,6 +21,7 @@
     "@ingot/engine": "workspace:*"
   },
   "devDependencies": {
+    "@google/design.md": "0.4.0",
     "@types/node": "^22.10.2",
     "ajv": "^8.17.1",
     "tsx": "^4.19.2",

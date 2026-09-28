@@ -365,7 +365,7 @@ function distillColor(
 
     // The walk that preceded the rescue is one record, and it now names a hex
     // and a ratio that are no longer the shipped ones. Amending it rather than
-    // adding a second record keeps `design.md`'s "moved away from" table a
+    // adding a second record keeps `design-kit.md`'s "moved away from" table a
     // description of where the colour actually ended up.
     const adjustment = adjustments.get(rescue.role)
     if (adjustment === undefined) continue

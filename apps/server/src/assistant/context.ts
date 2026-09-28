@@ -37,7 +37,7 @@
  * Origins are the one judgement call, and they are in on purpose: "eleven
  * captures from stripe.com and three from linear.app" is a large part of what
  * makes a naming or merge suggestion sensible rather than generic, and it is
- * already in every `design.md` the user exports. The privacy note says so.
+ * already in every `design-kit.md` the user exports. The privacy note says so.
  */
 import { originOf, tokenSlots } from '@ingot/engine'
 import type { StoredOverride } from '../storage/store'

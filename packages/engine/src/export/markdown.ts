@@ -1,7 +1,7 @@
 /**
  * Markdown primitives shared by the export targets.
  *
- * Two of them now write documents -- the whole-library `design.md` and the
+ * Two of them now write documents -- the whole-library `design-kit.md` and the
  * per-component files -- and both are read by an LLM, so column alignment and
  * pluralisation have to be identical between them or the same kit reads as two
  * kits. Deterministic by construction: no locale-aware formatting anywhere.
@@ -19,7 +19,7 @@ function pad(value: string, width: number): string {
 /**
  * One cell, made safe for a pipe-delimited row.
  *
- * Cells carry reviewer prose: an override's reason reaches `design.md` and the
+ * Cells carry reviewer prose: an override's reason reaches `design-kit.md` and the
  * per-component files verbatim. An ordinary `|` in "8px is too tight | 12px
  * reads better" splits the row into extra columns and corrupts the table for
  * every reader of the primary deliverable, and a newline ends the row outright.

@@ -112,7 +112,7 @@ export function errorSignalDiagnostic(mode: ErrorSignalMode): Diagnostic | undef
       path: 'components.states.error.mode',
       message:
         'This kit has no destructive colour and a reviewer acknowledged that it ships without one. A form here ' +
-        'cannot signal an error in colour, so `design.md` prescribes the non-colour error language instead: ' +
+        'cannot signal an error in colour, so `design-kit.md` prescribes the non-colour error language instead: ' +
         'an icon, the emphasis weight and an explicit `Error:` prefix on the message. The ' +
         'acknowledgment stands until a person clears it -- if a later capture set supplies a red, that is ' +
         'reported as a conflict rather than quietly taken.',
@@ -126,7 +126,7 @@ export function errorSignalDiagnostic(mode: ErrorSignalMode): Diagnostic | undef
       'No captured colour in this set reads as a red, so this kit has no destructive colour -- and a brand ' +
       'decision is the one thing the engine will not default. The consequence is concrete: a form built ' +
       'against this kit cannot signal errors in colour. Either set an error colour on `color.roles.destructive`, or ' +
-      'acknowledge that the kit ships without one so `design.md` can prescribe the non-colour error language ' +
+      'acknowledge that the kit ships without one so `design-kit.md` can prescribe the non-colour error language ' +
       'instead of only stating the prohibition.',
   }
 }
@@ -634,7 +634,7 @@ export function distillComponents(
       // The box every other recipe is drawn inside, and the one that sets a
       // page's density. Every fixture set captures cards, so its padding and
       // radius are measured rather than invented -- the third of the card a
-      // consumer used to have to guess, and the one a `design.md` reader felt
+      // consumer used to have to guess, and the one a `design-kit.md` reader felt
       // first.
       name: 'card',
       purpose: 'Panels, cards and any titled box that holds other components.',
@@ -788,7 +788,7 @@ export function distillComponents(
    * How this kit signals an invalid field.
    *
    * The engine will not invent a brand colour, so a palette with no red gets no
-   * `destructive` role -- and that used to be the end of it: `design.md` stated
+   * `destructive` role -- and that used to be the end of it: `design-kit.md` stated
    * the prohibition and a consumer built a form whose invalid field looked
    * exactly like a valid one. The absence is a *decision* now rather than a
    * silence: `unresolved` says the question is open and names the consequence,

@@ -25,6 +25,7 @@ import { CanonicalPreview } from './preview/CanonicalPreview'
 import type { PreviewView } from './preview/CanonicalPreview'
 import type { PreviewTheme } from './preview/counterpart'
 import { ApiError, api, saveBlob, storeToken, storedToken } from './lib/api'
+import type { KitFile } from './lib/api'
 import type {
   AssistantAnswer,
   AssistantNaming,
@@ -400,7 +401,7 @@ export function App(): ReactNode {
     })
   }
 
-  async function onDownload(file: 'tokens.json' | 'design.md'): Promise<void> {
+  async function onDownload(file: KitFile): Promise<void> {
     if (kit === null) return
     try {
       await api.download(kit.kit.id, file)

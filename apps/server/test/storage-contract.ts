@@ -217,7 +217,7 @@ export function describeStoreContract(name: string, createStore: () => Store | P
         engineVersion: '0.2.0',
         captureIds: ['c-one'],
         tokensJson: '{"schemaVersion":2}\n',
-        designMd: '# Warm\n',
+        designKitMd: '# Warm\n',
         warningCount: 0,
       }
 
@@ -237,7 +237,7 @@ export function describeStoreContract(name: string, createStore: () => Store | P
       it('returns the highest version per scope from latest()', async () => {
         const group = await store.groups.create({ slug: 'warm', name: 'Warm', description: 'Warm things.' })
         await store.kits.create({ ...kitInput, groupId: group.id })
-        const newest = await store.kits.create({ ...kitInput, groupId: group.id, designMd: '# Warm v2\n' })
+        const newest = await store.kits.create({ ...kitInput, groupId: group.id, designKitMd: '# Warm v2\n' })
 
         expect((await store.kits.latest(group.id))?.id).toBe(newest.id)
         expect(await store.kits.latest(null)).toBeNull()
@@ -247,7 +247,7 @@ export function describeStoreContract(name: string, createStore: () => Store | P
         const kit = await store.kits.create({ ...kitInput, groupId: null })
         const read = await store.kits.get(kit.id)
         expect(read?.tokensJson).toBe(kitInput.tokensJson)
-        expect(read?.designMd).toBe(kitInput.designMd)
+        expect(read?.designKitMd).toBe(kitInput.designKitMd)
         expect(read?.captureIds).toEqual(['c-one'])
       })
 
@@ -330,7 +330,7 @@ export function describeStoreContract(name: string, createStore: () => Store | P
           engineVersion: '0.2.0',
           captureIds: ['c-one'],
           tokensJson: '{}\n',
-          designMd: '# Warm\n',
+          designKitMd: '# Warm\n',
           warningCount: 0,
           groupId: group.id,
         })
@@ -459,7 +459,7 @@ export function describeStoreContract(name: string, createStore: () => Store | P
           path: 'border.width',
           value: '4px',
           baseValue: '3px',
-          // Three values, because the sentence design.md prints needs all
+          // Three values, because the sentence design-kit.md prints needs all
           // three: what was abandoned, what the engine said then, and the
           // answer that was actually responded to.
           resolvedConflict: { value: '2px', baseValue: '1px', engineValue: '3px' },

@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { distill, serializeTokens } from '../src/distill'
 import { round } from '../src/util/num'
-import { renderDesignMarkdown } from '../src/export/design-md'
+import { renderDesignKitMarkdown } from '../src/export/design-kit-md'
 import { renderComponentMarkdown } from '../src/export/component-md'
 import {
   applyOverrides,
@@ -54,7 +54,7 @@ function baseline(tokens: PristineTokens, path: string, others: TokenOverride[] 
 /**
  * The cells of one markdown table row.
  *
- * `design.md` is a generated text contract, so splitting a row the way a
+ * `design-kit.md` is a generated text contract, so splitting a row the way a
  * markdown reader does is the way to ask how many columns it really has: an
  * unescaped pipe in a cell shows up here as an extra column.
  */
@@ -521,7 +521,7 @@ describe('what an override invalidates', () => {
       // Every surviving note still describes a walk the document carries...
       expect(next.color.roles[role]?.contrastAdjustment).toBeDefined()
       // ...and its level agrees with the ratios as they now stand, so a pair an
-      // override fixed stops being reported as unmet in `design.md`.
+      // override fixed stops being reported as unmet in `design-kit.md`.
       expect(entry.code).toBe(failing.has(entry.path ?? '') ? 'color.contrast-unmet' : 'color.contrast-adjusted')
       expect(entry.level).toBe(failing.has(entry.path ?? '') ? 'warning' : 'info')
     }
@@ -625,7 +625,7 @@ describe('a conflict is judged against the slot\'s own baseline', () => {
   it('reports no conflict when the reviewer disagreed with exactly that answer', () => {
     // The reviewer sees the re-derived height and overrides it. Judging that
     // against the pristine value would invent a disagreement with a number the
-    // reviewer was never shown -- and design.md would go on to say the captures
+    // reviewer was never shown -- and design-kit.md would go on to say the captures
     // "moved to" the value the override was made against.
     const { report } = applyOverrides(tokens, [
       borderOverride,
@@ -709,8 +709,8 @@ describe('a conflict the reviewer answered', () => {
     expect(decision.summary).toContain('in answer to the conflict against 2px')
   })
 
-  it('says so in design.md, which is what a consumer actually reads', () => {
-    const markdown = renderDesignMarkdown(applyOverrides(tokens, [answered]))
+  it('says so in design-kit.md, which is what a consumer actually reads', () => {
+    const markdown = renderDesignKitMarkdown(applyOverrides(tokens, [answered]))
     expect(markdown).toContain('answered a conflict with new evidence rather than simply being edited')
     expect(markdown).toContain('`border.width` is now 4px')
     expect(markdown).toContain('It was 2px, set when the engine said 0.5px')
@@ -732,14 +732,14 @@ describe('a conflict the reviewer answered', () => {
     // The report leaves it out, which is what §10 reads.
     expect(reviewed.report.retired).toEqual([])
 
-    const markdown = renderDesignMarkdown(reviewed)
+    const markdown = renderDesignKitMarkdown(reviewed)
     expect(markdown).toContain('**override.conflict**')
     expect(markdown).toContain('## 10. User overrides')
     expect(markdown).not.toContain('answered a conflict with new evidence')
   })
 
   it('says nothing about answered conflicts on an override that answered none', () => {
-    const markdown = renderDesignMarkdown(
+    const markdown = renderDesignKitMarkdown(
       applyOverrides(tokens, [{ path: 'border.width', value: '4px', baseValue: engineValue }]),
     )
     expect(markdown).toContain('## 10. User overrides')
@@ -753,9 +753,9 @@ describe('a conflict the reviewer answered', () => {
   })
 })
 
-describe('design.md with overrides', () => {
+describe('design-kit.md with overrides', () => {
   it('says nothing about overrides when there are none', () => {
-    const markdown = renderDesignMarkdown(kit())
+    const markdown = renderDesignKitMarkdown(kit())
     expect(markdown).not.toContain('## 10. User overrides')
     expect(markdown).not.toContain('user override')
   })
@@ -763,7 +763,7 @@ describe('design.md with overrides', () => {
   it('states the overridden value, the engine\'s answer and the reason', () => {
     const tokens = kit()
     const engineHex = tokens.color.roles.primary?.value.hex
-    const markdown = renderDesignMarkdown(
+    const markdown = renderDesignKitMarkdown(
       applyOverrides(tokens, [
         { path: 'color.roles.primary', value: '#1155cc', note: 'the brand is moving to blue' },
       ]),
@@ -781,7 +781,7 @@ describe('design.md with overrides', () => {
 
   it('survives a reason containing a pipe, which markdown reads as a column break', () => {
     const note = '8px is too tight | 12px reads better\nand it matches the header'
-    const markdown = renderDesignMarkdown(applyOverrides(kit(), [{ path: 'radius.steps.md', value: '10px', note }]))
+    const markdown = renderDesignKitMarkdown(applyOverrides(kit(), [{ path: 'radius.steps.md', value: '10px', note }]))
 
     // §10 is a four-column table. The reviewer's prose must not add a fifth.
     const rows = markdown
@@ -806,7 +806,7 @@ describe('design.md with overrides', () => {
 
     // Un-reviewed, every step is snapped onto the base unit, so the blanket
     // rule is true and is stated.
-    expect(renderDesignMarkdown(tokens)).toContain(`is a multiple of ${base}px`)
+    expect(renderDesignKitMarkdown(tokens)).toContain(`is a multiple of ${base}px`)
 
     // A reviewer may set a step off that scale. The document must then stop
     // asserting the rule its own table breaks.
@@ -815,7 +815,7 @@ describe('design.md with overrides', () => {
       { path: `spacing.steps.${step?.value.name as string}`, value: `${offScale}px` },
     ])
     const next = reviewed.tokens
-    const markdown = renderDesignMarkdown(reviewed)
+    const markdown = renderDesignKitMarkdown(reviewed)
     expect(markdown).not.toContain(`is a multiple of ${base}px`)
     expect(markdown).toContain(`\`${step?.value.name as string}\` (${offScale}px)`)
     expect(markdown).toContain('A step name is an identifier, not a multiplier')
@@ -836,8 +836,8 @@ describe('design.md with overrides', () => {
 
   it('is deterministic with overrides applied', () => {
     const overrides: TokenOverride[] = [{ path: 'color.roles.primary', value: '#1155cc' }]
-    expect(renderDesignMarkdown(applyOverrides(kit(), overrides))).toBe(
-      renderDesignMarkdown(applyOverrides(kit(), overrides)),
+    expect(renderDesignKitMarkdown(applyOverrides(kit(), overrides))).toBe(
+      renderDesignKitMarkdown(applyOverrides(kit(), overrides)),
     )
   })
 })
@@ -882,8 +882,8 @@ describe('a typography step, which is three slots behind one record', () => {
     )
   })
 
-  it('names one value in design.md, and states the engine answer for that field', () => {
-    const markdown = renderDesignMarkdown(reviewed)
+  it('names one value in design-kit.md, and states the engine answer for that field', () => {
+    const markdown = renderDesignKitMarkdown(reviewed)
     expect(markdown).toContain('1 value below was set by hand in the Ingot panel')
     const rows = markdown
       .split('\n')
@@ -934,9 +934,9 @@ describe('a typography step, which is three slots behind one record', () => {
       expect(slot?.provenance.decision.supersedes?.chosen).toBe(engineAnswer)
       expect(slot?.provenance.decision.summary).toContain(`the engine chose ${engineAnswer}`)
 
-      // design.md §10 and the per-component "What was overridden" table read
+      // design-kit.md §10 and the per-component "What was overridden" table read
       // that one record, so both name the field's own prior value.
-      const row = renderDesignMarkdown(edited)
+      const row = renderDesignKitMarkdown(edited)
         .split('\n')
         .filter((line) => line.startsWith(`| \`${path}\``))
       expect(row).toHaveLength(1)
@@ -1125,7 +1125,7 @@ describe('planning one write', () => {
 
     it('claims no answer when the reviewer later moves the value', () => {
       // Nothing was disagreeing, so this change answered nothing. Recording a
-      // retirement here would have design.md announce a conflict that was never
+      // retirement here would have design-kit.md announce a conflict that was never
       // reported.
       const plan = stored(planOverrideWrite(tokens, converged, { path: 'border.width', value: '3px' }))
       expect(plan.retired).toBeUndefined()
@@ -1153,7 +1153,7 @@ describe('planning one write', () => {
       expect(plan.record.baseValue).toBe(rederived)
     })
 
-    it('reports the retirement, and design.md states the number off that report', () => {
+    it('reports the retirement, and design-kit.md states the number off that report', () => {
       const record = stored(planOverrideWrite(tokens, [borderOverride, stale], { path, value: '50px' })).record
       // Exactly the row the server would have stored, replayed back.
       const replayed: TokenOverride = { path, value: record.value, baseValue: record.baseValue }
@@ -1168,7 +1168,7 @@ describe('planning one write', () => {
       // The lookalike this whole seam exists to stop: `distilled` is what a
       // surface re-deriving "the engine's answer" from the document in front of
       // it would print, and nobody ever answered that number.
-      const markdown = renderDesignMarkdown(reviewed)
+      const markdown = renderDesignKitMarkdown(reviewed)
       expect(markdown).toContain(`the captures then moved to ${rederived}`)
       expect(markdown).not.toContain(`the captures then moved to ${distilled}`)
       expect(markdown).toContain(`\`${path}\` is now 50px`)
@@ -1236,17 +1236,17 @@ describe('where an accepted value came from', () => {
     if (retyped.outcome === 'stored') expect(retyped.record.suggestedBy).toBeUndefined()
   })
 
-  it('names the accepted suggestions in design.md, and stays silent otherwise', () => {
+  it('names the accepted suggestions in design-kit.md, and stays silent otherwise', () => {
     const tokens = kit()
     const engineValue = readTokenValue(tokens, path) as string
 
-    const suggested = renderDesignMarkdown(
+    const suggested = renderDesignKitMarkdown(
       applyOverrides(tokens, [{ path, value: '3px', baseValue: engineValue, suggestedBy: 'assistant' }]),
     )
     expect(suggested).toContain('proposed by the Ingot assistant')
     expect(suggested).toContain(`\`${path}\``)
 
-    const byHand = renderDesignMarkdown(applyOverrides(tokens, [{ path, value: '3px', baseValue: engineValue }]))
+    const byHand = renderDesignKitMarkdown(applyOverrides(tokens, [{ path, value: '3px', baseValue: engineValue }]))
     // A kit reviewed entirely by hand says nothing about an assistant it never
     // ran -- which is also what keeps every committed example byte-identical.
     expect(byHand).not.toContain('assistant')
@@ -1310,11 +1310,11 @@ describe('shipping without an error colour', () => {
 
   it('prescribes the non-colour error language once, and only once it is decided', () => {
     const tokens = kit('linear-dark')
-    const open = renderDesignMarkdown(applyOverrides(tokens, []))
+    const open = renderDesignKitMarkdown(applyOverrides(tokens, []))
     expect(open).toContain('how it signals an error is undecided')
     expect(open).not.toContain('`Error: `')
 
-    const settled = renderDesignMarkdown(applyOverrides(tokens, [acknowledge(tokens)]))
+    const settled = renderDesignKitMarkdown(applyOverrides(tokens, [acknowledge(tokens)]))
     expect(settled).toContain('deliberately ships **without** an error colour')
     expect(settled).toContain('`Error: `')
     // Icon, weight and prefix -- the three signals, all of them.
@@ -1374,7 +1374,7 @@ describe('shipping without an error colour', () => {
     const pairs = next.color.contrast.filter((pair) => pair.background === ROLE || pair.foreground === ROLE)
     expect(pairs.length).toBeGreaterThanOrEqual(3)
     for (const pair of pairs) expect(pair.ratio).toBeGreaterThan(1)
-    expect(renderDesignMarkdown({ tokens: next, report })).toContain('`button.destructive`')
+    expect(renderDesignKitMarkdown({ tokens: next, report })).toContain('`button.destructive`')
   })
 
   it('refuses `none` where the kit has a colour, rather than doing nothing', () => {

@@ -264,6 +264,6 @@ Component types captured: button (3), typography (3), card (2), input (2).
 
 Warnings raised during distillation:
 
-- **color.no-destructive**: No captured colour in this set reads as a red, so this kit has no destructive colour -- and a brand decision is the one thing the engine will not default. The consequence is concrete: a form built against this kit cannot signal errors in colour. Either set an error colour on `color.roles.destructive`, or acknowledge that the kit ships without one so `design.md` can prescribe the non-colour error language instead of only stating the prohibition.
+- **color.no-destructive**: No captured colour in this set reads as a red, so this kit has no destructive colour -- and a brand decision is the one thing the engine will not default. The consequence is concrete: a form built against this kit cannot signal errors in colour. Either set an error colour on `color.roles.destructive`, or acknowledge that the kit ships without one so `design-kit.md` can prescribe the non-colour error language instead of only stating the prohibition.
 
 Full provenance for every token — contributing capture ids, raw observed values, and the machine-readable dominant-choice record behind each decision — is in `tokens.json` next to this file.

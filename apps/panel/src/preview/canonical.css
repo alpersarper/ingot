@@ -7,7 +7,7 @@
  * the geometry, the interaction states and the rhythm are our workmanship and
  * live here; the numbers and colours come from the user's kit and are decided
  * in `kit-css.ts`. A literal in this file would put a value on screen that the
- * exported `design.md` never mentions, which is the one thing that makes a
+ * exported `design-kit.md` never mentions, which is the one thing that makes a
  * preview lie. `test/canonical-css.test.ts` reads this file and enforces it.
  *
  * What is *not* a visual value stays literal on purpose: layout structure
@@ -128,7 +128,7 @@
   border-color: var(--kit-button-destructive-border);
 }
 /*
- * The engine derives no hover fill for a destructive button, and `design.md`
+ * The engine derives no hover fill for a destructive button, and `design-kit.md`
  * says so: keep the fill constant and let the focus ring carry the feedback,
  * rather than inventing a darker red the kit never measured.
  */

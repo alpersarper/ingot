@@ -52,10 +52,39 @@ history owns the chronology.
   in-panel docs and static docs export. Forbids a second render path or a second
   copy of the prose.
 - **Export set is fixed for v1:** `tokens.json` (source of truth), a
-  whole-library `design.md` (Tailwind + shadcn target), self-sufficient
-  per-component markdown, and a standalone static docs site.
+  whole-library `design-kit.md` (Tailwind + shadcn target), a spec-conformant
+  `DESIGN.md`, self-sufficient per-component markdown, and a standalone static
+  docs site. The MCP export is explicitly **post-v1** and not in this set.
 - **Out of scope for v1:** accounts/sync, teams, working-code reproduction,
   Figma, auto-clustering, Firefox/Safari.
+- **`DESIGN.md` is the open format's name, and Ingot's richer artifact is
+  `design-kit.md`.** Ruling 2026-09-24, triggered by the competitor scan:
+  Google Labs' DESIGN.md is Apache-2.0, ~28k stars, ships an official
+  lint/diff/export CLI, and four competitors already conform, which makes the
+  filename a de-facto standard Ingot was colliding with while not conforming to
+  it. The ruling is **both**, not either: Ingot exports a spec-conformant
+  `DESIGN.md` *and* keeps its own document, renamed. Rationale: the richer
+  artifact is the product — it carries provenance, override history, contrast
+  evidence and the states the spec has no vocabulary for — and narrowing it to
+  fit the spec would trade the distillation quality the whole bet rests on for
+  interoperability. Conforming *additionally* costs one sibling export module.
+  Requires: the spec target is a sibling of `design-kit-md.ts` and never a
+  change to `tokens/types.ts`; conformance is proven by the specification's own
+  linter, pinned in `devDependencies` and run in CI, not by our reading of the
+  spec. Forbids: shipping any document named `design.md`, and narrowing
+  `design-kit.md` toward the spec.
+- **Where the spec is narrower than the token model, the value is stated, not
+  dropped and not faked.** The spec's component sub-tokens are a closed list
+  with no border colour, no shadow group and no focus ring, so those are prose
+  in the conformant document; `colors.border` consequently lints as an orphan
+  and that is the correct outcome. The disabled pair is emitted as
+  `control-disabled` even though the linter flags it, because WCAG 1.4.3
+  exempts inactive components from the contrast minimum and a consumer left
+  without machine-readable disabled colours reaches for an opacity ramp — the
+  exact failure the token model exists to prevent. Requires: every surviving
+  lint warning is asserted by name in `test/design-md-spec.test.ts`, so a new
+  kind of warning is a test failure rather than a tolerated number. Forbids
+  satisfying the linter by omitting a value the kit actually carries.
 
 ## Quality bar
 
@@ -65,7 +94,7 @@ history owns the chronology.
   trades coherent-set quality for messy-set numbers.
 - **Minimum capture threshold.** No kit from too few captures; intent-only
   (capture-less) generation is out.
-- **Blind-LLM acceptance loop.** `design.md` handed to an LLM with no other
+- **Blind-LLM acceptance loop.** `design-kit.md` handed to an LLM with no other
   context must yield ship-quality UI. That run, not unit tests, is the bar a
   major engine change is measured against.
 - **A kit's error state clears the bar with *either* a destructive colour or a
@@ -176,11 +205,14 @@ history owns the chronology.
 - **Overriding a base colour re-derives dependent shades** and re-runs
   contrast/collapse checks; an explicit user override on a dependent always wins.
 - **One rule source per behaviour.** Per-component markdown is self-sufficient
-  and must agree with `design.md` and the preview.
+  and must agree with `design-kit.md`, `DESIGN.md` and the preview. Shared
+  prose — `errorSignalGuidance` and `collapsedShadesSentence` are the cases
+  that exist — is translated into a target's own naming on the way out, never
+  forked per target.
 - **A conflict retires only when the reviewer responds** — a value change or a
   card action. Note-only edits touch nothing; retirements are recorded in
   provenance.
-- **Spacing step names are opaque stable identifiers**, and `design.md` never
+- **Spacing step names are opaque stable identifiers**, and `design-kit.md` never
   asserts a blanket claim the shipped values contradict.
 - **Reviewer-authored reasons are never silently blanked**; a standing reason
   carries forward when a write supplies none.

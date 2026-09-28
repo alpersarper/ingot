@@ -3,7 +3,7 @@
  *
  * Every visual property of the canonical components comes from a token. A
  * literal colour, length or font size in `canonical.css` or `docs.css` would put
- * a value on screen that the exported `design.md` never mentions -- which is the
+ * a value on screen that the exported `design-kit.md` never mentions -- which is the
  * one thing that makes a preview lie about the kit it is previewing.
  *
  * The check is deliberately mechanical rather than a code-review convention,
@@ -133,7 +133,7 @@ describe.each(SHEETS)('%s is token-driven', (name, file) => {
  *
  * The stylesheets can only be as honest as the variables they read, so a
  * literal moved into `kit-css.ts` would put a value on screen that no
- * `design.md` mentions while both sheets still passed the checks above. This
+ * `design-kit.md` mentions while both sheets still passed the checks above. This
  * runs the real builder against the committed kits and asks the same question
  * of what it emits: every value is either a reference to another kit variable,
  * a value the kit document actually carries, or a stated absence.
@@ -206,7 +206,7 @@ describe('a kit with no monospace family', () => {
     // linear-dark's captures showed no monospace face, so the kit has no mono
     // family -- and the docs still set token paths and code spans in
     // `--kit-font-mono`. Naming a stack of the panel's own here would render
-    // the exported docs in a typeface `design.md` never mentions.
+    // the exported docs in a typeface `design-kit.md` never mentions.
     const tokens = exampleKit('linear-dark')
     expect(tokens.typography.families.mono).toBeUndefined()
     expect(kitCssVariables(tokens)['--kit-font-mono']).toBe('var(--kit-font-sans)')

@@ -77,7 +77,7 @@ describe('graceful absence', () => {
   it('leaves every other panel feature working with no key at all', async () => {
     await importAndGenerate()
     expect((await harness.call('/api/kits/latest')).status).toBe(200)
-    expect((await harness.call('/api/export/design.md')).status).toBe(200)
+    expect((await harness.call('/api/export/design-kit.md')).status).toBe(200)
     expect((await harness.call('/api/reviews')).status).toBe(200)
     expect(
       (await harness.call('/api/reviews/overrides', {
@@ -195,7 +195,7 @@ describe('the proposal pipeline', () => {
     expect(accepted.review.overrides[0]?.note).toContain('editorial')
 
     // And it is a real override in every export, not a special case.
-    const design = await (await harness.call('/api/export/design.md')).text()
+    const design = await (await harness.call('/api/export/design-kit.md')).text()
     expect(design).toContain('proposed by the Ingot assistant')
   })
 
@@ -518,7 +518,7 @@ describe('the API key never comes out', () => {
       '/api/kits',
       '/api/kits/latest',
       '/api/reviews',
-      '/api/export/design.md',
+      '/api/export/design-kit.md',
       '/api/export/tokens.json',
       '/api/export/components/button-primary.md',
     ]

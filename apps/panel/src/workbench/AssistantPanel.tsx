@@ -21,7 +21,7 @@
  * **Failing.** Every error is a notice in this column and nothing else. The
  * assistant is advisory; a provider being down, a key being wrong or a rate
  * limit being hit must never stop somebody importing captures, generating a
- * kit, overriding a token or downloading `design.md`.
+ * kit, overriding a token or downloading `design-kit.md`.
  */
 import { useState } from 'react'
 import type { ReactNode } from 'react'

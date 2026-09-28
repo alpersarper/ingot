@@ -229,7 +229,7 @@ const RATIONALE: PromptTemplate = {
 
 TASK: DRAFT A REASON.
 
-A reviewer has overridden one token and has not written down why. That reason is carried into the exported \`design.md\`, where it is the only explanation anybody downstream will ever get for why this value disagrees with the evidence.
+A reviewer has overridden one token and has not written down why. That reason is carried into the exported \`design-kit.md\`, where it is the only explanation anybody downstream will ever get for why this value disagrees with the evidence.
 
 You are given the token, the value the reviewer set, the value the engine had chosen, and the evidence behind the engine's choice. Draft the reason they would plausibly have written: one or two sentences, first person, concrete, naming what was traded off.
 

@@ -44,7 +44,8 @@ describe('pairing', () => {
       ['/api/groups', {}],
       ['/api/kits', {}],
       ['/api/settings', {}],
-      ['/api/export/design.md', {}],
+      ['/api/export/design-kit.md', {}],
+      ['/api/export/DESIGN.md', {}],
       ['/api/captures/import', { method: 'POST', body: '{}' }],
       ['/api/kits', { method: 'POST', body: '{}' }],
       // Reset destroys the library. It is on this list, not the open one.
@@ -341,20 +342,34 @@ describe('kit generation', () => {
     await harness.call('/api/captures/import', body(await ghostWarmSet()))
     const generated = (await (await harness.call('/api/kits', body({}))).json()) as { kit: { id: string } }
 
-    const design = await harness.call(`/api/kits/${generated.kit.id}/design.md`)
+    const design = await harness.call(`/api/kits/${generated.kit.id}/design-kit.md`)
     expect(design.headers.get('content-type')).toContain('text/markdown')
-    expect(design.headers.get('content-disposition')).toContain('library-v1-design.md')
-    const designMd = await design.text()
-    expect(designMd).toMatch(/^# /)
+    expect(design.headers.get('content-disposition')).toContain('library-v1-design-kit.md')
+    const designKitMd = await design.text()
+    expect(designKitMd).toMatch(/^# /)
 
     const tokens = await harness.call(`/api/kits/${generated.kit.id}/tokens.json`)
     expect(tokens.headers.get('content-type')).toContain('application/json')
 
-    expect(await (await harness.call('/api/export/design.md')).text()).toBe(designMd)
+    expect(await (await harness.call('/api/export/design-kit.md')).text()).toBe(designKitMd)
+
+    // The spec-conformant artifact is the third download and a different
+    // document: same kit, stated in the DESIGN.md format. Its front matter is
+    // the thing a conforming reader looks for first, so that is what is
+    // asserted here -- `test/design-md-spec.test.ts` holds the contents to the
+    // specification's own linter.
+    const spec = await harness.call(`/api/kits/${generated.kit.id}/DESIGN.md`)
+    expect(spec.headers.get('content-type')).toContain('text/markdown')
+    expect(spec.headers.get('content-disposition')).toContain('library-v1-DESIGN.md')
+    const specMd = await spec.text()
+    expect(specMd).toMatch(/^---\nversion: alpha\n/)
+    expect(specMd).not.toBe(designKitMd)
+    expect(await (await harness.call('/api/export/DESIGN.md')).text()).toBe(specMd)
   })
 
   it('refuses an export before anything has been generated', async () => {
-    expect((await harness.call('/api/export/design.md')).status).toBe(409)
+    expect((await harness.call('/api/export/design-kit.md')).status).toBe(409)
+    expect((await harness.call('/api/export/DESIGN.md')).status).toBe(409)
   })
 
   it('never serves a deleted group\'s kit as the library export', async () => {
@@ -366,7 +381,7 @@ describe('kit generation', () => {
 
     // No library kit exists, so the library scope must refuse rather than
     // answer with the orphaned group kit.
-    expect((await harness.call('/api/export/design.md')).status).toBe(409)
+    expect((await harness.call('/api/export/design-kit.md')).status).toBe(409)
     expect((await harness.call('/api/kits/latest')).status).toBe(404)
   })
 
@@ -388,8 +403,8 @@ describe('kit generation', () => {
     expect((await harness.call(`/api/groups/${imported.group.id}`, { method: 'DELETE' })).status).toBe(204)
 
     // The library export still answers with the library kit, byte for byte.
-    const libraryDesign = await harness.call(`/api/kits/${library.kit.id}/design.md`)
-    expect(await (await harness.call('/api/export/design.md')).text()).toBe(await libraryDesign.text())
+    const libraryDesign = await harness.call(`/api/kits/${library.kit.id}/design-kit.md`)
+    expect(await (await harness.call('/api/export/design-kit.md')).text()).toBe(await libraryDesign.text())
 
     // Both kits survive and stay distinguishable by scope.
     const { kits } = await harness.json<{
@@ -452,8 +467,8 @@ describe('kit generation from a selection', () => {
     // A selection is a set. The server orders it by the library's own insertion
     // sequence, so click order cannot reach the engine at all.
     expect(second.kit.captureIds).toEqual(chosen)
-    expect(await (await harness.call(`/api/kits/${second.kit.id}/design.md`)).text()).toBe(
-      await (await harness.call(`/api/kits/${first.kit.id}/design.md`)).text(),
+    expect(await (await harness.call(`/api/kits/${second.kit.id}/design-kit.md`)).text()).toBe(
+      await (await harness.call(`/api/kits/${first.kit.id}/design-kit.md`)).text(),
     )
     expect(await (await harness.call(`/api/kits/${second.kit.id}/tokens.json`)).text()).toBe(
       await (await harness.call(`/api/kits/${first.kit.id}/tokens.json`)).text(),
@@ -636,7 +651,7 @@ describe('review: overrides and decisions', () => {
       }
       diagnostics: Array<{ code: string; level: string; message: string }>
     }
-    designMd: string
+    designKitMd: string
     review: {
       overrides: Array<{ path: string; value: string; baseValue: string; note: string }>
       conflicts: Array<{ path: string; baseValue: string; engineValue: string }>
@@ -674,16 +689,21 @@ describe('review: overrides and decisions', () => {
     expect(updated.review.overrides).toEqual([
       expect.objectContaining({ path: 'radius.steps.md', value: '10px', baseValue: `${engineRadius}px` }),
     ])
-    expect(updated.designMd).toContain('## 10. User overrides')
-    expect(updated.designMd).toContain('the captured radius reads timid')
+    expect(updated.designKitMd).toContain('## 10. User overrides')
+    expect(updated.designKitMd).toContain('the captured radius reads timid')
 
     // Every download reflects it, without regenerating anything.
-    const download = await harness.call(`/api/kits/${generated.kit.id}/design.md`)
-    expect(await download.text()).toBe(updated.designMd)
+    const download = await harness.call(`/api/kits/${generated.kit.id}/design-kit.md`)
+    expect(await download.text()).toBe(updated.designKitMd)
     const tokensFile = await harness.call(`/api/kits/${generated.kit.id}/tokens.json`)
     expect(await tokensFile.text()).toContain('"user-override"')
     const componentFile = await harness.call(`/api/export/components/button.md`)
     expect(await componentFile.text()).toContain('# Button')
+    // Including the spec-conformant one, which is rendered from the effective
+    // tokens rather than stored -- so a reviewer's decision reaches the agent
+    // reading the standard, not only the one reading Ingot's own document.
+    const specFile = await harness.call(`/api/kits/${generated.kit.id}/DESIGN.md`)
+    expect(await specFile.text()).toContain('md: 10px')
     // And the stored kit is untouched: the engine's answer stays on the record.
     const stored = await harness.store.kits.get(generated.kit.id)
     expect(JSON.parse(stored?.tokensJson ?? '{}').radius.steps.md.value).toBe(engineRadius)
@@ -776,7 +796,7 @@ describe('review: overrides and decisions', () => {
     const warning = generated.tokens.diagnostics.find((entry) => entry.code === 'color.no-destructive')
     expect(warning?.level).toBe('warning')
     expect(warning?.message).toContain('cannot signal errors in colour')
-    expect(generated.designMd).toContain('how it signals an error is undecided')
+    expect(generated.designKitMd).toContain('how it signals an error is undecided')
 
     const acknowledged = (await (
       await harness.call(
@@ -793,8 +813,8 @@ describe('review: overrides and decisions', () => {
     ])
     // The consequence is answered, so the document prescribes what to do
     // instead of only stating the prohibition.
-    expect(acknowledged.designMd).toContain('deliberately ships **without** an error colour')
-    expect(acknowledged.designMd).toContain('`Error: `')
+    expect(acknowledged.designKitMd).toContain('deliberately ships **without** an error colour')
+    expect(acknowledged.designKitMd).toContain('`Error: `')
     expect(
       acknowledged.tokens.diagnostics.find((entry) => entry.code === 'color.no-destructive')?.level,
     ).toBe('info')
@@ -806,7 +826,7 @@ describe('review: overrides and decisions', () => {
       expect.objectContaining({ path: 'components.states.error.mode', value: 'acknowledged' }),
     ])
     expect(regenerated.review.conflicts).toEqual([])
-    expect(regenerated.designMd).toContain('`Error: `')
+    expect(regenerated.designKitMd).toContain('`Error: `')
   })
 
   it('refuses anything at that path but the decision itself', async () => {
@@ -835,7 +855,7 @@ describe('review: overrides and decisions', () => {
     expect(nominated.tokens.color.roles['destructiveForeground']).toBeDefined()
     expect(nominated.tokens.components.recipes.map((recipe) => recipe.name)).toContain('button.destructive')
     expect(nominated.tokens.diagnostics.some((entry) => entry.code === 'color.no-destructive')).toBe(false)
-    expect(nominated.designMd).toContain('`button.destructive`')
+    expect(nominated.designKitMd).toContain('`button.destructive`')
     expect(nominated.review.overrides).toEqual([
       expect.objectContaining({ path: 'color.roles.destructive', value: '#b42318', baseValue: 'none' }),
     ])
@@ -887,7 +907,7 @@ describe('review: overrides and decisions', () => {
     // ...and the token is still attributed to the reviewer.
     const body = (await edited.json()) as KitResponse
     expect(body.tokens.radius.steps['md']?.provenance.decision.strategy).toBe('user-override')
-    expect(body.designMd).toContain('still the right call')
+    expect(body.designKitMd).toContain('still the right call')
   })
 
   it('keeps a standing conflict alive through a note-only edit', async () => {
@@ -916,7 +936,7 @@ describe('review: overrides and decisions', () => {
     const after = (await edited.json()) as KitResponse
     expect(after.review.conflicts.map((entry) => entry.path)).toEqual(['border.width'])
     expect(after.tokens.diagnostics.some((entry) => entry.code === 'override.conflict')).toBe(true)
-    expect(after.designMd).toContain('the hairline reads too thin at this scale')
+    expect(after.designKitMd).toContain('the hairline reads too thin at this scale')
 
     // ...and the base it is measured against is untouched.
     const { overrides } = await harness.json<{ overrides: Array<{ path: string; baseValue: string }> }>(
@@ -949,8 +969,8 @@ describe('review: overrides and decisions', () => {
     const decision = after.tokens.border.width.provenance.decision
     expect(decision.strategy).toBe('user-override')
     expect(decision.resolvedConflict).toEqual({ value: '2px', baseValue: '0.5px', engineValue: engineWidth })
-    expect(after.designMd).toContain('answered a conflict with new evidence')
-    expect(after.designMd).toContain('`border.width` is now 4px')
+    expect(after.designKitMd).toContain('answered a conflict with new evidence')
+    expect(after.designKitMd).toContain('`border.width` is now 4px')
 
     // The base is refreshed by the answer, so the card cannot keep nagging
     // against a value the reviewer has already responded to.
@@ -974,7 +994,7 @@ describe('review: overrides and decisions', () => {
 
     // ...and later opens the same token only to write down why. Annotating is
     // not un-answering, so the record of what was answered has to survive it:
-    // without it, `tokens.json` and design.md would quietly stop saying that a
+    // without it, `tokens.json` and design-kit.md would quietly stop saying that a
     // disagreement was ever resolved.
     const annotated = await harness.call(
       '/api/reviews/overrides',
@@ -987,8 +1007,8 @@ describe('review: overrides and decisions', () => {
       baseValue: '0.5px',
       engineValue: engineWidth,
     })
-    expect(after.designMd).toContain('answered a conflict with new evidence')
-    expect(after.designMd).toContain('the hairline reads too thin at this scale')
+    expect(after.designKitMd).toContain('answered a conflict with new evidence')
+    expect(after.designKitMd).toContain('the hairline reads too thin at this scale')
   })
 
   it('does not claim a conflict was answered when the evidence had caught up', async () => {
@@ -1010,7 +1030,7 @@ describe('review: overrides and decisions', () => {
     expect(changed.status).toBe(200)
     const after = (await changed.json()) as KitResponse
     expect(after.tokens.border.width.provenance.decision.resolvedConflict).toBeUndefined()
-    expect(after.designMd).not.toContain('answered a conflict with new evidence')
+    expect(after.designKitMd).not.toContain('answered a conflict with new evidence')
   })
 
   it('leaves the reviewer\'s reason alone when a write supplies none, and clears it when one says to', async () => {
@@ -1021,11 +1041,11 @@ describe('review: overrides and decisions', () => {
     )
 
     // What a decision card sends: a value, no statement about the reason. The
-    // reason is the reviewer's own writing and design.md prints it, so a write
+    // reason is the reviewer's own writing and design-kit.md prints it, so a write
     // that says nothing about it must not blank it.
     const fromCard = await harness.call('/api/reviews/overrides', put({ path: 'radius.steps.md', value: '8px' }))
     expect(fromCard.status).toBe(200)
-    expect((await fromCard.json() as KitResponse).designMd).toContain('brand asked for rounder corners')
+    expect((await fromCard.json() as KitResponse).designKitMd).toContain('brand asked for rounder corners')
     const { overrides } = await harness.json<{ overrides: Array<{ value: string; note: string }> }>('/api/reviews')
     expect(overrides).toEqual([
       expect.objectContaining({ value: '8px', note: 'brand asked for rounder corners' }),
@@ -1036,7 +1056,7 @@ describe('review: overrides and decisions', () => {
       '/api/reviews/overrides',
       put({ path: 'radius.steps.md', value: '8px', note: '' }),
     )
-    expect((await cleared.json() as KitResponse).designMd).not.toContain('brand asked for rounder corners')
+    expect((await cleared.json() as KitResponse).designKitMd).not.toContain('brand asked for rounder corners')
   })
 
   it('does not claim a conflict was answered when there was none', async () => {
@@ -1045,7 +1065,7 @@ describe('review: overrides and decisions', () => {
     const changed = await harness.call('/api/reviews/overrides', put({ path: 'border.width', value: '4px' }))
     const after = (await changed.json()) as KitResponse
     expect(after.tokens.border.width.provenance.decision.resolvedConflict).toBeUndefined()
-    expect(after.designMd).not.toContain('answered a conflict with new evidence')
+    expect(after.designKitMd).not.toContain('answered a conflict with new evidence')
   })
 
   describe('a slot another override re-derived', () => {
@@ -1084,7 +1104,7 @@ describe('review: overrides and decisions', () => {
       const edited = await harness.call('/api/reviews/overrides', put({ path, value: '50px' }))
       const after = (await edited.json()) as KitResponse
       expect(decisionOf(after)?.resolvedConflict).toBeUndefined()
-      expect(after.designMd).not.toContain('answered a conflict with new evidence')
+      expect(after.designKitMd).not.toContain('answered a conflict with new evidence')
     })
 
     it('still reports a conflict it has not answered, and records answering it', async () => {
@@ -1107,7 +1127,7 @@ describe('review: overrides and decisions', () => {
         baseValue: stored,
         engineValue: rederived,
       })
-      expect(after.designMd).toContain('answered a conflict with new evidence')
+      expect(after.designKitMd).toContain('answered a conflict with new evidence')
     })
   })
 
@@ -1123,7 +1143,7 @@ describe('review: overrides and decisions', () => {
      *
      * Widening the border re-derives the height, so the answer the reviewer
      * responds to is not the height the stored kit distils -- which is what
-     * tells the two numbers apart in what design.md goes on to say.
+     * tells the two numbers apart in what design-kit.md goes on to say.
      */
     async function answerAConflict(): Promise<{ stored: string; answered: string }> {
       const generated = await seed()
@@ -1150,8 +1170,8 @@ describe('review: overrides and decisions', () => {
         baseValue: '20px',
         engineValue: answered,
       })
-      expect(after.designMd).toContain(`the captures then moved to ${answered}`)
-      expect(after.designMd).not.toContain(`the captures then moved to ${stored}`)
+      expect(after.designKitMd).toContain(`the captures then moved to ${answered}`)
+      expect(after.designKitMd).not.toContain(`the captures then moved to ${stored}`)
     })
 
     it('never reports one path as both answered and in conflict', async () => {
@@ -1163,10 +1183,10 @@ describe('review: overrides and decisions', () => {
 
       const after = (await cleared.json()) as KitResponse
       expect(after.review.conflicts.map((entry) => entry.path)).toEqual([path])
-      expect(after.designMd).toContain('**override.conflict**')
-      expect(after.designMd).toContain(stored)
+      expect(after.designKitMd).toContain('**override.conflict**')
+      expect(after.designKitMd).toContain(stored)
       // One document, one story: the warning above and §10 must not disagree.
-      expect(after.designMd).not.toContain('answered a conflict with new evidence')
+      expect(after.designKitMd).not.toContain('answered a conflict with new evidence')
     })
 
     it('clears the record when a later value change answered nothing', async () => {
@@ -1176,7 +1196,7 @@ describe('review: overrides and decisions', () => {
 
       expect(after.review.conflicts).toEqual([])
       expect(decisionOf(after)?.resolvedConflict).toBeUndefined()
-      expect(after.designMd).not.toContain('answered a conflict with new evidence')
+      expect(after.designKitMd).not.toContain('answered a conflict with new evidence')
       const { overrides } = await harness.json<{
         overrides: Array<{ path: string; resolvedConflict?: unknown }>
       }>('/api/reviews')
@@ -1240,7 +1260,7 @@ describe('review: overrides and decisions', () => {
     ).json()) as KitResponse
     expect(cleared.tokens.radius.steps['md']?.value).toBe(engineRadius)
     expect(cleared.review.overrides).toEqual([])
-    expect(cleared.designMd).not.toContain('## 10. User overrides')
+    expect(cleared.designKitMd).not.toContain('## 10. User overrides')
 
     expect((await harness.call('/api/reviews/overrides?path=radius.steps.md', { method: 'DELETE' })).status).toBe(404)
   })

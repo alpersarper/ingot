@@ -25,7 +25,7 @@ apps/server/       panel server: storage behind an interface, API, engine host
 apps/panel/        the workbench UI -- React, Vite, Tailwind, shadcn conventions
 apps/extension/    the Chrome capture extension -- MV3, no framework, loads unpacked
 fixtures/          four hand-authored capture sets standing in for real captures
-examples/          generated tokens.json + design.md, committed as evidence
+examples/          generated tokens.json + design-kit.md + DESIGN.md, committed as evidence
 schemas/           normative JSON Schema for both formats
 docs/              format, storage and panel documentation
 scripts/skeleton.ts  fixtures -> examples
@@ -51,9 +51,19 @@ tokens, and switches to a browsable component-library documentation view drawn
 by the same components. The right column is the review queue: every diagnostic
 and every close call the engine made, with its evidence and the runner-up as a
 one-click override -- and every token in the kit, with its provenance, editable
-in place. The downloaded `design.md` is byte-for-byte the one `pnpm skeleton`
+in place. The downloaded `design-kit.md` is byte-for-byte the one `pnpm skeleton`
 writes for the same captures, until you override something, and then it says
 what you changed and what the engine had chosen.
+
+Two whole-kit documents come out, and they are for different readers.
+`design-kit.md` is the full specification -- provenance, override history,
+contrast evidence, the states a kit has to be explicit about -- written for an
+LLM building against the kit. `DESIGN.md` is the same kit stated in the
+[Google Labs DESIGN.md format](https://github.com/google-labs-code/design.md),
+an open specification with its own linter, for any agent that already reads that
+standard; save it at a repository root under that exact name. Ingot's own
+document is deliberately the richer of the two, and is not narrowed to fit the
+spec -- see [DECISIONS.md](DECISIONS.md#hard-boundaries-v1-scope).
 
 One container, one port, one volume (`/data`: the database, screenshots and the
 pairing token).
@@ -141,7 +151,7 @@ sends is written out in
   shown images at all.
 
 Origins (`stripe.com`, `linear.app`) *are* included: they are already in every
-`design.md` you export, and "eleven captures from one site and three from
+`design-kit.md` you export, and "eleven captures from one site and three from
 another" is a large part of what makes a naming or merge suggestion sensible.
 Anthropic's API terms apply to what is sent; run the panel without a key if that
 is not a trade you want to make.
@@ -176,13 +186,15 @@ capture set (JSON)
       v
   distill()          pure: same input -> byte-identical output
       |
-      +--> tokens.json    stack-agnostic tokens, every one carrying provenance
+      +--> tokens.json     stack-agnostic tokens, every one carrying provenance
       |
-      +--> design.md      Tailwind v4 + shadcn/ui spec, written for an LLM to implement against
+      +--> design-kit.md   Tailwind v4 + shadcn/ui spec, written for an LLM to implement against
       |
-      +--> <component>.md one control, self-sufficient: its rules plus the tokens it needs
+      +--> DESIGN.md       the Google Labs DESIGN.md format, for any agent that reads the standard
       |
-      +--> docs.html      the browsable kit documentation, one file, opens from file://
+      +--> <component>.md  one control, self-sufficient: its rules plus the tokens it needs
+      |
+      +--> docs.html       the browsable kit documentation, one file, opens from file://
 ```
 
 Between the engine and the exports sits the review: a reviewer overriding a
@@ -196,10 +208,10 @@ The assistant sits beside that review rather than inside it. It proposes; the
 engine checks every proposed value against its own guardrails before a card is
 ever shown; a person accepts or dismisses. An accepted suggestion becomes an
 ordinary override through the same write path, carrying a record of where the
-candidate came from, which `design.md` states. There is no path from the
+candidate came from, which `design-kit.md` states. There is no path from the
 assistant to a token that does not pass through a human.
 
-Read [`examples/linear-dark/design.md`](examples/linear-dark/design.md) for what
+Read [`examples/linear-dark/design-kit.md`](examples/linear-dark/design-kit.md) for what
 comes out the far end, and
 [`examples/messy-mixed/tokens.json`](examples/messy-mixed/tokens.json) for what
 provenance looks like when the engine had to work for it.
@@ -232,8 +244,9 @@ observed, and a machine-readable dominant-choice record -- `"12 of 28 corners at
 with the runner-up as a one-click override.
 
 Full format documentation: [`docs/capture-record.md`](docs/capture-record.md)
-and [`docs/tokens.md`](docs/tokens.md). The panel that drives it:
-[`docs/panel.md`](docs/panel.md); the storage seam behind it:
+and [`docs/tokens.md`](docs/tokens.md). The `DESIGN.md` target and what it can
+and cannot carry: [`docs/design-md.md`](docs/design-md.md). The panel that
+drives it: [`docs/panel.md`](docs/panel.md); the storage seam behind it:
 [`docs/storage.md`](docs/storage.md).
 
 ## The fixture sets
@@ -250,7 +263,7 @@ Hand-authored, no scraping. Each emulates a coherent real-world source style.
 ### The quality bar
 
 Kits are judged by one question: *would I ship a real page built against only
-this `design.md`?* That bar applies to the **three coherent sets** --
+this `design-kit.md`?* That bar applies to the **three coherent sets** --
 `ghost-warm`, `linear-dark` and `stripe-light`. They are three deliberately
 different subjects (warm editorial, dark dense, light commerce), so a kit that
 only works for one style cannot pass by accident.
@@ -280,8 +293,9 @@ unresolved, not as passing. See [DECISIONS.md](DECISIONS.md#quality-bar).
   `packages/engine/test/purity.test.ts` enforces it by reading the engine's own
   source.
 - **The token model is stack-agnostic.** Tailwind and shadcn specificity lives
-  only in `packages/engine/src/export/design-md.ts`. More export targets will be
-  siblings of that file, not changes to the token shape.
+  only in `packages/engine/src/export/design-kit-md.ts`, and the DESIGN.md
+  format's vocabulary only in `design-md-spec.ts` beside it. Further export
+  targets are siblings of those files, not changes to the token shape.
 - **Determinism is a hard guarantee**, not a nice-to-have. See
   [`docs/tokens.md#determinism`](docs/tokens.md#determinism).
 - **Dependencies stay small and boring.** The engine depends on
