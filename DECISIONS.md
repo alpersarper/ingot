@@ -319,10 +319,10 @@ history owns the chronology.
   more often than on a component, so the hover states the boundary it measured
   — background, border, padding — and an element a reader could not see is
   called a wrapper out loud, with the arrow keys and one suggestion key to
-  correct it. When an element paints no background of its own, the colour
-  actually painted behind it is measured and recorded as
-  `inheritedBackgroundColor`, marked as inherited, beside the browser's own
-  transparent value rather than replacing it. Forbids the engine treating that
+  correct it. Whenever an element's own background is not fully opaque --
+  transparent or merely translucent -- the colour actually painted behind it is
+  measured and recorded as `inheritedBackgroundColor`, marked as inherited,
+  beside the browser's own value rather than replacing it. Forbids the engine treating that
   inherited colour as the component's own fill: colour evidence uses the painted
   background, and what a component *draws* does not. Forbids assuming white when
   nothing up the chain paints one — not knowing is recorded as not knowing.

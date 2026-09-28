@@ -96,8 +96,9 @@ distils its surface from the two or three captures that happened to paint their
 own fill. The engine decides what to do with the pair in
 `packages/engine/src/capture/surface.ts`, and the rule is asymmetric on purpose:
 
-- **colour evidence** uses the painted background, own fill first, inherited
-  second;
+- **colour evidence** uses the rendered background: an opaque own fill as it
+  is, a translucent one laid over this value, and this value alone behind a
+  transparent one;
 - **what a component draws** does not. A ghost button on a white page is a ghost
   button, not a white one, so `hasOpaqueFill` reads `styles.backgroundColor`
   directly.

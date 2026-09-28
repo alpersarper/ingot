@@ -300,9 +300,10 @@ claimed (`"role": null`), with the near-duplicates each cluster absorbed in
 
 1. Colours are read per channel (`background`, `foreground`, `border`) and
    clustered so perceptually identical values merge. A capture's `background` is
-   the colour **painted behind it**: its own fill where it has one, and otherwise
-   the ancestor colour the extension measured into
-   [`inheritedBackgroundColor`](./capture-record.md#inheritedbackgroundcolor).
+   the colour **a reader actually sees**: its own fill when that is fully opaque,
+   a translucent fill laid over the backdrop the extension measured into
+   [`inheritedBackgroundColor`](./capture-record.md#inheritedbackgroundcolor),
+   and that backdrop alone when the fill is fully transparent.
    A fully transparent value is read as "no colour" and contributes nothing, so
    without that fallback a ghost button or a heading is evidence of *no
    background at all* -- which is not what a reader sees. What a component

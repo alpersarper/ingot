@@ -95,12 +95,25 @@ export const DARK_TONE_MAX = 0.4
  * `#0a2540` button off a white pricing page is one theme, not two, and a fill
  * that voted would report a clash on an ordinary light site. It errs one way
  * only: it can lose evidence, never invent a clash.
+ *
+ * A control you can partly see through is judged by the measured backdrop, the
+ * page behind it. That cannot bring the dark CTA back: an opaque fill has no
+ * backdrop recorded at all, precisely because it is opaque, so it still votes
+ * with nothing. Only a translucent control gets a vote, and what it votes with
+ * is the page, never its own fill.
  */
 export function surfaceTone(capture: CaptureRecord): SurfaceTone {
   const background = surfaceBackground(capture)
   if (background === undefined) return 'unknown'
-  if (!background.inherited && capture.componentType !== 'card') return 'unknown'
-  const parsed = parseColor(background.rendered)
+  if (background.inherited || capture.componentType === 'card') return toneOf(background.rendered)
+  const own = parseColor(background.raw)
+  const backdrop = capture.inheritedBackgroundColor
+  if (own === undefined || own.alpha >= 1 || backdrop === undefined) return 'unknown'
+  return toneOf(backdrop)
+}
+
+function toneOf(color: string): SurfaceTone {
+  const parsed = parseColor(color)
   if (parsed === undefined) return 'unknown'
   if (parsed.oklch.l >= LIGHT_TONE_MIN) return 'light'
   if (parsed.oklch.l <= DARK_TONE_MAX) return 'dark'

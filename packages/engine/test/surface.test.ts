@@ -140,6 +140,18 @@ describe('surfaceTone', () => {
     ).toBe('dark')
   })
 
+  it('judges a translucent control by the page showing through it', () => {
+    const glass = capture({
+      componentType: 'button',
+      styles: { backgroundColor: 'rgba(255, 255, 255, 0.05)' },
+      inheritedBackgroundColor: '#0b0f19',
+    })
+    expect(surfaceTone(glass)).toBe('dark')
+    expect(
+      surfaceTone(capture({ componentType: 'button', styles: { backgroundColor: 'rgba(255, 255, 255, 0.05)' } })),
+    ).toBe('unknown')
+  })
+
   it('separates "neither" from "not measured"', () => {
     expect(surfaceTone(capture({ styles: { backgroundColor: 'rgba(0, 0, 0, 0)' } }))).toBe('unknown')
     expect(LIGHT_TONE_MIN).toBeGreaterThan(DARK_TONE_MAX)
