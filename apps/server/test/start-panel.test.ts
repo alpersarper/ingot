@@ -65,4 +65,46 @@ describe('startPanel', () => {
     })
     await expect(stat(fresh)).rejects.toMatchObject({ code: 'ENOENT' })
   })
+
+  it('establishes a pinned token on a fresh data directory', async () => {
+    running = await startPanel(config({ pairingToken: 'PINNED' }))
+    expect(running.pairingToken).toBe('PINNED')
+    expect(await readFile(running.tokenFile, 'utf8')).toBe('PINNED\n')
+    expect(await verifies(running.port, 'PINNED')).toBe(200)
+  })
+
+  it('starts normally when the pinned token is the one already stored', async () => {
+    running = await startPanel(config({ pairingToken: 'OLD' }))
+    await running.close()
+
+    running = await startPanel(config({ pairingToken: 'OLD' }))
+    expect(running.pairingToken).toBe('OLD')
+    expect(await verifies(running.port, 'OLD')).toBe(200)
+  })
+
+  it('refuses a different pinned token for a library another panel is serving, and writes nothing', async () => {
+    running = await startPanel(config({ pairingToken: 'OLD' }))
+    const before = await readFile(running.tokenFile)
+
+    await expect(startPanel(config({ pairingToken: 'NEW' }))).rejects.toMatchObject({
+      code: 'INGOT_PAIRING_TOKEN_CONFLICT',
+    })
+
+    expect(await readFile(running.tokenFile)).toEqual(before)
+    expect(await verifies(running.port, 'OLD')).toBe(200)
+
+    await running.close()
+    running = await startPanel(config())
+    expect(running.pairingToken).toBe('OLD')
+  })
+
+  it('does not put either token in the conflict message', async () => {
+    running = await startPanel(config({ pairingToken: 'OLD-SECRET' }))
+    const failure = await startPanel(config({ pairingToken: 'NEW-SECRET' })).catch((cause: unknown) => cause)
+
+    expect(failure).toBeInstanceOf(Error)
+    expect((failure as Error).message).toContain('--data-dir')
+    expect((failure as Error).message).not.toContain('OLD-SECRET')
+    expect((failure as Error).message).not.toContain('NEW-SECRET')
+  })
 })

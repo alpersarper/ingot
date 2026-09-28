@@ -36,6 +36,7 @@ import type { ServerConfig } from './config'
 // a deep path into the server's internals.
 export { loadConfig } from './config'
 export type { ServerConfig } from './config'
+export { PairingTokenConflictError } from './pairing'
 
 /** Open the volume and the database, and establish the pairing token. */
 export async function createContext(config: ServerConfig): Promise<AppContext> {
@@ -51,7 +52,13 @@ export async function createContext(config: ServerConfig): Promise<AppContext> {
   // its owner and nobody else. Best-effort: some volume drivers refuse chmod.
   await chmod(config.databaseFile, 0o600).catch(() => undefined)
 
-  const pairingToken = await resolvePairingToken(store, config.pairingToken)
+  let pairingToken: string
+  try {
+    pairingToken = await resolvePairingToken(store, config.pairingToken)
+  } catch (cause) {
+    await store.close().catch(() => undefined)
+    throw cause
+  }
 
   return {
     config,

@@ -52,6 +52,8 @@ Ctrl-C stops it; run it again and your library is where you left it.
 Needs Node 22+. `--port`, `--data-dir`, `--host` and `--no-open` are there when
 you need them (`npx ingot-workbench --help`), and so is every `INGOT_*`
 environment variable in [docs/panel.md](docs/panel.md#running-it); flags win.
+One data directory serves one panel at a time: to run a second panel, give it its
+own `--data-dir`.
 For a long-lived install -- a pinned image, a managed volume, a restart policy --
 use [Docker](#the-durable-path-docker) instead. It is the same server either way.
 

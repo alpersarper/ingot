@@ -117,3 +117,22 @@ describe('a port held by something else', () => {
     }
   })
 })
+
+describe('a pinned token that disagrees with the library', () => {
+  it('fails on another port and leaves the running panel\'s token alone', async () => {
+    running = await startOwnPanel('OLD')
+    const probe = createServer()
+    await new Promise<void>((ready) => probe.listen(0, '127.0.0.1', ready))
+    const address = probe.address()
+    if (address === null || typeof address === 'string') throw new Error('expected a TCP address')
+    await new Promise((done) => probe.close(done))
+
+    expect(await invoke(['--port', String(address.port), '--token', 'NEW'])).toBe(1)
+    expect(stderr).toContain('already has a different pairing token')
+    expect(stderr).not.toContain('OLD')
+    expect(stdout).toBe('')
+
+    expect(await readFile(running.tokenFile, 'utf8')).toBe('OLD\n')
+    expect(await verifies(running.port, 'OLD')).toBe(200)
+  })
+})

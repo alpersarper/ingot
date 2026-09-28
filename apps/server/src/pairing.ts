@@ -29,18 +29,44 @@ export function generatePairingToken(): string {
 }
 
 /**
+ * A pinned token that disagrees with the one this data directory already has.
+ *
+ * Deliberately names neither token: the message reaches a terminal and a
+ * container log, and either value would be a secret printed where it should not
+ * be.
+ */
+export class PairingTokenConflictError extends Error {
+  readonly code = 'INGOT_PAIRING_TOKEN_CONFLICT'
+
+  constructor() {
+    super(
+      'this data directory already has a different pairing token, and the pinned one ' +
+        '(--token / INGOT_PAIRING_TOKEN) would replace it for every browser and extension ' +
+        'already paired with it. Use the stored token -- it is in pairing-token.txt in the ' +
+        'data directory -- or point at a different --data-dir.',
+    )
+    this.name = 'PairingTokenConflictError'
+  }
+}
+
+/**
  * The token this server will accept, establishing one on first run.
  *
- * An environment-supplied token wins and is written through to storage, so a
- * deployment can pin it; otherwise the first boot on a fresh volume mints one
- * and every later boot reuses it.
+ * A deployment can pin the token: on a fresh volume the pinned one is stored,
+ * and pinning the one already stored is a no-op. Pinning a *different* one
+ * refuses to start rather than replacing it, because the data directory may be
+ * in use by a panel that is still enforcing the stored token from memory, and a
+ * silent overwrite would unpair its browser and extension on its next restart.
+ * Nothing is written on that path. Unpinned, the first boot on a fresh volume
+ * mints one and every later boot reuses it.
  */
 export async function resolvePairingToken(store: Store, fromEnv: string | undefined): Promise<string> {
+  const existing = await store.settings.get(PAIRING_TOKEN_KEY)
   if (fromEnv !== undefined) {
-    await store.settings.set(PAIRING_TOKEN_KEY, fromEnv)
+    if (existing === null) await store.settings.set(PAIRING_TOKEN_KEY, fromEnv)
+    else if (existing !== fromEnv) throw new PairingTokenConflictError()
     return fromEnv
   }
-  const existing = await store.settings.get(PAIRING_TOKEN_KEY)
   if (existing !== null) return existing
   const minted = generatePairingToken()
   await store.settings.set(PAIRING_TOKEN_KEY, minted)

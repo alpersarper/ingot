@@ -55,6 +55,9 @@ address bar either way. The guard below is unchanged -- the token is still
 required on every call, and a page on another origin can no more read this
 fragment than it could read the panel's `localStorage`.
 
+One data directory serves one panel at a time; a second panel needs its own
+`INGOT_DATA_DIR` (or `--data-dir`), not just its own port.
+
 Environment (all optional; see `apps/server/src/config.ts`):
 
 | Variable | Default | |
@@ -64,7 +67,7 @@ Environment (all optional; see `apps/server/src/config.ts`):
 | `INGOT_DATA_DIR` | `./data` (`/data` in the container, `~/.ingot` under npx) | Database, screenshots, pairing token. Also `--data-dir`. |
 | `INGOT_PANEL_DIR` | unset (the packaged panel under npx) | Built panel to serve. Unset means API only. |
 | `INGOT_PANEL_ORIGIN` | `http://localhost:5173` | Comma-separated CORS allowlist. |
-| `INGOT_PAIRING_TOKEN` | minted on first run | Pin to skip the first-run screen. Also `--token`. |
+| `INGOT_PAIRING_TOKEN` | minted on first run | Pin to skip the first-run screen. Also `--token`. A data directory that already stores a different token refuses to start rather than replacing it. |
 | `INGOT_LLM_CONNECTION` | unset | Pin the assistant's connection: `claude-cli`, `openai-compatible` or `anthropic-api`. Unset, the server uses whichever is ready. |
 | `INGOT_LLM_API_KEY` | unset | Pin the Anthropic key instead of typing it into the panel. Sent only by the Anthropic connection. |
 | `INGOT_LLM_ENDPOINT_KEY` | unset | Pin the OpenAI-compatible endpoint's bearer token. Sent only by that connection. |

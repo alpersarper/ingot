@@ -63,6 +63,12 @@ async function ingotAnswersOn(url: string): Promise<boolean> {
   }
 }
 
+function isPairingTokenConflict(cause: unknown): cause is Error {
+  return (
+    cause instanceof Error && (cause as { code?: unknown }).code === 'INGOT_PAIRING_TOKEN_CONFLICT'
+  )
+}
+
 function out(text: string): void {
   process.stdout.write(text)
 }
@@ -89,6 +95,11 @@ export async function run(argv: readonly string[]): Promise<void> {
   try {
     handle = await startPanel(config)
   } catch (cause) {
+    if (isPairingTokenConflict(cause)) {
+      process.stderr.write(`\n  ingot: ${cause.message}\n\n`)
+      process.exitCode = 1
+      return
+    }
     if (!isAddressInUse(cause)) throw cause
     const url = panelUrl(config.host, config.port)
     const outcome = portHeld(parsed.options, {
