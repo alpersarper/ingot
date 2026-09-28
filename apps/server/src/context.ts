@@ -30,6 +30,13 @@ export interface AppContext {
    * deployment that wants a different window gets one from configuration.
    */
   assistantLimiter: RateLimiter
+  /**
+   * Where the request log writes. `console.log` when absent.
+   *
+   * Injectable for the same reason the assistant's log sink is: the suite has
+   * to be able to read the lines and assert that no secret is in one.
+   */
+  requestLogSink?: (line: string) => void
 }
 
 /** Hono environment: no request-scoped variables, just the shared context. */

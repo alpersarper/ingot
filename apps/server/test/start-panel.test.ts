@@ -20,7 +20,11 @@ let dir: string
 let running: PanelHandle | undefined
 
 function config(overrides: Partial<ServerConfig> = {}, dataDir = dir): ServerConfig {
-  return { ...loadConfig({ INGOT_DATA_DIR: dataDir, INGOT_HOST: '127.0.0.1' }), port: 0, ...overrides }
+  return {
+    ...loadConfig({ INGOT_DATA_DIR: dataDir, INGOT_HOST: '127.0.0.1', INGOT_REQUEST_LOG: '0' }),
+    port: 0,
+    ...overrides,
+  }
 }
 
 async function verifies(port: number, token: string): Promise<number> {

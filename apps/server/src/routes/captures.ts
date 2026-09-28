@@ -189,6 +189,11 @@ export function captureRoutes(context: AppContext): Hono<AppEnv> {
     if (!capture) throw ApiError.notFound(`no capture with id ${id}`)
     if (capture.screenshotPath === null) throw ApiError.notFound(`capture ${id} has no screenshot`)
     const bytes = await screenshots.read(capture.screenshotPath)
+    // The row says there is an image and the volume does not have it. Say that,
+    // rather than raising a 500 that reads as a bug in this server.
+    if (bytes === null) {
+      throw ApiError.notFound(`capture ${id} points at ${capture.screenshotPath}, which is not on the volume`)
+    }
     return c.body(bytes as unknown as ArrayBuffer, 200, {
       'Content-Type': contentTypeForPath(capture.screenshotPath),
       'Cache-Control': 'no-store',

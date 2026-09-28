@@ -114,14 +114,14 @@ describe('a mistyped panel address', () => {
     const wrong = await queue.drain()
     expect(wrong.sent).toBe(0)
     expect(wrong.pending).toBe(2)
-    expect(wrong.error).toContain('404')
+    expect(wrong.failure?.message).toContain('404')
     expect((await queue.status()).rejected).toEqual([])
-    expect(await queue.pendingCount()).toBe(2)
+    expect((await queue.counts()).pending).toBe(2)
 
     address = 'http://localhost:4310'
     const corrected = await queue.drain()
 
-    expect(corrected).toEqual({ sent: 2, pending: 0, error: null })
+    expect(corrected).toEqual({ sent: 2, pending: 0, rejected: 0, failure: null })
     expect(receivedRecords).toEqual(['a', 'b'])
     expect(receivedShots.map((shot) => shot.id)).toEqual(['a', 'b'])
     for (const shot of receivedShots) expect(shot.bytes).toBeGreaterThan(0)

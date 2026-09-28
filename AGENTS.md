@@ -91,6 +91,15 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
   a route or an export that works out a conflict, a retirement or an answered
   value of its own is the defect this seam exists to make impossible.
   Rules: [docs/tokens.md](docs/tokens.md#overrides).
+- **The library shows the picture.** A capture is values *and* a reference
+  image, so `CaptureThumb` renders each one in the collection column. The
+  pairing token rides in a header and a header cannot ride on an `<img src>`,
+  so the image is fetched through `api.captureScreenshot` and handed over as an
+  object URL -- never by putting the token in a URL. A missing file is a 404
+  that names it, not a 500; the row survives either way.
+  `apps/panel/test/capture-preview.test.tsx` runs against the real server,
+  because a fake that answered any URL would prove a `src` works that a real
+  panel gets a 401 for.
 - **One renderer, three surfaces.** The canonical components in
   `apps/panel/src/preview/components/` draw the live preview, the in-panel docs
   and the static docs export; the prose and token subsets all three show come
@@ -106,6 +115,13 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
   weaken it: a kit row stores the engine's own bytes and `effectiveKit()` replays
   the reviewer's values on read, short-circuiting to the stored strings when
   there are none.
+- **The picker and the panel both say what will weaken the kit.** The confirm
+  popover will not save until a type is chosen and states the running type mix;
+  a selection that is all one type, or that mixes clearly light and clearly dark
+  surfaces (`surfaceTone`, on the *painted* background), is warned about in the
+  panel before the generation is spent. Both are advice and neither blocks --
+  the rulings and their reasons are in
+  [DECISIONS.md](DECISIONS.md#law-settled-rulings--change-these-only-by-an-explicit-new-ruling).
 - **The library is a pool; groups are non-exclusive curations of it; a kit
   generates from a scope.** Multi-select in the left column is the primary verb,
   and its bar acts on exactly what is ticked. A selection kit (`scope:
@@ -127,7 +143,13 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
 - **The extension reads one element and sends to one address.** It emits a
   `CaptureRecord` per `schemas/capture-record.schema.json` and nothing else: no
   markup, no stylesheets, no text, no attributes beyond `role` and an input's
-  `type`. Its `chrome.storage.local` buffer is what makes a capture survive a
+  `type`. The one thing it reads *off* the element is the background painted
+  behind a transparent one -- an ancestor walk recorded as
+  `inheritedBackgroundColor`, marked as inherited and never replacing the
+  browser's own value; `packages/engine/src/capture/surface.ts` owns what the
+  engine then does with the pair, and the split is the point (colour evidence
+  takes the painted background, `hasOpaqueFill` does not).
+  Its `chrome.storage.local` buffer is what makes a capture survive a
   panel that is down, and the drain is strictly FIFO --
   `apps/extension/test/queue.test.ts` walks the whole lifecycle, service-worker
   eviction included, and `test/record.test.ts` puts the emitted record through
@@ -135,9 +157,25 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
   normalisations the browser forces -- percentage radii, variable-font weights,
   `gap`, phantom border colours -- are in `src/shared/styles.ts` with the
   reasoning. Everything worth testing is pure by construction: extraction takes
-  a property reader, the type guess takes a flat descriptor, the buffer takes a
-  key-value store, so the suite runs in Node against the values a real browser
-  returns rather than the ones jsdom can fake.
+  a property reader, the type guess and the wrapper check take a flat descriptor
+  (`shared/descriptor.ts`, `shared/boundary.ts`), the buffer and the type tally
+  take a key-value store, so the suite runs in Node against the values a real
+  browser returns rather than the ones jsdom can fake. The picker itself is the
+  part no Node test can reach, so a change to it is verified by driving a real
+  Chrome over CDP -- the keys it answers to are in `apps/extension/README.md`.
+- **A capture reports the fate it actually had.** `saveMessage`
+  (`apps/extension/src/shared/outcome.ts`) is the only place a `SaveResult`
+  becomes a sentence, and it says `Captured` only when the panel took it;
+  everything else names the panel's own answer and the fix, in the error tone.
+  The decision behind it is `saveCapture` (`shared/save.ts`) rather than the
+  service worker, because the worker touches `chrome.*` at import time and so
+  no Node test can reach it -- which is exactly how a version that answered
+  `{ ok: true }` to a refused capture passed a 32-check browser acceptance run.
+  A refused capture also holds a **red** badge until it is dealt with: it is the
+  one case where work was dropped, and the parked entry leaves the pending queue,
+  so counting only pending made it the one case with no indicator at all.
+  `test/save-feedback.test.ts` asserts on what the user is shown, not on the
+  queue. Rule: [DECISIONS.md](DECISIONS.md#law-settled-rulings--change-these-only-by-an-explicit-new-ruling).
 - **`npx ingot-workbench` and `docker compose up` are two launchers over one
   server.** `apps/cli` resolves flags into the `INGOT_*` variables
   `loadConfig` already understands and calls the server's own `startPanel`; it
@@ -162,7 +200,12 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
   without it the extension could not reach the API at all
   ([DECISIONS.md](DECISIONS.md#architecture)). The LLM API key goes in and never
   comes out: no endpoint returns it, and `apps/server/test/api.test.ts` asserts
-  that on the response bodies.
+  that on the response bodies. Both guards sit *inside* the request log
+  (`src/logging.ts`, `INGOT_REQUEST_LOG`), so a refused request is still a line
+  -- without one, "nothing arrived" and "everything was refused" are
+  indistinguishable from outside. That log reads no header, no body and no query
+  *value* (`?groupId&tag`, names only), which is what makes a leak impossible
+  rather than redacted.
 - **The preview and the docs have no hardcoded values.** Every visual property in
   `canonical.css` and `docs.css` is a `var(--kit-*)` fed by `kit-css.ts` -- no
   colour, no length, no font size, not even as a fallback. A literal would put a

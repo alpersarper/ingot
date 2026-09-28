@@ -8,7 +8,7 @@
  * address becomes configurable for the extension, it becomes configurable here
  * and nowhere else.
  */
-import type { OverrideConflict, RejectedOverride, TokensDocument } from '@ingot/engine'
+import type { CaptureRecord, OverrideConflict, RejectedOverride, TokensDocument } from '@ingot/engine'
 
 const TOKEN_STORAGE_KEY = 'ingot.pairingToken'
 
@@ -121,6 +121,15 @@ export interface CaptureSummary {
   capturedAt: string
   tags: string[]
   hasScreenshot: boolean
+  /**
+   * The capture record itself, as the server stored it.
+   *
+   * Already on the wire -- `serialise` in `routes/captures.ts` has always sent
+   * it -- and declared here because the panel now reads it: the surfaces a
+   * selection mixes are a fact about the captured styles, and asking the server
+   * for an opinion about it would put a second judgement beside the engine's own.
+   */
+  record: CaptureRecord
 }
 
 export interface GroupSummary {
@@ -404,6 +413,20 @@ export const api = {
   async captures(groupId?: string): Promise<CaptureSummary[]> {
     const query = groupId === undefined ? '' : `?groupId=${encodeURIComponent(groupId)}`
     return (await get<{ captures: CaptureSummary[] }>(`/api/captures${query}`)).captures
+  },
+
+  /**
+   * The picture the extension took of this component.
+   *
+   * A blob rather than a URL to put in an `<img src>`, and that is not a
+   * preference. The pairing token lives in a header, and a header cannot ride
+   * on an `<img>`: a bare `src` would either 401 or force the token into the
+   * URL, where it lands in history, in a `Referer` and in any log. The blob
+   * round-trip is the price of not doing that -- the same price the downloads
+   * below already pay, for the same reason.
+   */
+  async captureScreenshot(captureId: string): Promise<Blob> {
+    return (await send(`/api/captures/${encodeURIComponent(captureId)}/screenshot`)).blob()
   },
 
   async groups(): Promise<GroupSummary[]> {

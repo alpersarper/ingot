@@ -9,6 +9,7 @@
  * shape the engine accepts.
  */
 import type { CaptureRecord, ComponentType } from '@ingot/engine'
+import type { DrainFailure } from './outcome'
 
 /** Where the panel lives and how we prove we are allowed to talk to it. */
 export interface Settings {
@@ -58,6 +59,12 @@ export interface RejectedCapture {
 export interface PickedElement {
   componentType: ComponentType
   styles: CaptureRecord['styles']
+  /**
+   * The background painted behind the element, when its own fill is not fully
+   * opaque. Travels separately from `styles` because it is not a computed
+   * style of this box -- see `CaptureRecord.inheritedBackgroundColor`.
+   */
+  inheritedBackgroundColor?: string
   sourceUrl: string
   /** Stable across recaptures of the same element; see `identity.ts`. */
   captureId: string
@@ -78,6 +85,7 @@ export type PickerMessage =
   | { type: 'ingot:ping' }
   | { type: 'ingot:shoot'; rect: Rect; devicePixelRatio: number }
   | { type: 'ingot:save'; picked: PickedElement; screenshot: ScreenshotBlob | null }
+  | { type: 'ingot:tally' }
 
 /** Messages the service worker sends the page. */
 export type PickerCommand = { type: 'ingot:start' } | { type: 'ingot:stop' }
@@ -93,8 +101,14 @@ export type OptionsMessage =
 export interface QueueStatus {
   pending: number
   rejected: RejectedCapture[]
-  /** Why the last drain stopped, or null when everything got through. */
-  lastError: string | null
+  /**
+   * Why the last drain stopped, or null when everything got through.
+   *
+   * The *kind* travels with the message, not just the text, so the options page
+   * can offer the same advice the capture popover does instead of inventing a
+   * second, subtly different wording for the same 401.
+   */
+  lastFailure: DrainFailure | null
   /** ISO instant of the last completed drain attempt, or null. */
   lastAttemptAt: string | null
 }
@@ -105,10 +119,11 @@ export interface ShootResult {
   error?: string
 }
 
-export interface SaveResult {
-  ok: boolean
-  /** Number of captures still waiting, so the picker can say "queued (3)". */
-  pending: number
-  /** Set when the capture could not even be queued. */
-  error?: string
-}
+/**
+ * What the page is told after a save.
+ *
+ * Defined in `outcome.ts` beside the function that turns it into a sentence,
+ * because the two are one decision: a shape that can carry a failure is only
+ * worth having if something is obliged to say it out loud.
+ */
+export type { SaveResult } from './outcome'

@@ -76,6 +76,8 @@ export type {
 export { validateCaptureRecord, validateCaptureSet, CaptureValidationError } from './capture/validate'
 export { CAPTURE_SCHEMA_VERSION, COMPONENT_TYPES } from './capture/types'
 export type { CaptureRecord, CaptureSet, CapturedStyles, ComponentType } from './capture/types'
+export { DARK_TONE_MAX, LIGHT_TONE_MIN, surfaceBackground, surfaceTone } from './capture/surface'
+export type { SurfaceBackground, SurfaceTone } from './capture/surface'
 
 export { TOKENS_SCHEMA_VERSION } from './tokens/types'
 export type {

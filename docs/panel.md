@@ -230,6 +230,23 @@ Everything except `/api/health` and `/api/pairing*` requires the token.
 | `DELETE /api/settings/llm-key` | Remove the stored Anthropic key; the endpoint key clears with `PUT { llmEndpointKey: null }`. There is no endpoint that returns either. |
 | `POST /api/reset` | Destroy the library. Requires `{ "confirm": "reset" }`. The only endpoint that deletes a kit; settings and pairing survive. |
 
+### The request log
+
+One line per request on stdout -- `[ingot] POST /api/captures 201 3ms` -- which
+is on by default and silenced with `INGOT_REQUEST_LOG=0`. It sits **outside**
+both guards, so a request the CORS lock or the pairing check refused is still a
+line: before it existed, a panel that had been answering an extension's captures
+with 401 for days had eight lines in `docker logs`, all of them the startup
+banner, and "nothing ever arrived" and "everything was refused" looked the same
+from outside.
+
+What is logged is the method, the path and the status, and nothing else. No
+header, no body, and no query **value** -- `?groupId=g1&tag=hero` is logged as
+`?groupId&tag`, so which filter was in play survives and the content does not.
+That is what makes a leak impossible rather than merely redacted, and the
+finished line goes through `redact` against every secret the process holds
+anyway. `apps/server/test/request-log.test.ts` holds it to both halves.
+
 ## The workbench
 
 Three columns, per the approved skeleton: collection on the left, the live
@@ -253,11 +270,40 @@ is three words.
 - **A kit generates from a scope**: the whole library, one group, or an ad-hoc
   **selection**.
 
+Each capture in the list carries **its screenshot**, fetched from
+`GET /api/captures/:id/screenshot` and shown beside the id. Capture is
+reference-grade by decision -- computed values *and* a picture -- and a library
+that prints only `ghost-btn-primary` asks a reviewer to curate a collection
+they cannot see. The image goes through the same authenticated door as every
+other call and reaches the `<img>` as an object URL, because the pairing token
+lives in a header and a header cannot ride on a `src`; putting it in the URL
+instead would land it in history, in a `Referer` and in any log. A capture with
+no screenshot, and one whose file the volume has lost (a 404 that names the
+file, never a 500), both keep their row and show an empty frame.
+
 The primary journey is collect, curate, distil. Ticking captures raises the
 selection bar, which states the count, the **type mix** ("4 buttons · 3 cards ·
 2 inputs · 3 type") and three actions: group the selection, generate from it, or
 delete it. The mix earns its space because "6 selected" says nothing about
 whether the evidence is worth distilling and "6 buttons" says everything.
+
+Two things about a selection are worse than uninformative, and the bar
+**warns** about them before a generation is spent on it
+(`apps/panel/src/workbench/selection.ts`). A selection that is **all one type**
+leaves the engine with no evidence for the other three, so it states sanctioned
+defaults instead and the kit comes back looking finished and thin. A selection
+that **mixes clearly light and clearly dark surfaces** -- measured on the
+painted background of each capture, the engine's `surfaceTone`, so a transparent
+capture is judged by what was behind it, a brand-blue fill is not mistaken
+for a dark theme, and only a card's own fill counts as a surface (a near-black
+`#0a2540` CTA off a light page is a control, judged by its backdrop or not at
+all) -- is two kits: one background is chosen and every contrast pair
+is held against it, so the minority is re-derived rather than kept. Each warning
+states the fact and names the way out, and neither disables anything: a
+deliberately button-only kit is a legitimate thing to want, and a workbench that
+refuses to distil what it was pointed at is one that gets worked around. The
+same two warnings sit in the empty middle column, about the scope, when nothing
+is ticked.
 
 A selection is a *set*: the server hands the ids to the engine in the library's
 own insertion order, so the same captures ticked in any order produce the same

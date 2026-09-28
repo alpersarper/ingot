@@ -50,6 +50,17 @@ export interface ServerConfig {
    * panel is served from this very server.
    */
   allowedOrigins: string[]
+  /**
+   * `INGOT_REQUEST_LOG`: one line per request on stdout. On by default.
+   *
+   * Because the alternative is what this server used to do, which is say
+   * nothing at all. A panel that had been refusing an extension's captures for
+   * days -- 401, every time -- had eight lines in `docker logs`, all of them
+   * the startup banner, so "no requests arrived" and "every request was
+   * rejected" looked exactly alike from outside. What is logged is method,
+   * path and status; never a header, never a body, never a query *value*.
+   */
+  requestLog: boolean
   /** Pairing token from the environment; otherwise one is generated at first run. */
   pairingToken: string | undefined
   /**
@@ -161,9 +172,10 @@ function connectionFromEnv(env: NodeJS.ProcessEnv): ConnectionId | undefined {
   return raw
 }
 
-function flagFromEnv(env: NodeJS.ProcessEnv, key: string): boolean {
+function flagFromEnv(env: NodeJS.ProcessEnv, key: string, fallback = false): boolean {
   const raw = env[key]?.trim().toLowerCase()
-  if (raw === undefined || raw === '' || raw === '0' || raw === 'false') return false
+  if (raw === undefined || raw === '') return fallback
+  if (raw === '0' || raw === 'false') return false
   if (raw === '1' || raw === 'true') return true
   throw new ConfigError(`${key} must be 1 or 0, received ${JSON.stringify(env[key])}`)
 }
@@ -206,6 +218,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     // Without an explicit list, allow only the dev panel. Any other page that
     // wants in has to be named, which is the point of locking CORS down.
     allowedOrigins: configured.length > 0 ? configured : [DEV_PANEL_ORIGIN],
+    requestLog: flagFromEnv(env, 'INGOT_REQUEST_LOG', true),
     pairingToken,
     rotatePairingToken,
     llmApiKey: optional(env, 'INGOT_LLM_API_KEY'),

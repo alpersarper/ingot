@@ -8,12 +8,14 @@
  * variable would be correct until the first eviction and wrong afterwards,
  * which is the worst kind of correct.
  */
-import { validateCaptureRecord, CaptureValidationError } from '@ingot/engine'
+import { validateCaptureRecord } from '@ingot/engine'
 import type { CaptureRecord } from '@ingot/engine'
 import { cropDataUrl } from './crop'
 import { chromeLocalStore, readSettings } from '../shared/settings'
-import { createQueue, QueueFullError } from '../shared/queue'
-import type { Queue } from '../shared/queue'
+import { createQueue } from '../shared/queue'
+import { bumpTally, readTally } from '../shared/tally'
+import { saveCapture } from '../shared/save'
+import type { DrainReport, Queue, QueueCounts } from '../shared/queue'
 import { createTransport } from '../shared/transport'
 import type {
   OptionsMessage,
@@ -37,9 +39,43 @@ const queue: Queue = createQueue({
   now: () => new Date().toISOString(),
 })
 
-async function setBadge(pending: number): Promise<void> {
-  await chrome.action.setBadgeText({ text: pending === 0 ? '' : String(pending) })
-  await chrome.action.setBadgeBackgroundColor({ color: '#b45309' })
+/** Amber for captures that are merely waiting; red for ones the panel refused. */
+const WAITING_COLOUR = '#b45309'
+const REFUSED_COLOUR = '#b91c1c'
+
+const DEFAULT_TITLE = 'Ingot: pick a component (click to toggle)'
+
+/**
+ * The toolbar badge, which is the only thing this extension can say while the
+ * user is not looking at it.
+ *
+ * Two states rather than one, because they mean opposite things. A *waiting*
+ * capture is safe and will go the moment the panel answers, so it is a count in
+ * amber and needs nothing from anybody. A *refused* capture is one the panel
+ * will never take: it has been parked, it is not coming back on its own, and
+ * something has to be done about it. That state used to render as an empty
+ * badge -- the queue was genuinely empty, because the parked capture had been
+ * moved out of it -- which meant the one case where data had been dropped was
+ * the one case with no indicator at all. Refused therefore wins the badge, in
+ * red, and says so in the tooltip.
+ */
+async function setBadge(counts: QueueCounts): Promise<void> {
+  if (counts.rejected > 0) {
+    await chrome.action.setBadgeText({ text: String(counts.rejected) })
+    await chrome.action.setBadgeBackgroundColor({ color: REFUSED_COLOUR })
+    await chrome.action.setTitle({
+      title: `Ingot: the panel refused ${counts.rejected} capture${counts.rejected === 1 ? '' : 's'} -- open this extension's options`,
+    })
+    return
+  }
+  await chrome.action.setBadgeText({ text: counts.pending === 0 ? '' : String(counts.pending) })
+  await chrome.action.setBadgeBackgroundColor({ color: WAITING_COLOUR })
+  await chrome.action.setTitle({
+    title:
+      counts.pending === 0
+        ? DEFAULT_TITLE
+        : `Ingot: ${counts.pending} capture${counts.pending === 1 ? '' : 's'} waiting for the panel`,
+  })
 }
 
 /**
@@ -59,9 +95,10 @@ async function scheduleRetries(pending: number): Promise<void> {
   }
 }
 
-async function drainNow(): Promise<{ sent: number; pending: number; error: string | null }> {
+async function drainNow(): Promise<DrainReport> {
   const result = await queue.drain()
-  await setBadge(result.pending)
+  // The drain announces its own counts through the sink, so the badge is
+  // already current here; only the alarm still needs telling.
   await scheduleRetries(result.pending)
   return result
 }
@@ -83,37 +120,34 @@ function buildRecord(picked: PickedElement): CaptureRecord {
     capturedAt: new Date().toISOString(),
     screenshot: null,
     styles: picked.styles,
+    ...(picked.inheritedBackgroundColor === undefined
+      ? {}
+      : { inheritedBackgroundColor: picked.inheritedBackgroundColor }),
   })
 }
 
+/**
+ * Take a capture, buffer it, deliver it -- and say what actually happened.
+ *
+ * The decision is `saveCapture`'s, in `shared/save.ts`, so that "a capture the
+ * panel refused is never reported as a success" is a property the Node suite
+ * can hold this code to. What stays here is the part that is Chrome: the
+ * record is assembled from what the picker measured, and the drain that runs
+ * is the worker's own, alarm and badge included.
+ */
 async function handleSave(picked: PickedElement, screenshot: ScreenshotBlob | null): Promise<SaveResult> {
-  let record: CaptureRecord
-  try {
-    record = buildRecord(picked)
-  } catch (error) {
-    // The engine's own validator, run before anything is stored. A capture that
-    // could never be accepted fails here, in front of the person who picked it,
-    // rather than as a 422 inside a drain hours later.
-    const message =
-      error instanceof CaptureValidationError ? error.issues.join('; ') : error instanceof Error ? error.message : ''
-    return { ok: false, pending: await queue.pendingCount(), error: `invalid capture: ${message}` }
-  }
-
-  let pending: number
-  try {
-    pending = await queue.enqueue(record, screenshot, new Date().toISOString())
-  } catch (error) {
-    // Anything from here -- the buffer's own cap, or `chrome.storage.local`
-    // refusing the write -- has to come back as an answer. A thrown error
-    // would leave the confirm popover saying "Saving..." for ever, which is the
-    // one outcome worse than losing the capture.
-    const message = error instanceof QueueFullError ? error.message : `could not buffer this capture: ${String(error)}`
-    return { ok: false, pending: await queue.pendingCount(), error: message }
-  }
-
-  await setBadge(pending)
-  const result = await drainNow()
-  return { ok: true, pending: result.pending }
+  const result = await saveCapture(
+    { queue, drain: drainNow },
+    () => buildRecord(picked),
+    screenshot,
+    new Date().toISOString(),
+  )
+  // Counted only when the capture got in: the tally's whole job is to say what
+  // evidence the library has, and a capture the buffer refused is not evidence.
+  // A storage failure here must not turn an accepted capture into a reported
+  // one, so the tally's own write cannot change the answer.
+  if (result.ok) await bumpTally(store, picked.componentType).catch(() => undefined)
+  return result
 }
 
 async function handleShoot(tabId: number, message: Extract<PickerMessage, { type: 'ingot:shoot' }>): Promise<ShootResult> {
@@ -161,10 +195,12 @@ async function togglePickMode(tab: chrome.tabs.Tab): Promise<void> {
   await chrome.tabs.sendMessage(tabId, { type: active === true ? 'ingot:stop' : 'ingot:start' })
 }
 
-const DEFAULT_TITLE = 'Ingot: pick a component (click to toggle)'
-
 /**
  * Say something went wrong on the button itself; there is no popup to say it in.
+ *
+ * This one is about the *injection* failing -- there is no page to put a toast
+ * on, because the picker is what could not be put there. Delivery failures do
+ * not come through here: they have a page to speak on, and they use it.
  *
  * It is cleared at the start of the next toggle rather than on a timer,
  * because a timer in a service worker does not survive the worker being
@@ -173,13 +209,19 @@ const DEFAULT_TITLE = 'Ingot: pick a component (click to toggle)'
  */
 async function showFailure(title: string): Promise<void> {
   await chrome.action.setBadgeText({ text: '!' })
-  await chrome.action.setBadgeBackgroundColor({ color: '#b91c1c' })
+  await chrome.action.setBadgeBackgroundColor({ color: REFUSED_COLOUR })
   await chrome.action.setTitle({ title: `Ingot: ${title}` })
 }
 
+/**
+ * Put the badge back to what the buffer actually says.
+ *
+ * Through the counts rather than a hardcoded default, so clearing an injection
+ * error cannot also clear a standing "the panel refused N captures" warning
+ * that is still true.
+ */
 async function clearFailure(): Promise<void> {
-  await chrome.action.setTitle({ title: DEFAULT_TITLE })
-  await setBadge(await queue.pendingCount())
+  await setBadge(await queue.counts())
 }
 
 chrome.action.onClicked.addListener((tab) => {
@@ -200,6 +242,9 @@ chrome.runtime.onMessage.addListener((message: PickerMessage | OptionsMessage, s
       }
       case 'ingot:save':
         respond(await handleSave(message.picked, message.screenshot))
+        return
+      case 'ingot:tally':
+        respond(await readTally(store))
         return
       case 'ingot:status':
         respond(await queue.status())

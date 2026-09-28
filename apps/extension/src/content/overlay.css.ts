@@ -38,12 +38,19 @@ export const OVERLAY_CSS = `
   box-shadow: 0 0 0 9999px rgba(8, 10, 18, 0.32), 0 0 0 1px rgba(255, 255, 255, 0.35);
 }
 
+/* A box a reader could not see is outlined in a dash rather than a solid rule:
+   the outline still says "this is what you are pointing at" while looking
+   unlike the confident one that means "this is a component". */
+.halo[data-wrapper="true"] {
+  border-style: dashed;
+  border-color: #f0b429;
+}
+
 .chip {
   position: fixed;
   pointer-events: none;
-  display: flex;
-  gap: 8px;
-  align-items: center;
+  display: grid;
+  gap: 1px;
   padding: 4px 8px;
   border-radius: 4px;
   background: #4f7cff;
@@ -52,14 +59,34 @@ export const OVERLAY_CSS = `
   line-height: 16px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  white-space: nowrap;
-  max-width: 90vw;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  max-width: min(420px, 90vw);
 }
 
 .chip[data-refused="true"] { background: #b94a1d; }
+
+/* One claim per line, and each is a different kind of claim: what this is, what
+   was measured to decide that, and whether it is a component at all. */
+.chip .line {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .chip .dim { font-weight: 400; opacity: 0.85; }
+
+.chip .warn {
+  font-weight: 400;
+  white-space: normal;
+  color: #fff3d6;
+  border-top: 1px solid rgba(255, 255, 255, 0.28);
+  margin-top: 2px;
+  padding-top: 2px;
+}
 
 .hint {
   position: fixed;
@@ -88,6 +115,12 @@ export const OVERLAY_CSS = `
   position: fixed;
   width: 300px;
   max-width: calc(100vw - 24px);
+  /* The last resort behind the placement clamp in picker.ts: on a short window
+     even a perfectly placed popover can be taller than the viewport, and a Save
+     button that has scrolled off the bottom of its own dialog is not a button. */
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 14px;
   border-radius: 10px;
   background: #14171f;
@@ -136,7 +169,10 @@ export const OVERLAY_CSS = `
 .types button {
   all: unset;
   box-sizing: border-box;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   padding: 7px 8px;
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.16);
@@ -156,6 +192,19 @@ export const OVERLAY_CSS = `
   font-weight: 600;
 }
 
+/* The guess is marked, never pre-selected: a border says "probably this" while
+   leaving the choice visibly unmade. */
+.types button[data-guess="true"][aria-pressed="false"] { border-color: rgba(79, 124, 255, 0.85); }
+
+.types .num {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.14);
+  opacity: 0.9;
+}
+
 .actions { display: flex; gap: 8px; justify-content: flex-end; }
 
 .actions button {
@@ -172,6 +221,14 @@ export const OVERLAY_CSS = `
 .actions .cancel { color: #cbd2e2; border: 1px solid rgba(255, 255, 255, 0.16); }
 .actions .save { background: #4f7cff; color: #ffffff; font-weight: 600; }
 
+/* Save is disabled until a type is chosen, and it has to *look* disabled: a
+   button that silently does nothing is worse than one that says it cannot. */
+.actions .save:disabled {
+  background: rgba(79, 124, 255, 0.3);
+  color: rgba(255, 255, 255, 0.55);
+  cursor: not-allowed;
+}
+
 .note {
   margin: 0;
   font-size: 11px;
@@ -180,6 +237,7 @@ export const OVERLAY_CSS = `
 }
 
 .note[data-tone="warn"] { color: #ffb08a; }
+.note[data-tone="ask"] { color: #e9ecf5; }
 
 .toast {
   position: fixed;
@@ -194,6 +252,12 @@ export const OVERLAY_CSS = `
   font-size: 12px;
   line-height: 18px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  /* A success toast is two words; a failure names the panel's own answer and
+     what to do about it, and a sentence that cannot wrap is a sentence nobody
+     reads. Wide enough to be read, bounded so it never covers the component. */
+  max-width: min(620px, calc(100vw - 48px));
+  text-align: center;
+  text-wrap: pretty;
 }
 
 .toast[data-tone="error"] { background: #7a2716; color: #ffe8e0; }

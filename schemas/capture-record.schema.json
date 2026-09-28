@@ -47,6 +47,10 @@
           "type": "null",
           "description": "Reserved for a future screenshot reference. Must be null. The engine never reads pixels."
         },
+        "inheritedBackgroundColor": {
+          "$ref": "#/definitions/cssColor",
+          "description": "The background actually painted behind the element, measured by walking its ancestors, and set only when styles.backgroundColor is not fully opaque (the engine composites a translucent own fill over it). Not a computed style of this element, which is why it is not in styles: a transparent box contributes no colour, so without this a ghost button or a bordered card on a tinted section is evidence of no background at all. styles.backgroundColor still carries whatever the browser reported."
+        },
         "notes": { "type": "string", "description": "Free-text human note. Never read by the engine." },
         "styles": { "$ref": "#/definitions/capturedStyles" }
       }

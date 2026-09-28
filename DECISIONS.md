@@ -306,6 +306,46 @@ history owns the chronology.
   reports the disagreement. The assistant may propose the *colour* and is
   refused the *decision* — a consent card a reviewer clicked through on the
   assistant's suggestion would not be consent.
+- **A capture reports the fate it actually had.** The confirmation in the page
+  says `Captured` only when the panel took it; every other outcome names the
+  panel's own answer and the fix, in the error tone, and a capture the panel
+  refused outright holds a red toolbar badge until a person deals with it. The
+  buffer's promise — nothing is lost while the panel is down — is not a licence
+  to report a failure as a success. Forbids the service worker discarding what
+  the drain learned, and forbids a second wording: `saveMessage` is the only
+  place a `SaveResult` becomes a sentence, in the page and on the options page
+  alike.
+- **The picker captures a boundary, not a box.** The cursor lands on layout far
+  more often than on a component, so the hover states the boundary it measured
+  — background, border, padding — and an element a reader could not see is
+  called a wrapper out loud, with the arrow keys and one suggestion key to
+  correct it. Whenever an element's own background is not fully opaque --
+  transparent or merely translucent -- the colour actually painted behind it is
+  measured and recorded as `inheritedBackgroundColor`, marked as inherited,
+  beside the browser's own value rather than replacing it. Forbids the engine treating that
+  inherited colour as the component's own fill: colour evidence uses the painted
+  background, and what a component *draws* does not. Forbids assuming white when
+  nothing up the chain paints one — not knowing is recorded as not knowing.
+- **The type is chosen, not guessed.** The confirm popover marks the guess and
+  will not save until a person picks one of the four. Forbids a pre-selected
+  default: a session in which nobody disagreed with the guess is how a library
+  ends up holding nothing but cards, and the cost is invisible until a kit has
+  been distilled from it. The popover states the running type mix for the same
+  reason — the cheapest moment to learn that the evidence is all one kind is
+  while there is still a page open to capture from.
+- **A selection states what will weaken the kit before the generation is
+  spent.** All one type, and a mix of clearly light and clearly dark surfaces,
+  are each named with the remedy. They **never block**: a deliberately
+  button-only kit is a legitimate thing to want, and a workbench that refuses to
+  distil what it was pointed at is one that gets worked around. Forbids silence,
+  which is what let seven cards off three sites become a kit nobody could see
+  was thin.
+- **The library shows the picture.** Capture is reference-grade — computed
+  values *and* an image — so the collection column renders each capture's
+  screenshot, fetched through the pairing-token door and handed to the `<img>`
+  as an object URL. Forbids putting the token in an image URL to avoid the blob
+  round-trip. A capture with no screenshot, or one whose file the volume has
+  lost, keeps its row.
 - **A state is collapsed when a reader cannot see it, not when two hexes
   match.** Perceptibility floors are measured against the rendered colours, and
   the derivation spends chroma to restore a state before the diagnostic

@@ -604,7 +604,7 @@ describe('library reset', () => {
     expect(await harness.context.store.reviews.decisions(null)).toEqual([])
     // And the image bytes are gone from the volume, not merely unreferenced.
     if (screenshotPath !== null) {
-      await expect(harness.context.screenshots.read(screenshotPath)).rejects.toThrow()
+      expect(await harness.context.screenshots.read(screenshotPath)).toBeNull()
     }
   })
 

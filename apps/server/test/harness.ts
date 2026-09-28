@@ -63,6 +63,8 @@ export interface HarnessOptions {
 export interface Harness {
   /** Lines the assistant logged. Redacted, because the logger redacts. */
   readonly logs: string[]
+  /** Lines the request log wrote. One per request, guards included. */
+  readonly requestLogs: string[]
   llm: FakeLlm
   /** Move the rate limiter's clock forward, so a burst test needs no timers. */
   advance(ms: number): void
@@ -144,6 +146,9 @@ export async function createHarness(
   // The assistant's own logger writes here. Only the sink is redirected: the
   // redaction itself is the real one, because that is the thing under test.
   const logs: string[] = []
+  // And the request log here, for the same reason -- plus one more: a suite
+  // that printed a line per request would bury its own failures.
+  const requestLogs: string[] = []
 
   let clockMs = 1_700_000_000_000
   const assistantLimiter = createRateLimiter({
@@ -167,6 +172,7 @@ export async function createHarness(
       logSink: (line) => void logs.push(line),
     }),
     assistantLimiter,
+    requestLogSink: (line) => void requestLogs.push(line),
   }
   const app = createApp(context)
 
@@ -185,6 +191,7 @@ export async function createHarness(
     context,
     store,
     logs,
+    requestLogs,
     llm,
     advance: (ms: number) => {
       clockMs += ms

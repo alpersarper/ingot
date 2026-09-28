@@ -13,6 +13,7 @@
  * everything after that is a message.
  */
 import { createPicker } from './picker'
+import type { TypeTally } from '../shared/tally'
 import type { PickerCommand, PickerMessage, SaveResult, ShootResult } from '../shared/protocol'
 
 declare global {
@@ -30,6 +31,10 @@ function install(): void {
     async save(picked, screenshot) {
       const message: PickerMessage = { type: 'ingot:save', picked, screenshot }
       return (await chrome.runtime.sendMessage(message)) as SaveResult
+    },
+    async tally() {
+      const message: PickerMessage = { type: 'ingot:tally' }
+      return (await chrome.runtime.sendMessage(message)) as TypeTally
     },
   })
 

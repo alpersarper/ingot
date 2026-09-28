@@ -8,6 +8,7 @@
 import { byNumber, byString, chain } from '../util/sort'
 import type { CaptureRecord } from '../capture/types'
 import { hasVisibleBorder } from '../capture/read'
+import { surfaceBackground } from '../capture/surface'
 import { colorDistance, meanColor, parseColor, roundOklch } from './space'
 import type { Oklch } from './space'
 
@@ -60,13 +61,18 @@ export interface ColorCluster {
  * A capture's border colour is only read when the capture actually draws a
  * border: browsers report `border-color` even when `border-width` is 0, and
  * that phantom value is usually the element's text colour.
+ *
+ * The background is the *painted* one rather than the element's own declared
+ * fill -- `surfaceBackground` falls back to the ancestor colour the extension
+ * measured for a transparent box. A ghost button reported `rgba(0, 0, 0, 0)`
+ * is not evidence of no background; it is evidence of whatever shows through it.
  */
 export function readColors(captures: readonly CaptureRecord[]): ColorObservation[] {
   const out: ColorObservation[] = []
 
-  const push = (capture: CaptureRecord, channel: ColorChannel, raw: string | undefined): void => {
-    if (raw === undefined) return
-    const parsed = parseColor(raw)
+  const push = (capture: CaptureRecord, channel: ColorChannel, raw: string | undefined, rendered = raw): void => {
+    if (raw === undefined || rendered === undefined) return
+    const parsed = parseColor(rendered)
     if (!parsed) return
     out.push({
       captureId: capture.id,
@@ -79,7 +85,8 @@ export function readColors(captures: readonly CaptureRecord[]): ColorObservation
   }
 
   for (const capture of captures) {
-    push(capture, 'background', capture.styles.backgroundColor)
+    const background = surfaceBackground(capture)
+    push(capture, 'background', background?.raw, background?.rendered)
     push(capture, 'foreground', capture.styles.color)
     if (hasVisibleBorder(capture)) push(capture, 'border', capture.styles.borderColor)
   }

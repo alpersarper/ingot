@@ -11,7 +11,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { CaptureRecord } from '@ingot/engine'
 import { createQueue, MAX_PENDING, MAX_PENDING_BYTES, PENDING_KEY, QueueFullError } from '../src/shared/queue'
-import type { KeyValueStore, Queue } from '../src/shared/queue'
+import type { KeyValueStore, Queue, QueueCounts } from '../src/shared/queue'
 import type { ScreenshotBlob } from '../src/shared/protocol'
 import type { SendOutcome, Transport } from '../src/shared/transport'
 
@@ -90,7 +90,7 @@ const SHOT: ScreenshotBlob = {
 describe('the capture buffer', () => {
   let store: ReturnType<typeof memoryStore>
   let panel: ReturnType<typeof fakePanel>
-  let badge: number[]
+  let badge: QueueCounts[]
   let queue: Queue
 
   /** A fresh queue over the same storage: what a service-worker restart is. */
@@ -98,8 +98,8 @@ describe('the capture buffer', () => {
     return createQueue({
       store,
       transport: async () => panel.transport,
-      onCount: (pending) => {
-        badge.push(pending)
+      onCount: (counts) => {
+        badge.push(counts)
       },
       now: () => '2026-02-11T09:20:00.000Z',
     })
@@ -116,7 +116,7 @@ describe('the capture buffer', () => {
     await queue.enqueue(record('a'), SHOT, '2026-02-11T09:14:22.000Z')
     const result = await queue.drain()
 
-    expect(result).toEqual({ sent: 1, pending: 0, error: null })
+    expect(result).toEqual({ sent: 1, pending: 0, rejected: 0, failure: null })
     expect(panel.received).toEqual(['a'])
     expect(panel.shots).toEqual(['a'])
   })
@@ -129,9 +129,9 @@ describe('the capture buffer', () => {
 
     expect(result.sent).toBe(0)
     expect(result.pending).toBe(3)
-    expect(result.error).toBe('Failed to fetch')
+    expect(result.failure).toEqual({ kind: 'unreachable', message: 'Failed to fetch' })
     expect(panel.received).toEqual([])
-    expect(badge.at(-1)).toBe(3)
+    expect(badge.at(-1)).toEqual({ pending: 3, rejected: 0 })
     expect((await queue.status()).pending).toBe(3)
   })
 
@@ -143,9 +143,9 @@ describe('the capture buffer', () => {
     panel.start()
     const result = await queue.drain()
 
-    expect(result).toEqual({ sent: 3, pending: 0, error: null })
+    expect(result).toEqual({ sent: 3, pending: 0, rejected: 0, failure: null })
     expect(panel.received).toEqual(['a', 'b', 'c'])
-    expect(badge.at(-1)).toBe(0)
+    expect(badge.at(-1)).toEqual({ pending: 0, rejected: 0 })
   })
 
   it('loses nothing across a restart', async () => {
@@ -156,12 +156,12 @@ describe('the capture buffer', () => {
     // The worker is evicted, or the browser is closed and reopened. Storage is
     // the only thing that survives, so the new queue is built over just that.
     const reborn = restart()
-    expect(await reborn.pendingCount()).toBe(2)
+    expect((await reborn.counts()).pending).toBe(2)
 
     panel.start()
     const result = await reborn.drain()
 
-    expect(result).toEqual({ sent: 2, pending: 0, error: null })
+    expect(result).toEqual({ sent: 2, pending: 0, rejected: 0, failure: null })
     expect(panel.received).toEqual(['a', 'b'])
   })
 
@@ -186,7 +186,10 @@ describe('the capture buffer', () => {
     const result = await queue.drain()
 
     expect(result.pending).toBe(1)
-    expect((await queue.status()).lastError).toBe('that pairing token is not valid')
+    expect((await queue.status()).lastFailure).toEqual({
+      kind: 'refused',
+      message: 'that pairing token is not valid',
+    })
 
     panel.start()
     expect((await queue.drain()).sent).toBe(1)
@@ -203,6 +206,25 @@ describe('the capture buffer', () => {
     const status = await queue.status()
     expect(status.rejected.map((item) => item.record.id)).toEqual(['b'])
     expect(status.rejected[0]?.reason).toContain('capture schema')
+    // The queue is empty *because* one capture was dropped, so the badge has to
+    // carry that rather than read as "all clear" -- which is exactly what an
+    // empty badge said before it counted parked captures too.
+    expect(result.rejected).toBe(1)
+    expect(badge.at(-1)).toEqual({ pending: 0, rejected: 1 })
+  })
+
+  it('reads back a failure written by an older version of this extension', async () => {
+    // The buffer survives updates -- that is its whole promise -- so it also
+    // has to survive its own shape changing. Before the failure carried a kind,
+    // this key held a bare `lastError` string.
+    await store.set({
+      'ingot.queue.state': { lastError: '401 -- that pairing token is not valid', lastAttemptAt: '2026-02-10T00:00:00.000Z' },
+    })
+
+    const status = await restart().status()
+
+    expect(status.lastFailure).toEqual({ kind: 'refused', message: '401 -- that pairing token is not valid' })
+    expect(status.lastAttemptAt).toBe('2026-02-10T00:00:00.000Z')
   })
 
   it('forgets parked captures when asked, and only then', async () => {
@@ -213,6 +235,9 @@ describe('the capture buffer', () => {
 
     await queue.clearRejected()
     expect((await queue.status()).rejected).toEqual([])
+    // And the warning goes with them: an indicator that keeps saying "look
+    // here" after the user has looked is one they learn to ignore.
+    expect(badge.at(-1)).toEqual({ pending: 0, rejected: 0 })
   })
 
   it('replaces rather than duplicates when one element is captured twice', async () => {
@@ -221,7 +246,7 @@ describe('the capture buffer', () => {
     panel.stop()
     await queue.enqueue(record('a'), null, '2026-02-11T09:14:22.000Z')
     await queue.enqueue({ ...record('a'), componentType: 'card' }, null, '2026-02-11T09:15:00.000Z')
-    expect(await queue.pendingCount()).toBe(1)
+    expect((await queue.counts()).pending).toBe(1)
 
     panel.start()
     await queue.drain()
@@ -238,7 +263,7 @@ describe('the capture buffer', () => {
     await expect(queue.enqueue(record('one-too-many'), null, '2026-02-11T09:14:22.000Z')).rejects.toBeInstanceOf(
       QueueFullError,
     )
-    expect(await queue.pendingCount()).toBe(MAX_PENDING)
+    expect((await queue.counts()).pending).toBe(MAX_PENDING)
   })
 
   it('still takes a re-capture at the cap, because a replacement does not grow the buffer', async () => {
@@ -251,7 +276,7 @@ describe('the capture buffer', () => {
     }
 
     await queue.enqueue({ ...record('capture-3'), componentType: 'card' }, null, '2026-02-11T09:15:00.000Z')
-    expect(await queue.pendingCount()).toBe(MAX_PENDING)
+    expect((await queue.counts()).pending).toBe(MAX_PENDING)
 
     await expect(queue.enqueue(record('one-too-many'), null, '2026-02-11T09:15:01.000Z')).rejects.toBeInstanceOf(
       QueueFullError,
@@ -270,7 +295,7 @@ describe('the capture buffer', () => {
     await expect(queue.enqueue(record('c'), big, '2026-02-11T09:14:22.000Z')).rejects.toBeInstanceOf(QueueFullError)
 
     // The refused capture is not in the buffer, and the ones before it are.
-    expect(await queue.pendingCount()).toBe(2)
+    expect((await queue.counts()).pending).toBe(2)
     expect(JSON.stringify(store.data.get(PENDING_KEY)).length).toBeLessThan(MAX_PENDING_BYTES)
   })
 
@@ -289,7 +314,7 @@ describe('the capture buffer', () => {
 
     expect(panel.received).toEqual(['a', 'b'])
     expect(first).toEqual(second)
-    expect(await queue.pendingCount()).toBe(0)
+    expect((await queue.counts()).pending).toBe(0)
   })
 
   /**
@@ -350,9 +375,9 @@ describe('the capture buffer', () => {
 
     const result = await draining
     expect(gate.received).toEqual(['a', 'b'])
-    expect(result).toEqual({ sent: 2, pending: 0, error: null })
-    expect(await queue.pendingCount()).toBe(0)
-    expect(badge.at(-1)).toBe(0)
+    expect(result).toEqual({ sent: 2, pending: 0, rejected: 0, failure: null })
+    expect((await queue.counts()).pending).toBe(0)
+    expect(badge.at(-1)).toEqual({ pending: 0, rejected: 0 })
   })
 
   it('does not resurrect a sent capture when an enqueue races the send completing', async () => {
@@ -378,6 +403,6 @@ describe('the capture buffer', () => {
 
     expect(gate.received).toEqual(['a', 'b'])
     expect(again.sent).toBe(0)
-    expect(await queue.pendingCount()).toBe(0)
+    expect((await queue.counts()).pending).toBe(0)
   })
 })

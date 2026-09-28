@@ -17,7 +17,8 @@ import type { ComponentDocId } from '@ingot/engine'
 import { Button } from './components/ui/button'
 import { CollectionPanel } from './workbench/CollectionPanel'
 import type { GroupTarget } from './workbench/CollectionPanel'
-import { SIZING_GUIDANCE } from './workbench/selection'
+import { SIZING_GUIDANCE, selectionWarnings } from './workbench/selection'
+import { SelectionWarnings } from './workbench/SelectionWarnings'
 import { SystemPanel } from './workbench/SystemPanel'
 import { Topbar } from './workbench/Topbar'
 import { FirstRun } from './workbench/FirstRun'
@@ -587,7 +588,7 @@ export function App(): ReactNode {
           {kit === null ? (
             <EmptyPreview
               scopeLabel={scopeLabel}
-              captureCount={captures.length}
+              captures={captures}
               selectedCount={selectedIds.length}
               generating={generating}
               onGenerate={() => void onGenerate()}
@@ -676,19 +677,20 @@ export function App(): ReactNode {
  */
 function EmptyPreview({
   scopeLabel,
-  captureCount,
+  captures,
   selectedCount,
   generating,
   onGenerate,
   onGenerateFromSelection,
 }: {
   scopeLabel: string
-  captureCount: number
+  captures: CaptureSummary[]
   selectedCount: number
   generating: boolean
   onGenerate: () => void
   onGenerateFromSelection: () => void
 }): ReactNode {
+  const captureCount = captures.length
   return (
     <div className="flex h-full items-center justify-center p-10">
       <div className="max-w-sm text-center">
@@ -711,10 +713,14 @@ function EmptyPreview({
             )}
           </div>
         )}
-        {/* Once the selection bar is on screen it carries this line, and the
-            guidance is worth exactly one line anywhere. */}
+        {/* Once the selection bar is on screen it carries this line -- and its
+            own warnings, about the ticked captures rather than the whole scope --
+            and each is worth exactly one place. */}
         {captureCount === 0 || selectedCount > 0 ? null : (
-          <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">{SIZING_GUIDANCE}</p>
+          <>
+            <SelectionWarnings warnings={selectionWarnings(captures)} className="mt-2 text-left" />
+            <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">{SIZING_GUIDANCE}</p>
+          </>
         )}
       </div>
     </div>
