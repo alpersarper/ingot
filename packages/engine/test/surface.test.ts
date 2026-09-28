@@ -57,7 +57,6 @@ describe('surfaceBackground', () => {
       inheritedBackgroundColor: '#0b0f19',
     })
     expect(surfaceBackground(glass)).toEqual({ raw: 'rgba(255, 255, 255, 0.04)', rendered: '#151922', inherited: false })
-    expect(glass.styles.backgroundColor).toBe('rgba(255, 255, 255, 0.04)')
   })
 
   it('reads a translucent fill as it stands when nothing was measured behind it', () => {
@@ -179,7 +178,6 @@ describe('readColors, with an inherited background', () => {
     })
     const [background] = readColors([glass])
     expect(background).toMatchObject({ channel: 'background', raw: 'rgba(255, 255, 255, 0.04)', hex: '#151922' })
-    expect(glass.styles.backgroundColor).toBe('rgba(255, 255, 255, 0.04)')
   })
 
   it('still reads nothing from a transparent capture that measured nothing', () => {
@@ -217,5 +215,35 @@ describe('a ghost button on a brand surface', () => {
       expect(token?.provenance.captureIds).not.toContain(ghost.id)
     }
     expect(ghostRecipe?.paddingY.provenance.captureIds).toContain(ghost.id)
+  })
+
+  it('reads a translucent glass button as a ghost button, never a filled one', () => {
+    const set = JSON.parse(readFileSync(join(ROOT, 'fixtures', 'ghost-warm', 'set.json'), 'utf8')) as CaptureSet
+    const primary = set.captures.find((entry) => entry.id === 'ghost-btn-primary')
+    const brand = primary?.styles.backgroundColor as string
+    const glass: CaptureRecord = {
+      schemaVersion: 1,
+      id: 'glass-btn-on-brand',
+      componentType: 'button',
+      sourceUrl: 'https://example.com/',
+      capturedAt: '2026-01-01T00:00:00.000Z',
+      styles: {
+        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        color: '#ffffff',
+        paddingTop: '40px',
+        paddingBottom: '40px',
+        paddingLeft: '64px',
+        paddingRight: '64px',
+      },
+      inheritedBackgroundColor: brand,
+    }
+    const tokens = distill({ ...set, captures: [...set.captures, glass] })
+    const recipe = (name: string) => tokens.components.recipes.find((entry) => entry.name === name)
+    for (const name of ['button.primary', 'button.secondary']) {
+      for (const token of [recipe(name)?.paddingY, recipe(name)?.paddingX]) {
+        expect(token?.provenance.captureIds).not.toContain(glass.id)
+      }
+    }
+    expect(recipe('button.ghost')?.paddingY.provenance.captureIds).toContain(glass.id)
   })
 })

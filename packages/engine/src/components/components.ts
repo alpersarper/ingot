@@ -174,12 +174,26 @@ export function destructiveButtonFrom(primary: ComponentRecipe): ComponentRecipe
  *
  * Deliberately `styles.backgroundColor` rather than `surfaceBackground`: this is
  * what separates a ghost button from a filled one, and a ghost button on a white
- * page is a ghost button. The painted-background fallback is for colour
- * evidence, not for deciding what a component draws -- see `capture/surface.ts`.
+ * page is a ghost button. The painted-background fallback and the translucent
+ * composite are for colour evidence, not for deciding what a component draws --
+ * see `capture/surface.ts`. Only this predicate is strict.
  */
 function hasOpaqueFill(capture: CaptureRecord): boolean {
   const raw = capture.styles.backgroundColor
-  return raw !== undefined && parseColor(raw) !== undefined
+  return raw !== undefined && isFullyOpaque(raw)
+}
+
+/**
+ * True when a colour hides everything behind it.
+ *
+ * Translucency disqualifies a fill here specifically because the question is
+ * what the component draws: a glass button you can see the page through does
+ * not paint a fill of its own the way a primary button does, however close its
+ * composite lands to the brand colour.
+ */
+function isFullyOpaque(raw: string): boolean {
+  const parsed = parseColor(raw)
+  return parsed !== undefined && parsed.alpha >= 1
 }
 
 function numberToken(value: number, decision: DominantChoice): Token<number> {
@@ -282,8 +296,10 @@ export interface ComponentInputs {
   color: ColorTokens
   /**
    * The role the background painted behind a capture resolved to, when any.
-   * That is the capture's own fill where it has one and the inherited colour
-   * where it does not, which is what `readColors` observed.
+   * That is the colour a reader sees, which is what `readColors` observed: the
+   * capture's own fill when it is fully opaque, a translucent fill composited
+   * over the inherited colour, and the inherited colour alone when the fill is
+   * fully transparent.
    */
   backgroundRoleByCapture: ReadonlyMap<string, ColorRoleName>
   spacing: SpacingTokens
@@ -413,10 +429,10 @@ export function distillComponents(
   const buttons = captures.filter((capture) => capture.componentType === 'button')
   const cards = captures.filter((capture) => capture.componentType === 'card')
   const inputsCaptured = captures.filter((capture) => capture.componentType === 'input')
-  // A button that paints no fill of its own is never the primary recipe,
-  // whatever it happens to be sitting on: its background role is the inherited
-  // colour showing through it, and a ghost button on a brand hero is still a
-  // ghost button.
+  // A button that paints no opaque fill of its own is never the primary
+  // recipe, whatever it happens to be sitting on: its background role is the
+  // inherited colour showing through it, and a ghost or glass button on a brand
+  // hero is still a ghost button.
   const primaryButtons = buttons.filter(
     (capture) => hasOpaqueFill(capture) && backgroundRoleByCapture.get(capture.id) === 'primary',
   )

@@ -99,7 +99,7 @@ export interface CaptureRecord {
   styles: CapturedStyles
   /**
    * The background actually painted behind the element, when its own
-   * `styles.backgroundColor` is fully transparent.
+   * `styles.backgroundColor` is not fully opaque.
    *
    * Not a computed style of this element, which is why it sits here rather than
    * in {@link CapturedStyles}: it is the nearest ancestor's fill, measured by
@@ -107,8 +107,9 @@ export interface CaptureRecord {
    * about which value the browser reported *for this box*. Both travel --
    * `styles.backgroundColor` stays whatever the browser said -- and
    * `capture/surface.ts` owns the decision about which one an answer is built
-   * from. Omitted when the element paints a fully opaque fill of its own, or
-   * when nothing opaque up the chain painted one either.
+   * from. A translucent own fill still needs it, because what a reader sees is
+   * that fill laid over this colour. Omitted when the element paints a fully
+   * opaque fill of its own, or when nothing opaque up the chain painted one.
    */
   inheritedBackgroundColor?: string
   /** Free-text human note. Never read by the engine. */
