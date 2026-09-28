@@ -19,21 +19,46 @@ services:
       # volume. Leave it unset and the server mints one.
       INGOT_PAIRING_TOKEN: ${INGOT_PAIRING_TOKEN:-}
       # The assistant. All optional: with no key it shows its setup path and
-      # every other panel feature works. Pinning the key here makes it
+      # every other panel feature works. Pinning a key here makes it
       # uneditable from the panel, which is the point of pinning it.
+      #
+      # This is the ANTHROPIC key, and only the Anthropic connection ever
+      # transmits it -- the OpenAI-compatible endpoint's token is
+      # INGOT_LLM_ENDPOINT_KEY below, so switching connections cannot send one
+      # key to the other's endpoint.
       #
       # A Claude subscription does not include API usage -- the API is billed
       # separately from prepaid credit at console.anthropic.com. See the
       # README's setup section.
       INGOT_LLM_API_KEY: ${INGOT_LLM_API_KEY:-}
+      # Bearer token for the openai-compatible connection (OpenRouter, Groq,
+      # Gemini). A local Ollama needs none.
+      INGOT_LLM_ENDPOINT_KEY: ${INGOT_LLM_ENDPOINT_KEY:-}
       INGOT_LLM_MODEL: ${INGOT_LLM_MODEL:-}
-      # A hosted proxy, when assistant traffic should leave through something
-      # this organisation operates rather than through the SDK's default.
+      # Which connection the assistant uses: anthropic-api or
+      # openai-compatible. Leave it unset and the panel chooses.
+      #
+      # `claude-cli` is deliberately NOT usable here: it runs the `claude`
+      # binary on your machine, and a container cannot. That connection is for
+      # the local run (`pnpm dev`) -- see docs/assistant.md.
+      INGOT_LLM_CONNECTION: ${INGOT_LLM_CONNECTION:-}
+      # Two jobs. The endpoint of the openai-compatible connection, and a
+      # hosted proxy for the Anthropic one when assistant traffic should leave
+      # through something this organisation operates. (The env var carries
+      # both; the endpoint stored from the panel reaches only the
+      # openai-compatible connection.)
+      #
+      # For an Ollama running on the host, this container's `localhost` is the
+      # container: use http://host.docker.internal:11434/v1 instead.
       INGOT_LLM_BASE_URL: ${INGOT_LLM_BASE_URL:-}
       # How many assistant calls this server will serve per window. The guard is
       # against a copied pairing token becoming a spend loop.
       INGOT_ASSISTANT_RATE_LIMIT: ${INGOT_ASSISTANT_RATE_LIMIT:-}
       INGOT_ASSISTANT_RATE_WINDOW_MS: ${INGOT_ASSISTANT_RATE_WINDOW_MS:-}
+    # Reaching an Ollama (or anything else) running on the host. Docker Desktop
+    # provides this name already; on Linux it has to be mapped.
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     restart: unless-stopped
 
 volumes:

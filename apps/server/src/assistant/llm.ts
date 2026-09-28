@@ -29,7 +29,8 @@
  *    is a use for it is how a provider interface becomes a provider.
  */
 
-import { describeError } from './redact'
+import { describeError, redact } from './redact'
+import type { ConnectionId } from './connections'
 
 /** One turn of the conversation handed to the model. */
 export interface LlmMessage {
@@ -106,13 +107,40 @@ export class LlmError extends Error {
 
 /** Everything an implementation needs to reach a provider. */
 export interface LlmClientConfig {
-  /** The secret. It goes in here and comes out of nothing. */
-  apiKey: string
+  /**
+   * Which connection this client is for.
+   *
+   * On the config rather than implied by which factory was called, because the
+   * factory the server actually holds is one that dispatches -- see
+   * `providers.ts` -- and because a test that injects its own factory has to be
+   * able to see which connection the service asked for.
+   */
+  connection: ConnectionId
+  /**
+   * The secret, when the connection has one.
+   *
+   * Absent for the local CLI, which is signed in rather than keyed, and
+   * optional for an OpenAI-compatible endpoint, since a model running on this
+   * machine has nobody to authenticate to. A connection that requires one says
+   * so in `connections.ts`, and the service refuses before a client is built.
+   */
+  apiKey?: string
   model: string
   /** Provider endpoint, when it is not the default. */
   baseUrl?: string
   /** Wall-clock ceiling for one request, in milliseconds. */
   timeoutMs?: number
+  /**
+   * Every secret this process holds, read at throw time.
+   *
+   * Supplied by the caller rather than assembled from `apiKey`, because the
+   * caller is the only thing that knows the whole list: the pairing token, a
+   * stored key belonging to a connection that is not the selected one, a key
+   * that has since been replaced. An implementation hands this straight to
+   * {@link structuredClient}; it never reads it. A client built without one
+   * still redacts its own key.
+   */
+  secrets?: () => readonly (string | undefined)[]
 }
 
 export interface LlmClient {
@@ -192,57 +220,74 @@ export interface StructuredClientOptions {
 export function structuredClient(options: StructuredClientOptions): LlmClient {
   const describe = (error: unknown): string => describeError(error, options.secrets())
 
+  // Every `LlmError` leaves through here, so redaction is a property of the
+  // seam rather than a promise each transport has to keep. An implementation
+  // quotes upstream text freely -- a 401 body, the CLI's stderr -- and an
+  // endpoint that echoes the credential it rejected still cannot put it in a
+  // message, because the message is scrubbed on the way out whoever built it.
+  const safe = (error: LlmError): LlmError => {
+    const message = redact(error.message, options.secrets())
+    return message === error.message ? error : new LlmError(error.kind, message, error.status)
+  }
+
+  const complete = async <T>(request: LlmRequest<T>): Promise<LlmReply<T>> => {
+    let reply: LlmTransportReply
+    try {
+      reply = await options.transport({
+        system: request.system,
+        messages: request.messages,
+        schema: request.schema,
+        maxTokens: request.maxTokens,
+      })
+    } catch (error) {
+      // An `LlmError` from a transport may quote upstream text; anything
+      // else is a provider's own object and is never repeated as itself.
+      if (error instanceof LlmError) throw error
+      throw (
+        options.classify?.(error, describe) ??
+        new LlmError('unavailable', `the assistant call failed: ${describe(error)}`)
+      )
+    }
+
+    if (reply.refused) {
+      throw new LlmError(
+        'unusable',
+        'the model declined to answer that. Rephrase the question, or ask about a different part of the kit.',
+      )
+    }
+    if (reply.text.trim() === '') throw new LlmError('unusable', 'the model returned an empty answer')
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(reply.text) as unknown
+    } catch {
+      // The reply itself is never quoted back: it is model output built from
+      // a prompt that contains the kit, and this message may be logged.
+      throw new LlmError('unusable', 'the model did not answer in the requested JSON shape')
+    }
+
+    let value: T
+    try {
+      value = request.parse(parsed)
+    } catch (error) {
+      throw new LlmError(
+        'unusable',
+        `the model's answer was not usable: ${error instanceof Error ? error.message : 'unexpected shape'}`,
+      )
+    }
+
+    return { value, usage: reply.usage, model: reply.model }
+  }
+
   return {
     model: options.model,
 
     async complete<T>(request: LlmRequest<T>): Promise<LlmReply<T>> {
-      let reply: LlmTransportReply
       try {
-        reply = await options.transport({
-          system: request.system,
-          messages: request.messages,
-          schema: request.schema,
-          maxTokens: request.maxTokens,
-        })
+        return await complete(request)
       } catch (error) {
-        // An `LlmError` from a transport is already safe -- it was built here
-        // or from `describe`. Anything else is a provider's own object and is
-        // never repeated as itself.
-        if (error instanceof LlmError) throw error
-        throw (
-          options.classify?.(error, describe) ??
-          new LlmError('unavailable', `the assistant call failed: ${describe(error)}`)
-        )
+        throw error instanceof LlmError ? safe(error) : error
       }
-
-      if (reply.refused) {
-        throw new LlmError(
-          'unusable',
-          'the model declined to answer that. Rephrase the question, or ask about a different part of the kit.',
-        )
-      }
-      if (reply.text.trim() === '') throw new LlmError('unusable', 'the model returned an empty answer')
-
-      let parsed: unknown
-      try {
-        parsed = JSON.parse(reply.text) as unknown
-      } catch {
-        // The reply itself is never quoted back: it is model output built from
-        // a prompt that contains the kit, and this message may be logged.
-        throw new LlmError('unusable', 'the model did not answer in the requested JSON shape')
-      }
-
-      let value: T
-      try {
-        value = request.parse(parsed)
-      } catch (error) {
-        throw new LlmError(
-          'unusable',
-          `the model's answer was not usable: ${error instanceof Error ? error.message : 'unexpected shape'}`,
-        )
-      }
-
-      return { value, usage: reply.usage, model: reply.model }
     },
   }
 }

@@ -26,7 +26,7 @@ apps/server/src/storage/
 | `kits` | Generated kits, versioned per scope, with the engine's output stored byte for byte. |
 | `reviews` | The standing review state for a scope: token overrides and accepted decision cards. |
 | `proposals` | The assistant's standing proposals for a scope. Review state, not kit state: nothing here reaches an export. See [docs/panel.md](panel.md#the-assistant). |
-| `settings` | Server-side key/value. The pairing token and the LLM API key live here. |
+| `settings` | Server-side key/value. The pairing token, both LLM keys and the assistant's connection, endpoint and model live here. |
 | `importCaptureSet` | One atomic bulk import: group, records, membership. |
 | `resetLibrary` | Destroy every capture, group, kit and review atomically, and report what went. Settings survive. |
 | `close` | Release the connection. |

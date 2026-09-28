@@ -33,7 +33,7 @@ export async function createContext(config: ServerConfig): Promise<AppContext> {
     idFactory: uuidIdFactory,
     clock: systemClock,
   })
-  // The database holds the pairing token and the LLM key, so it is readable by
+  // The database holds the pairing token and the LLM keys, so it is readable by
   // its owner and nobody else. Best-effort: some volume drivers refuse chmod.
   await chmod(config.databaseFile, 0o600).catch(() => undefined)
 

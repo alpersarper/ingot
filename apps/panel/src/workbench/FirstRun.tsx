@@ -1,6 +1,11 @@
 /**
  * First run: pair, then optionally hand the server an LLM key.
  *
+ * "Optionally" carries more weight than it used to. The assistant now reaches a
+ * model three ways and two of them cost nothing, so this step says so before
+ * anybody leaves to go and find a key they may not need -- see
+ * `docs/assistant.md`.
+ *
  * Pairing is not a login. There is no account -- the token exists so that a
  * page the user happens to have open in another tab cannot script requests at
  * their panel. Saying that plainly here matters: a screen that looks like a
@@ -110,8 +115,19 @@ export function FirstRun({ onPaired }: { onPaired: () => void }): ReactNode {
                 <h2 className="text-sm font-semibold">LLM API key (optional)</h2>
                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                   Stored on the server, never in this browser, and never returned by any endpoint. The key powers the
-                  assistant&apos;s suggestions; everything else works without one, and the Assistant tab will walk you
-                  through getting a key whenever you want it.
+                  assistant&apos;s suggestions; everything else works without one.
+                </p>
+                {/*
+                  Said here rather than only in the Assistant tab, because this
+                  is the screen where somebody decides to go and find a key.
+                  Most people already have the CLI, and the assistant will have
+                  picked it up before they get back.
+                */}
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                  <span className="font-medium text-foreground">You may not need one.</span> On the local run (
+                  <span className="font-mono">pnpm dev</span>), a <span className="font-mono">claude</span> CLI that is
+                  installed and signed in is picked up as it is, with no key from you. A model running locally under
+                  Ollama works too. Skip this and the Assistant tab will show you what it found, and what it costs.
                 </p>
               </div>
             </div>

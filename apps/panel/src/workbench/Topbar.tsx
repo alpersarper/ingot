@@ -100,11 +100,19 @@ export function Topbar({ settings, onSaveLlmKey, onUnpair }: TopbarProps): React
             title={
               settings?.llm.managedByEnvironment === true
                 ? 'Pinned by INGOT_LLM_API_KEY on the server'
-                : 'Stored server-side; never returned to this browser'
+                : settings?.llm.configured === true && settings.llm.source === 'none'
+                  ? 'The assistant is already connected without an Anthropic key — see the Assistant tab'
+                  : 'Stored server-side; never returned to this browser'
             }
           >
             {saved ? <Check aria-hidden /> : <KeyRound aria-hidden />}
-            {settings?.llm.configured === true ? 'LLM key set' : 'Add LLM key'}
+            {/*
+              Keyed on the *key*, not on `configured`. Since the local Claude
+              CLI connection has no key at all, a configured assistant is no
+              longer evidence that one was ever stored, and saying "LLM key set"
+              there would be a plain untruth in the chrome.
+            */}
+            {settings?.llm.source !== undefined && settings.llm.source !== 'none' ? 'LLM key set' : 'Add LLM key'}
           </Button>
         )}
 

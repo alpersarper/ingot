@@ -16,9 +16,11 @@ Two halves: `packages/engine` decides, and the panel (`apps/server` +
 which is the experience rather than an escape hatch. The panel is an ordinary
 web app that currently runs locally in Docker -- [docs/panel.md](docs/panel.md).
 The LLM assistant is a third thing beside those two: it advises, and it is the
-only part of the product that is allowed to be wrong on purpose. In front of all
-of it, `apps/extension` fills the library: a Chrome MV3 extension that picks one
-component off a page and posts it to the panel's captures API --
+only part of the product that is allowed to be wrong on purpose. Which model it
+asks is configuration -- the local Claude Code CLI, any OpenAI-compatible
+endpoint, or an Anthropic key -- [docs/assistant.md](docs/assistant.md). In
+front of all of it, `apps/extension` fills the library: a Chrome MV3 extension
+that picks one component off a page and posts it to the panel's captures API --
 [apps/extension/README.md](apps/extension/README.md).
 
 ## Commands
@@ -198,19 +200,42 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
   decision a reviewer clicked through on a suggestion is not consent. It may
   propose the error *colour*; the choice to ship without one is not its to
   offer.
-- **The provider is behind one narrow interface.** `assistant/llm.ts` takes
-  messages plus a response schema and returns validated structured output;
-  `assistant/anthropic.ts` is its only implementation and the only file in the
-  repository that imports an LLM SDK. Capability code depends on the interface
-  alone. `structuredClient` in the seam does the parsing and, crucially, the
+- **The provider is behind one narrow interface, and there are three of them.**
+  `assistant/llm.ts` takes messages plus a response schema and returns validated
+  structured output; `assistant/providers.ts` is the whole of the dispatch to
+  `claude-cli.ts` (the local `claude` binary, headless, no key),
+  `openai-compatible.ts` (`fetch`, no SDK) and `anthropic.ts` (still the only
+  file in the repository that imports an LLM SDK). Capability code depends on
+  the interface alone; a fourth connection is a case in `providers.ts` plus a
+  file. `structuredClient` in the seam does the parsing and, crucially, the
   **redaction**: an implementation supplies only a transport, so redaction is a
-  property of the seam rather than a promise the next provider has to remember.
-  Prompt templates live in `assistant/prompts.ts`, in code, versioned, and the
-  version travels with every proposal.
-- **The API key goes in and never comes out, and that is tested by scanning.**
-  No endpoint returns it; it is redacted -- with a visible `[redacted]` marker,
-  including from truncated fragments -- from every log and error message,
-  provider-SDK errors included. Assistant endpoints are rate-limited
+  property of the seam rather than a promise each provider has to remember, and
+  the secrets it redacts are the service's whole list rather than one key.
+  Which connection is in force is pinned by the environment, chosen in the
+  panel, or **resolved from whichever is ready** -- ranked by what it costs the
+  user, so a machine with Claude Code signed in needs no setup at all. That
+  readiness is computed once in `assistant/connections.ts`, which is pure; the
+  panel renders the report rather than deriving a second opinion, and the
+  service's own refusal quotes the same sentence. Reachability is separate from
+  configuration: a host process is unreachable from a container, so
+  `assistant/runtime.ts` says so and the CLI connection is disabled *and
+  explained* rather than hidden. The CLI is spawned with an argument array and
+  never a shell, prompt on stdin, tools and setting sources off. Setup for all
+  three: [docs/assistant.md](docs/assistant.md). Prompt templates live in
+  `assistant/prompts.ts`, in code, versioned, and the version travels with every
+  proposal.
+- **The API keys go in and never come out, and that is tested by scanning.**
+  Each connection has its own credential setting -- `llm.apiKey` is the
+  Anthropic key, `llm.endpointKey` the OpenAI-compatible endpoint's bearer
+  token, the CLI takes neither -- and each client is handed only the one saved
+  for it, so a stored Anthropic key is never a bearer token against somebody's
+  Ollama and a connection switch carries nothing across. The panel-stored
+  endpoint URL is scoped the same way; only env `INGOT_LLM_BASE_URL` reaches
+  the Anthropic client, for the hosted-proxy deployment. No endpoint returns
+  either key; both are redacted -- with a visible `[redacted]` marker,
+  including from truncated fragments, at the `structuredClient` seam so the
+  guarantee covers response bodies as well as logs -- from every log and error
+  message, provider-SDK errors included. Assistant endpoints are rate-limited
   server-side, because they are the only ones where a copied pairing token costs
   money rather than privacy. Each property has a test in
   `apps/server/test/assistant.test.ts`; adding an assistant route means adding

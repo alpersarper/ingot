@@ -486,7 +486,7 @@ export interface ProposalRepository {
 /**
  * Server-side key/value settings.
  *
- * This is where the pairing token and the LLM API key live. Both are secrets
+ * This is where the pairing token and the LLM keys live. All are secrets
  * that must never reach the browser, which is a property of the routes above
  * rather than of this interface -- see `src/routes/settings.ts`. The interface
  * itself is deliberately dumb.
@@ -554,7 +554,7 @@ export interface Store {
    * Destroy the library: every capture, group, kit, override, decision and
    * proposal, atomically, and report what went.
    *
-   * Settings are deliberately untouched. The pairing token and the LLM key are
+   * Settings are deliberately untouched. The pairing token and the LLM keys are
    * how the user reaches the panel at all, and re-pairing is not part of
    * starting a library over; this is a library reset, not a factory reset.
    *

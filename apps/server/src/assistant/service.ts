@@ -25,9 +25,16 @@
  */
 import { asPristine, tokenSlots } from '@ingot/engine'
 import type { PristineTokens, TokenOverride, TokensDocument } from '@ingot/engine'
-import { DEFAULT_LLM_MODEL, createAnthropicClient, looksLikeAnthropicKey } from './anthropic'
+import { looksLikeAnthropicKey } from './anthropic'
+import { probeClaudeCli } from './claude-cli'
+import type { CliProbe } from './claude-cli'
+import { CONNECTIONS, connectionReports, isConnectionId, modelFor, resolveConnection } from './connections'
+import type { ConnectionFacts, ConnectionId, ConnectionReport } from './connections'
 import { LlmError } from './llm'
 import type { LlmClient, LlmClientFactory, LlmReply, LlmRequest } from './llm'
+import { defaultLlmFactory } from './providers'
+import { detectRuntime } from './runtime'
+import type { Runtime } from './runtime'
 import { PROMPTS, PROMPT_VERSION } from './prompts'
 import type { CapabilityId } from './prompts'
 import { kitBrief, renderBrief } from './context'
@@ -36,22 +43,57 @@ import type { Candidate, RefusedProposal } from './proposals'
 import { readAnswer, readNaming, readProposals, readRationale } from './capabilities'
 import type { Naming } from './capabilities'
 import { createRedactingLogger } from './redact'
-import { LLM_API_KEY_SETTING, LLM_MODEL_SETTING } from './settings-keys'
+import {
+  LLM_API_KEY_SETTING,
+  LLM_BASE_URL_SETTING,
+  LLM_CONNECTION_SETTING,
+  LLM_ENDPOINT_KEY_SETTING,
+  LLM_MODEL_SETTING,
+} from './settings-keys'
 import type { ServerConfig } from '../config'
 import type { ReviewScope, StoredOverride, StoredProposal, Store } from '../storage/store'
 
 /** Where a configured key came from. Never the key itself. */
 export type LlmKeySource = 'environment' | 'settings' | 'none'
 
-/** What the panel needs to render the assistant without spending anything. */
+/**
+ * What the panel needs to render the assistant without spending anything.
+ *
+ * Deliberately a full picture rather than a boolean. The panel has to be able
+ * to draw a connection picker in which one option is *unreachable from this
+ * runtime* and another is *reachable but not configured yet*, and those are
+ * different sentences with different buttons under them. Working that out in
+ * the browser would mean the browser re-deriving readiness -- so the server
+ * answers it, once, and the panel renders what it is told.
+ *
+ * Nothing here is a secret: presence and provenance of the key, never its
+ * value. The endpoint *is* returned, because an endpoint the user typed is a
+ * thing they need to be able to see and correct.
+ */
 export interface AssistantStatus {
+  /** True when the selected connection could serve a call right now. */
   configured: boolean
+  /** The connection in force: chosen, pinned, or resolved from what is ready. */
+  connection: ConnectionId
+  /** True when the connection is pinned by the environment and not editable here. */
+  connectionManagedByEnvironment: boolean
   source: LlmKeySource
   /** True when the key is pinned in the environment and cannot be edited here. */
   managedByEnvironment: boolean
   model: string
   /** True when the model is pinned in the environment too. */
   modelManagedByEnvironment: boolean
+  /** The OpenAI-compatible endpoint, when one is configured. Not a secret. */
+  baseUrl: string | undefined
+  baseUrlManagedByEnvironment: boolean
+  /** True when a bearer token for the OpenAI-compatible endpoint is stored. Never the token. */
+  endpointKeyConfigured: boolean
+  /** True when that token is pinned in the environment and cannot be edited here. */
+  endpointKeyManagedByEnvironment: boolean
+  /** True when this server cannot start a process on the user's machine. */
+  containerized: boolean
+  /** Every connection, whether it is ready, and what to do about it if not. */
+  connections: ConnectionReport[]
   promptVersion: string
 }
 
@@ -151,6 +193,17 @@ export interface AssistantDeps {
   /** Injected so a test can exercise all of this without a network or a key. */
   llmFactory?: LlmClientFactory
   /**
+   * How the local Claude CLI is looked for.
+   *
+   * Injected for the same reason the factory is, and for one more: whether a
+   * developer happens to have Claude Code installed must not change what the
+   * suite asserts. A test that passes on a laptop and fails in CI because the
+   * default connection resolved differently is worse than no test.
+   */
+  cliProbe?: () => Promise<CliProbe>
+  /** Whether this process is in a container. Detected once; injectable for tests. */
+  runtime?: Runtime
+  /**
    * Where log lines go. The *logger* is never injectable, only its sink.
    *
    * That distinction is the point: redaction is a security property, so the
@@ -161,59 +214,225 @@ export interface AssistantDeps {
   logSink?: (line: string) => void
 }
 
+/**
+ * How long a CLI probe is believed for.
+ *
+ * The probe is two subprocesses and about a third of a second, and the panel
+ * asks for status on every load and after most writes, so it is cached. Short,
+ * because the thing it is watching for -- somebody running `claude auth login`
+ * in the next terminal over and coming back -- should take effect without a
+ * server restart.
+ */
+const PROBE_TTL_MS = 30_000
+
 export function createAssistant(deps: AssistantDeps): AssistantService {
   const { store, config } = deps
-  const llmFactory = deps.llmFactory ?? createAnthropicClient
+  const llmFactory = deps.llmFactory ?? defaultLlmFactory
+  const probe = deps.cliProbe ?? (() => probeClaudeCli())
+  const runtime = deps.runtime ?? detectRuntime()
   // The logger reads the secrets at log time rather than closing over them,
   // because the stored key changes while the process runs and a logger holding
   // the old one would let the new one through.
-  const logger = createRedactingLogger(
-    () => [config.llmApiKey, cachedKey, config.pairingToken, deps.pairingToken],
-    deps.logSink,
-  )
+  const logger = createRedactingLogger(secrets, deps.logSink)
 
-  // The last key this service saw, held only so the logger can redact a key
+  // The last keys this service saw, held only so the logger can redact a key
   // that has since been replaced in storage but is still quoted in an error
-  // that is on its way to being logged. Never read to make a request.
+  // that is on its way to being logged. Never read to make a request, and
+  // written by exactly one function, `credentials`, which reads both keys at
+  // once: there is no way to fetch one credential without warming the other,
+  // so the secrets list below is complete on every path -- the CLI connection
+  // included -- rather than only after the connection that uses a key ran.
   let cachedKey: string | undefined
+  let cachedEndpointKey: string | undefined
 
-  /** The key to use, or `null`. The environment wins, as it does for settings. */
-  async function apiKey(): Promise<string | null> {
-    const key = config.llmApiKey ?? (await store.settings.get(LLM_API_KEY_SETTING))
-    if (key !== null && key !== undefined) cachedKey = key
-    return key ?? null
+  /**
+   * Every secret this process holds.
+   *
+   * Handed to the logger *and* to every client the factory builds, so that a
+   * connection with no key of its own -- the local CLI -- still cannot echo the
+   * pairing token or a stored key belonging to a connection nobody selected.
+   */
+  function secrets(): readonly (string | undefined)[] {
+    return [
+      config.llmApiKey,
+      cachedKey,
+      config.llmEndpointKey,
+      cachedEndpointKey,
+      config.pairingToken,
+      deps.pairingToken,
+    ]
   }
 
-  async function model(): Promise<string> {
-    return config.llmModel ?? (await store.settings.get(LLM_MODEL_SETTING)) ?? DEFAULT_LLM_MODEL
+  interface Credentials {
+    /** The Anthropic key, or `null`. The environment wins, as it does for settings. */
+    apiKey: string | null
+    /**
+     * The OpenAI-compatible endpoint's bearer token, or `null`.
+     *
+     * Its own setting rather than a reuse of the Anthropic key, because reuse
+     * is the leak: one shared slot would send a stored `sk-ant-…` key to
+     * whatever address the endpoint field held the day somebody switched
+     * connections.
+     */
+    endpointKey: string | null
+  }
+
+  /**
+   * Both stored credentials, read together.
+   *
+   * The only reader of the two key settings and the only writer of the caches
+   * above. Reading them as a pair is what makes redaction independent of call
+   * order: `snapshot()` runs before every status and every call, so both caches
+   * are warm whichever connection is then selected.
+   */
+  async function credentials(): Promise<Credentials> {
+    const [storedKey, storedEndpointKey] = await Promise.all([
+      config.llmApiKey === undefined ? store.settings.get(LLM_API_KEY_SETTING) : config.llmApiKey,
+      config.llmEndpointKey === undefined ? store.settings.get(LLM_ENDPOINT_KEY_SETTING) : config.llmEndpointKey,
+    ])
+    if (storedKey !== null) cachedKey = storedKey
+    if (storedEndpointKey !== null) cachedEndpointKey = storedEndpointKey
+    return { apiKey: storedKey, endpointKey: storedEndpointKey }
+  }
+
+  async function baseUrl(): Promise<string | undefined> {
+    return config.llmBaseUrl ?? (await store.settings.get(LLM_BASE_URL_SETTING)) ?? undefined
+  }
+
+  /** The stored model, before a connection's own default fills the gap. */
+  async function storedModel(): Promise<string | undefined> {
+    return config.llmModel ?? (await store.settings.get(LLM_MODEL_SETTING)) ?? undefined
+  }
+
+  let cachedProbe: { at: number; value: CliProbe } | undefined
+
+  /**
+   * The CLI probe, cached for {@link PROBE_TTL_MS}.
+   *
+   * A probe that fails is cached like any other answer: the failure mode this
+   * avoids is a machine with no `claude` on PATH paying for two failed spawns
+   * every time the panel refreshes.
+   */
+  async function cli(): Promise<CliProbe> {
+    const now = Date.now()
+    if (cachedProbe !== undefined && now - cachedProbe.at < PROBE_TTL_MS) return cachedProbe.value
+    const value = await probe()
+    cachedProbe = { at: now, value }
+    return value
+  }
+
+  /**
+   * Everything readiness is computed from, with no secrets in it -- and,
+   * beside it, the credentials that were read to compute it.
+   *
+   * The two travel together so the one read of the key settings serves both
+   * the readiness arithmetic and the arm that needs the value, and so both
+   * caches are warm before any transport can throw, whichever connection is
+   * then selected. The facts themselves stay secret-free: the keys ride
+   * alongside, never inside.
+   *
+   * The CLI is probed only when it could matter: in a container it cannot be
+   * reached whatever the answer is, so the subprocesses are not spent.
+   */
+  async function snapshot(): Promise<{ facts: ConnectionFacts; keys: Credentials }> {
+    const [keys, url, model] = await Promise.all([credentials(), baseUrl(), storedModel()])
+    const probed = runtime.containerized ? undefined : await cli()
+    return {
+      keys,
+      facts: {
+        hasApiKey: keys.apiKey !== null,
+        apiKeyPinned: config.llmApiKey !== undefined,
+        baseUrl: url,
+        model: model ?? '',
+        cli:
+          probed === undefined
+            ? undefined
+            : { available: probed.available, signedIn: probed.signedIn, auth: probed.auth, detail: probed.detail },
+        containerized: runtime.containerized,
+      },
+    }
+  }
+
+  /**
+   * Which connection is in force: pinned, chosen, or whichever is ready.
+   *
+   * The three-level precedence is the same one the key and the model follow, so
+   * there is one rule to learn. The bottom level is what makes a machine with
+   * the Claude CLI signed in work with no setup at all -- nobody chose it, it
+   * was simply the first connection that could answer.
+   */
+  async function selected(current: ConnectionFacts): Promise<ConnectionId> {
+    if (config.llmConnection !== undefined) return config.llmConnection
+    const stored = await store.settings.get(LLM_CONNECTION_SETTING)
+    if (isConnectionId(stored)) return stored
+    return resolveConnection(current)
   }
 
   /**
    * A client, or a refusal a person can act on.
    *
-   * The absent-key case is an `LlmError` of kind `auth` rather than a thrown
+   * Every not-set-up case is an `LlmError` of kind `auth` rather than a thrown
    * `ApiError` so that every failure on this path has one shape, and so the
-   * panel's "set up the assistant" state is reached by the same branch that
-   * handles a key the provider rejected.
+   * panel's setup state is reached by the same branch that handles a key the
+   * provider rejected. The sentence is the connection's own `blocked` line,
+   * which is the same text the panel is already showing beside that connection
+   * -- one wording, not two that can drift.
+   *
+   * The config each arm assembles is the scoping guarantee: a connection
+   * receives only the credential and the endpoint *saved for it*, never
+   * whatever another connection left in storage. The Anthropic arm reads the
+   * Anthropic key and, for the hosted-proxy deployment, the env-pinned base
+   * URL only -- a panel-stored endpoint belongs to the OpenAI-compatible
+   * connection and must not follow a switch here. The OpenAI-compatible arm
+   * reads its own bearer token and the endpoint; the CLI arm gets neither,
+   * because it is signed in rather than keyed. `acceptsApiKey` cannot carry
+   * this: it says a connection *takes* a key, not *whose* key it takes.
    */
   async function client(): Promise<LlmClient> {
-    const key = await apiKey()
-    if (key === null) {
+    const { facts: current, keys } = await snapshot()
+    const connection = await selected(current)
+    const report = connectionReports(current).find((entry) => entry.id === connection)
+    if (report === undefined || !report.ready) {
       throw new LlmError(
         'auth',
-        'no Anthropic API key is configured, so the assistant cannot run. Add one in the panel; every other feature works without it.',
+        `the assistant's ${CONNECTIONS[connection].label} connection is not ready. ${report?.blocked ?? ''} Set it up in the panel; every other feature works without it.`.replace(
+          /\s+/g,
+          ' ',
+        ),
       )
     }
-    if (!looksLikeAnthropicKey(key)) {
-      // Said before a request is spent, and said as a warning about shape
-      // rather than a verdict: the provider decides whether a key is valid.
-      logger.warn('the stored LLM API key does not look like an Anthropic key; sending it anyway')
+
+    const model = modelFor(connection, current.model)
+
+    if (connection === 'anthropic-api') {
+      const key = keys.apiKey
+      if (key !== null && !looksLikeAnthropicKey(key)) {
+        // Said before a request is spent, and said as a warning about shape
+        // rather than a verdict: the provider decides whether a key is valid.
+        logger.warn('the stored LLM API key does not look like an Anthropic key; sending it anyway')
+      }
+      return llmFactory({
+        connection,
+        model,
+        secrets,
+        ...(key === null ? {} : { apiKey: key }),
+        ...(config.llmBaseUrl === undefined ? {} : { baseUrl: config.llmBaseUrl }),
+      })
     }
-    return llmFactory({
-      apiKey: key,
-      model: await model(),
-      ...(config.llmBaseUrl === undefined ? {} : { baseUrl: config.llmBaseUrl }),
-    })
+
+    if (connection === 'openai-compatible') {
+      const url = current.baseUrl
+      const key = keys.endpointKey
+      return llmFactory({
+        connection,
+        model,
+        secrets,
+        ...(key === null ? {} : { apiKey: key }),
+        ...(url === undefined ? {} : { baseUrl: url }),
+      })
+    }
+
+    return llmFactory({ connection, model, secrets })
   }
 
   /** The kit and the review state, as the model is shown them. */
@@ -251,18 +470,29 @@ export function createAssistant(deps: AssistantDeps): AssistantService {
 
   return {
     async status() {
+      const { facts: current, keys } = await snapshot()
       const source: LlmKeySource =
-        config.llmApiKey !== undefined
-          ? 'environment'
-          : (await store.settings.get(LLM_API_KEY_SETTING)) === null
-            ? 'none'
-            : 'settings'
+        config.llmApiKey !== undefined ? 'environment' : keys.apiKey === null ? 'none' : 'settings'
+      const endpointKeyConfigured = keys.endpointKey !== null
+      const connection = await selected(current)
+      const reports = connectionReports(current)
       return {
-        configured: source !== 'none',
+        // "Configured" is now a question about the *selected connection*, not
+        // about the key: a machine with the Claude CLI signed in is fully
+        // configured and has no key at all.
+        configured: reports.find((entry) => entry.id === connection)?.ready === true,
+        connection,
+        connectionManagedByEnvironment: config.llmConnection !== undefined,
         source,
         managedByEnvironment: source === 'environment',
-        model: await model(),
+        model: modelFor(connection, current.model),
         modelManagedByEnvironment: config.llmModel !== undefined,
+        baseUrl: current.baseUrl,
+        baseUrlManagedByEnvironment: config.llmBaseUrl !== undefined,
+        endpointKeyConfigured,
+        endpointKeyManagedByEnvironment: config.llmEndpointKey !== undefined,
+        containerized: runtime.containerized,
+        connections: reports,
         promptVersion: PROMPT_VERSION,
       }
     },

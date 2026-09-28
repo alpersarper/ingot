@@ -782,7 +782,7 @@ export function createSqliteStore(options: SqliteStoreOptions): Store {
           screenshotPaths,
         }
 
-        // Every table but `settings`. The pairing token and the LLM key live
+        // Every table but `settings`. The pairing token and the LLM keys live
         // there and are how the user reaches the panel at all; wiping a library
         // is not re-pairing. capture_tags and group_captures fall to their
         // cascades, but are named anyway so this reads as the complete list it
