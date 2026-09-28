@@ -14,7 +14,8 @@ import { spawn } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { ENGINE_NAME } from '@ingot/engine'
-import { loadConfig, startPanel } from '@ingot/server'
+import { loadConfig, PAIRING_TOKEN_ROTATED_NOTICE, startPanel } from '@ingot/server'
+import type { PanelHandle } from '@ingot/server'
 import { HELP, parseArgs } from './args'
 import { packagedPanelDir, pairingUrl, panelEnv, panelUrl, portHeld } from './resolve'
 
@@ -73,15 +74,22 @@ function out(text: string): void {
   process.stdout.write(text)
 }
 
-export async function run(argv: readonly string[]): Promise<void> {
+/** Returns the running panel, or nothing when this run printed and stopped. */
+export async function run(argv: readonly string[]): Promise<PanelHandle | undefined> {
   const parsed = parseArgs(argv)
 
-  if (parsed.kind === 'help') return out(HELP)
-  if (parsed.kind === 'version') return out(`${await version()}\n`)
+  if (parsed.kind === 'help') {
+    out(HELP)
+    return undefined
+  }
+  if (parsed.kind === 'version') {
+    out(`${await version()}\n`)
+    return undefined
+  }
   if (parsed.kind === 'error') {
     process.stderr.write(`\n  ingot: ${parsed.message}\n\n${HELP}`)
     process.exitCode = 1
-    return
+    return undefined
   }
 
   const config = loadConfig(
@@ -98,7 +106,7 @@ export async function run(argv: readonly string[]): Promise<void> {
     if (isPairingTokenConflict(cause)) {
       process.stderr.write(`\n  ingot: ${cause.message}\n\n`)
       process.exitCode = 1
-      return
+      return undefined
     }
     if (!isAddressInUse(cause)) throw cause
     const url = panelUrl(config.host, config.port)
@@ -110,7 +118,7 @@ export async function run(argv: readonly string[]): Promise<void> {
     })
     process[outcome.stream].write(outcome.message)
     process.exitCode = outcome.exitCode
-    return
+    return undefined
   }
 
   const url = panelUrl(handle.config.host, handle.port)
@@ -121,6 +129,7 @@ export async function run(argv: readonly string[]): Promise<void> {
       `  Token     ${handle.pairingToken}\n` +
       `            also in ${handle.tokenFile}, and needed by the capture extension\n\n`,
   )
+  if (handle.pairingTokenRotated) out(`  ${PAIRING_TOKEN_ROTATED_NOTICE}\n\n`)
 
   if (parsed.options.open) {
     openBrowser(pairingUrl(handle.config.host, handle.port, handle.pairingToken))
@@ -128,4 +137,5 @@ export async function run(argv: readonly string[]): Promise<void> {
   } else {
     out(`  Open ${url} and paste the token into the first-run screen. Ctrl-C stops the panel.\n\n`)
   }
+  return handle
 }

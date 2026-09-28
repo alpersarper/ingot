@@ -62,12 +62,13 @@ Environment (all optional; see `apps/server/src/config.ts`):
 
 | Variable | Default | |
 | -------- | ------- | --- |
-| `INGOT_PORT` | `4310` | Also `--port`. |
+| `INGOT_PORT` | `4310` | Also `--port`. `0` lets the OS choose; the address printed at startup is the one bound. |
 | `INGOT_HOST` | `0.0.0.0` (`127.0.0.1` under npx) | Also `--host`. |
 | `INGOT_DATA_DIR` | `./data` (`/data` in the container, `~/.ingot` under npx) | Database, screenshots, pairing token. Also `--data-dir`. |
 | `INGOT_PANEL_DIR` | unset (the packaged panel under npx) | Built panel to serve. Unset means API only. |
 | `INGOT_PANEL_ORIGIN` | `http://localhost:5173` | Comma-separated CORS allowlist. |
-| `INGOT_PAIRING_TOKEN` | minted on first run | Pin to skip the first-run screen. Also `--token`. A data directory that already stores a different token refuses to start rather than replacing it. |
+| `INGOT_PAIRING_TOKEN` | minted on first run | Pin to skip the first-run screen. Also `--token`. A data directory that already stores a different token refuses to start rather than replacing it -- see [rotating the token](#rotating-the-pairing-token). |
+| `INGOT_PAIRING_TOKEN_ROTATE` | unset | `1` lets a pinned token replace a different stored one. Also `--rotate-token`. |
 | `INGOT_LLM_CONNECTION` | unset | Pin the assistant's connection: `claude-cli`, `openai-compatible` or `anthropic-api`. Unset, the server uses whichever is ready. |
 | `INGOT_LLM_API_KEY` | unset | Pin the Anthropic key instead of typing it into the panel. Sent only by the Anthropic connection. |
 | `INGOT_LLM_ENDPOINT_KEY` | unset | Pin the OpenAI-compatible endpoint's bearer token. Sent only by that connection. |
@@ -92,6 +93,26 @@ open because a client needs them *before* it holds a token.
 
 It is not a login. There are no accounts, and the screen says so, because a
 screen that looks like a login invites someone to type a password into it.
+
+### Rotating the pairing token
+
+A pinned token that differs from the one the data directory stores refuses to
+start and changes nothing, because another panel may still be serving that
+library with the stored token. Replacing it -- a leaked token, say -- is a
+deliberate act: pin the new token *and* ask for rotation.
+
+- npx: `npx ingot-workbench --token <new> --rotate-token`.
+- Docker compose: set `INGOT_PAIRING_TOKEN=<new>` and
+  `INGOT_PAIRING_TOKEN_ROTATE=1` (compose passes both through), then
+  `docker compose up -d`.
+
+The startup output says the token was **rotated** and that every browser and
+extension paired with the old one must pair again. Pinning the token already
+stored is a no-op, so leaving both variables set afterwards is harmless. Under
+compose's `restart: unless-stopped` an unresolved conflict restarts the
+container over and over until it is resolved, which is why the error names
+`INGOT_PAIRING_TOKEN_ROTATE` and the stored token's file rather than a flag a
+container cannot take.
 
 **CORS.** `apps/server/src/cors.ts` answers preflights for the allowlist and
 *rejects* any cross-origin request whose `Origin` is not on it, rather than

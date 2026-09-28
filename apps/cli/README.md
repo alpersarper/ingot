@@ -35,6 +35,7 @@ markdown and a standalone docs site.
 | `--host <host>` | Address to bind. Default `127.0.0.1` -- this machine only. |
 | `-d, --data-dir <dir>` | Library, screenshots and pairing token. Default `~/.ingot`. |
 | `--token <token>` | Pin the pairing token instead of letting the panel mint one. |
+| `--rotate-token` | Let `--token` replace a different token the library already stores. Paired browsers and extensions must pair again. |
 | `--no-open` | Do not open a browser. |
 | `-h, --help` / `-v, --version` | |
 

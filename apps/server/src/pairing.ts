@@ -28,10 +28,14 @@ export function generatePairingToken(): string {
   return randomBytes(32).toString('base64url')
 }
 
+/** The variable that lets a pinned token replace a stored one. */
+export const PAIRING_ROTATE_ENV = 'INGOT_PAIRING_TOKEN_ROTATE'
+
 /**
  * A pinned token that disagrees with the one this data directory already has.
  *
- * Deliberately names neither token: the message reaches a terminal and a
+ * Worded for both launchers -- a compose file can only set variables -- and
+ * deliberately names neither token: the message reaches a terminal and a
  * container log, and either value would be a secret printed where it should not
  * be.
  */
@@ -40,13 +44,26 @@ export class PairingTokenConflictError extends Error {
 
   constructor() {
     super(
-      'this data directory already has a different pairing token, and the pinned one ' +
-        '(--token / INGOT_PAIRING_TOKEN) would replace it for every browser and extension ' +
-        'already paired with it. Use the stored token -- it is in pairing-token.txt in the ' +
-        'data directory -- or point at a different --data-dir.',
+      'Pairing token conflict: the pinned token (INGOT_PAIRING_TOKEN, or --token) differs from ' +
+        'the one this data directory already stores, and replacing it would unpair every browser ' +
+        'and extension paired with the stored one, so nothing was changed. Either pin the stored ' +
+        'token -- it is in pairing-token.txt in the data directory -- or rotate on purpose by ' +
+        `setting ${PAIRING_ROTATE_ENV}=1 (--rotate-token under npx). To keep a separate library ` +
+        'instead, point INGOT_DATA_DIR (--data-dir) somewhere else.',
     )
     this.name = 'PairingTokenConflictError'
   }
+}
+
+/** Printed by every launcher when a start replaced the stored token. */
+export const PAIRING_TOKEN_ROTATED_NOTICE =
+  'Pairing token ROTATED: the pinned token replaced the one this data directory stored. ' +
+  'Browsers and extensions paired with the old token must pair again.'
+
+/** The token this server will accept, and whether establishing it replaced another. */
+export interface ResolvedPairingToken {
+  readonly token: string
+  readonly rotated: boolean
 }
 
 /**
@@ -57,20 +74,27 @@ export class PairingTokenConflictError extends Error {
  * refuses to start rather than replacing it, because the data directory may be
  * in use by a panel that is still enforcing the stored token from memory, and a
  * silent overwrite would unpair its browser and extension on its next restart.
- * Nothing is written on that path. Unpinned, the first boot on a fresh volume
- * mints one and every later boot reuses it.
+ * Nothing is written on that path. Replacing it is still possible -- rotating a
+ * leaked token has to be -- but only when `rotate` says so, and the result says
+ * it happened so the launcher can state it. Unpinned, the first boot on a fresh
+ * volume mints one and every later boot reuses it.
  */
-export async function resolvePairingToken(store: Store, fromEnv: string | undefined): Promise<string> {
+export async function resolvePairingToken(
+  store: Store,
+  fromEnv: string | undefined,
+  rotate = false,
+): Promise<ResolvedPairingToken> {
   const existing = await store.settings.get(PAIRING_TOKEN_KEY)
   if (fromEnv !== undefined) {
-    if (existing === null) await store.settings.set(PAIRING_TOKEN_KEY, fromEnv)
-    else if (existing !== fromEnv) throw new PairingTokenConflictError()
-    return fromEnv
+    if (existing === fromEnv) return { token: fromEnv, rotated: false }
+    if (existing !== null && !rotate) throw new PairingTokenConflictError()
+    await store.settings.set(PAIRING_TOKEN_KEY, fromEnv)
+    return { token: fromEnv, rotated: existing !== null }
   }
-  if (existing !== null) return existing
+  if (existing !== null) return { token: existing, rotated: false }
   const minted = generatePairingToken()
   await store.settings.set(PAIRING_TOKEN_KEY, minted)
-  return minted
+  return { token: minted, rotated: false }
 }
 
 /** Constant-time compare, so a wrong token leaks nothing about the right one. */

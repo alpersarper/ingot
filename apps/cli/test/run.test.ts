@@ -119,20 +119,49 @@ describe('a port held by something else', () => {
 })
 
 describe('a pinned token that disagrees with the library', () => {
-  it('fails on another port and leaves the running panel\'s token alone', async () => {
-    running = await startOwnPanel('OLD')
-    const probe = createServer()
-    await new Promise<void>((ready) => probe.listen(0, '127.0.0.1', ready))
-    const address = probe.address()
-    if (address === null || typeof address === 'string') throw new Error('expected a TCP address')
-    await new Promise((done) => probe.close(done))
+  // `INGOT_PORT=0` lets the OS choose, so the second run has no port to guess
+  // and always gets as far as the token.
+  beforeEach(() => {
+    vi.stubEnv('INGOT_PORT', '0')
+  })
 
-    expect(await invoke(['--port', String(address.port), '--token', 'NEW'])).toBe(1)
-    expect(stderr).toContain('already has a different pairing token')
+  it('fails and leaves the running panel\'s token alone', async () => {
+    running = await startOwnPanel('OLD')
+
+    expect(await invoke(['--token', 'NEW'])).toBe(1)
+    expect(stderr).toContain('Pairing token conflict')
+    expect(stderr).toContain('INGOT_PAIRING_TOKEN_ROTATE=1')
+    expect(stderr).toContain('--rotate-token')
     expect(stderr).not.toContain('OLD')
     expect(stdout).toBe('')
 
     expect(await readFile(running.tokenFile, 'utf8')).toBe('OLD\n')
+    expect(await verifies(running.port, 'OLD')).toBe(200)
+  })
+
+  it('replaces it with --rotate-token, and says the paired clients must pair again', async () => {
+    const first = await startOwnPanel('OLD')
+    await first.close()
+
+    process.exitCode = undefined
+    running = await run(['--no-open', '--token', 'NEW', '--rotate-token'])
+    expect(process.exitCode ?? 0).toBe(0)
+    if (running === undefined) throw new Error('expected a running panel')
+
+    expect(stdout).toContain('Pairing token ROTATED')
+    expect(stdout).toContain('must pair again')
+    expect(await readFile(running.tokenFile, 'utf8')).toBe('NEW\n')
+    expect(await verifies(running.port, 'NEW')).toBe(200)
+    expect(await verifies(running.port, 'OLD')).toBe(401)
+  })
+
+  it('says nothing about rotation when --rotate-token pins the token already stored', async () => {
+    const first = await startOwnPanel('OLD')
+    await first.close()
+
+    running = await run(['--no-open', '--token', 'OLD', '--rotate-token'])
+    if (running === undefined) throw new Error('expected a running panel')
+    expect(stdout).not.toContain('ROTATED')
     expect(await verifies(running.port, 'OLD')).toBe(200)
   })
 })

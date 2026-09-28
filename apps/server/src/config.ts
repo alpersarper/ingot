@@ -34,6 +34,11 @@ export interface ServerConfig {
   /** Pairing token from the environment; otherwise one is generated at first run. */
   pairingToken: string | undefined
   /**
+   * `INGOT_PAIRING_TOKEN_ROTATE`: let a pinned token replace a different one the
+   * data directory already stores. Without it that conflict refuses to start.
+   */
+  rotatePairingToken: boolean
+  /**
    * Anthropic API key from the environment; otherwise it arrives via settings.
    *
    * This is the Anthropic connection's credential and nobody else's: the
@@ -90,7 +95,7 @@ function intFromEnv(env: NodeJS.ProcessEnv, key: string, fallback: number): numb
   const raw = env[key]
   if (raw === undefined || raw.trim() === '') return fallback
   const parsed = Number.parseInt(raw, 10)
-  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 65535) {
+  if (!/^\d+$/.test(raw.trim()) || parsed < 0 || parsed > 65535) {
     throw new Error(`${key} must be a port number, received ${JSON.stringify(raw)}`)
   }
   return parsed
@@ -137,6 +142,13 @@ function connectionFromEnv(env: NodeJS.ProcessEnv): ConnectionId | undefined {
   return raw
 }
 
+function flagFromEnv(env: NodeJS.ProcessEnv, key: string): boolean {
+  const raw = env[key]?.trim().toLowerCase()
+  if (raw === undefined || raw === '' || raw === '0' || raw === 'false') return false
+  if (raw === '1' || raw === 'true') return true
+  throw new Error(`${key} must be 1 or 0, received ${JSON.stringify(env[key])}`)
+}
+
 function optional(env: NodeJS.ProcessEnv, key: string): string | undefined {
   const raw = env[key]
   return raw === undefined || raw.trim() === '' ? undefined : raw.trim()
@@ -161,6 +173,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     // wants in has to be named, which is the point of locking CORS down.
     allowedOrigins: configured.length > 0 ? configured : [DEV_PANEL_ORIGIN],
     pairingToken: optional(env, 'INGOT_PAIRING_TOKEN'),
+    rotatePairingToken: flagFromEnv(env, 'INGOT_PAIRING_TOKEN_ROTATE'),
     llmApiKey: optional(env, 'INGOT_LLM_API_KEY'),
     llmEndpointKey: optional(env, 'INGOT_LLM_ENDPOINT_KEY'),
     llmConnection: connectionFromEnv(env),

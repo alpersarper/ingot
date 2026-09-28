@@ -25,7 +25,7 @@ import { createAssistant } from './assistant/service'
 import { createRateLimiter } from './assistant/rate-limit'
 import { loadConfig } from './config'
 import { createScreenshotStore } from './screenshots'
-import { resolvePairingToken } from './pairing'
+import { PAIRING_TOKEN_ROTATED_NOTICE, PairingTokenConflictError, resolvePairingToken } from './pairing'
 import { createSqliteStore } from './storage/sqlite'
 import { systemClock, uuidIdFactory } from './storage/ids'
 import type { AppContext } from './context'
@@ -36,10 +36,12 @@ import type { ServerConfig } from './config'
 // a deep path into the server's internals.
 export { loadConfig } from './config'
 export type { ServerConfig } from './config'
-export { PairingTokenConflictError } from './pairing'
+export { PAIRING_TOKEN_ROTATED_NOTICE, PairingTokenConflictError } from './pairing'
 
 /** Open the volume and the database, and establish the pairing token. */
-export async function createContext(config: ServerConfig): Promise<AppContext> {
+export async function createContext(
+  config: ServerConfig,
+): Promise<AppContext & { readonly pairingTokenRotated: boolean }> {
   await mkdir(config.dataDir, { recursive: true })
   await mkdir(config.screenshotDir, { recursive: true })
 
@@ -53,8 +55,13 @@ export async function createContext(config: ServerConfig): Promise<AppContext> {
   await chmod(config.databaseFile, 0o600).catch(() => undefined)
 
   let pairingToken: string
+  let pairingTokenRotated: boolean
   try {
-    pairingToken = await resolvePairingToken(store, config.pairingToken)
+    ;({ token: pairingToken, rotated: pairingTokenRotated } = await resolvePairingToken(
+      store,
+      config.pairingToken,
+      config.rotatePairingToken,
+    ))
   } catch (cause) {
     await store.close().catch(() => undefined)
     throw cause
@@ -65,6 +72,7 @@ export async function createContext(config: ServerConfig): Promise<AppContext> {
     store,
     screenshots: createScreenshotStore(config.screenshotDir),
     pairingToken,
+    pairingTokenRotated,
     // Built whether or not a key is configured: "no key" is an answer the
     // assistant gives, and the panel needs to be told it in order to show the
     // setup path. Nothing here reaches a provider until a route asks it to.
@@ -88,6 +96,8 @@ export interface PanelHandle {
   readonly pairingToken: string
   /** Where the token was written, so a caller can point a human at it. */
   readonly tokenFile: string
+  /** True when this start replaced a different stored token, which the caller must say. */
+  readonly pairingTokenRotated: boolean
   /** Stop listening and close the database, as SIGINT/SIGTERM would, without exiting. */
   close(): Promise<void>
 }
@@ -148,7 +158,7 @@ export async function startPanel(config: ServerConfig = loadConfig()): Promise<P
     server.on('error', fail)
   })
 
-  let context: AppContext
+  let context: Awaited<ReturnType<typeof createContext>>
   let tokenFile: string
   try {
     context = await createContext(config)
@@ -182,11 +192,27 @@ export async function startPanel(config: ServerConfig = loadConfig()): Promise<P
   process.on('SIGINT', onSigint)
   process.on('SIGTERM', onSigterm)
 
-  return { port, config, pairingToken: context.pairingToken, tokenFile, close }
+  return {
+    port,
+    config,
+    pairingToken: context.pairingToken,
+    tokenFile,
+    pairingTokenRotated: context.pairingTokenRotated,
+    close,
+  }
 }
 
 async function main(): Promise<void> {
-  const handle = await startPanel()
+  let handle: PanelHandle
+  try {
+    handle = await startPanel()
+  } catch (cause) {
+    if (!(cause instanceof PairingTokenConflictError)) throw cause
+    process.stderr.write(`\n  ${cause.message}\n\n`)
+    process.exitCode = 1
+    return
+  }
+  if (handle.pairingTokenRotated) process.stdout.write(`\n  ${PAIRING_TOKEN_ROTATED_NOTICE}\n`)
   process.stdout.write(
     `\n  Pairing token: ${handle.pairingToken}\n` +
       `  Also written to ${handle.tokenFile}\n` +

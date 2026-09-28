@@ -54,6 +54,11 @@ describe('parseArgs', () => {
     expect(options(['-p', '4311', '-d', '/kits'])).toMatchObject({ port: 4311, dataDir: '/kits' })
   })
 
+  it('reads --rotate-token', () => {
+    expect(options(['--token', 'abc', '--rotate-token'])).toMatchObject({ token: 'abc', rotateToken: true })
+    expect(options([]).rotateToken).toBeUndefined()
+  })
+
   it('turns the browser off', () => {
     expect(options(['--no-open']).open).toBe(false)
   })
@@ -127,6 +132,12 @@ describe('panelEnv', () => {
     const env = panelEnv(options([]), { INGOT_LLM_API_KEY: 'sk-x', INGOT_ASSISTANT_RATE_LIMIT: '3' }, DEFAULTS)
     expect(env['INGOT_LLM_API_KEY']).toBe('sk-x')
     expect(env['INGOT_ASSISTANT_RATE_LIMIT']).toBe('3')
+  })
+
+  it('asks for rotation only when the flag was given, and otherwise leaves the environment\'s answer', () => {
+    expect(panelEnv(options(['--rotate-token']), {}, DEFAULTS)['INGOT_PAIRING_TOKEN_ROTATE']).toBe('1')
+    expect(panelEnv(options([]), {}, DEFAULTS)['INGOT_PAIRING_TOKEN_ROTATE']).toBeUndefined()
+    expect(panelEnv(options([]), { INGOT_PAIRING_TOKEN_ROTATE: '1' }, DEFAULTS)['INGOT_PAIRING_TOKEN_ROTATE']).toBe('1')
   })
 
   it('pins the pairing token only when one was given', () => {

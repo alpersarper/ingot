@@ -23,6 +23,8 @@ export interface RunOptions {
   readonly dataDir?: string
   /** `--token`: pin the pairing token instead of letting the panel mint one. */
   readonly token?: string
+  /** `--rotate-token`: let `--token` replace a different token the library already stores. */
+  readonly rotateToken?: true
   /** False with `--no-open`: do not launch a browser. */
   readonly open: boolean
 }
@@ -44,6 +46,8 @@ export const HELP = `
         --host <host>      Address to bind (default 127.0.0.1, this machine only)
     -d, --data-dir <dir>   Library, screenshots and pairing token (default ~/.ingot)
         --token <token>    Pin the pairing token instead of minting one
+        --rotate-token     Let --token replace the library's stored token; paired
+                           browsers and extensions must pair again
         --no-open          Do not open a browser
     -h, --help             Print this
     -v, --version          Print the version
@@ -78,6 +82,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     host?: string
     dataDir?: string
     token?: string
+    rotateToken?: true
     open: boolean
   } = { open: true }
 
@@ -90,6 +95,10 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     if (argument === '--version' || argument === '-v') return { kind: 'version' }
     if (argument === '--no-open') {
       options.open = false
+      continue
+    }
+    if (argument === '--rotate-token') {
+      options.rotateToken = true
       continue
     }
 

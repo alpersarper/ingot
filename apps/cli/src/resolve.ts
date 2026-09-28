@@ -43,6 +43,7 @@ export function panelEnv(
   // rather than being restated here and then drifting from it.
   if (options.port !== undefined) overlay['INGOT_PORT'] = String(options.port)
   if (options.token !== undefined) overlay['INGOT_PAIRING_TOKEN'] = options.token
+  if (options.rotateToken === true) overlay['INGOT_PAIRING_TOKEN_ROTATE'] = '1'
   overlay['INGOT_HOST'] = options.host ?? env['INGOT_HOST'] ?? LOOPBACK
   overlay['INGOT_DATA_DIR'] = options.dataDir ?? env['INGOT_DATA_DIR'] ?? join(defaults.home, '.ingot')
   overlay['INGOT_PANEL_DIR'] = env['INGOT_PANEL_DIR'] ?? defaults.panelDir

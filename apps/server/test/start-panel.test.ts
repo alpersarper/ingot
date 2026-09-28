@@ -1,14 +1,18 @@
 /**
- * `startPanel` against a port another panel already holds.
+ * `startPanel` against a library another panel may already be serving.
  *
- * The data directory may belong to the panel that won the port, so a second
- * start that loses it must leave that panel's world exactly as it was: the
- * stored token, the token file, and the token the running panel enforces.
+ * A second start that loses the port, or pins a token the library does not
+ * store, must leave that panel's world exactly as it was: the stored token, the
+ * token file, and the token the running panel enforces. Replacing the token is
+ * possible only when rotation is asked for, and then it is announced.
  */
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { spawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ChildProcess } from 'node:child_process'
 import { loadConfig, startPanel } from '../src/index'
 import type { PanelHandle, ServerConfig } from '../src/index'
 
@@ -107,4 +111,98 @@ describe('startPanel', () => {
     expect((failure as Error).message).not.toContain('OLD-SECRET')
     expect((failure as Error).message).not.toContain('NEW-SECRET')
   })
+
+  it('replaces a different stored token when rotation is asked for, and says so', async () => {
+    running = await startPanel(config({ pairingToken: 'OLD' }))
+    expect(running.pairingTokenRotated).toBe(false)
+    await running.close()
+
+    running = await startPanel(config({ pairingToken: 'NEW', rotatePairingToken: true }))
+    expect(running.pairingTokenRotated).toBe(true)
+    expect(await readFile(running.tokenFile, 'utf8')).toBe('NEW\n')
+    expect(await verifies(running.port, 'NEW')).toBe(200)
+    expect(await verifies(running.port, 'OLD')).toBe(401)
+
+    await running.close()
+    running = await startPanel(config())
+    expect(running.pairingToken).toBe('NEW')
+  })
+
+  it('treats rotation to the token already stored, or onto a fresh library, as no rotation', async () => {
+    running = await startPanel(config({ pairingToken: 'OLD', rotatePairingToken: true }))
+    expect(running.pairingTokenRotated).toBe(false)
+    await running.close()
+
+    running = await startPanel(config({ pairingToken: 'OLD', rotatePairingToken: true }))
+    expect(running.pairingTokenRotated).toBe(false)
+  })
+})
+
+/**
+ * The container's entry point, run as the container runs it: a process whose
+ * output is a log. What it prints, and how it exits, is the contract here.
+ */
+describe('the server entry point', () => {
+  const entry = fileURLToPath(new URL('../src/index.ts', import.meta.url))
+  const root = fileURLToPath(new URL('../../..', import.meta.url))
+
+  function launch(env: Record<string, string>): ChildProcess {
+    return spawn(process.execPath, ['--import', 'tsx', entry], {
+      cwd: root,
+      env: { ...process.env, INGOT_DATA_DIR: dir, INGOT_HOST: '127.0.0.1', INGOT_PORT: '0', ...env },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+  }
+
+  function collect(child: ChildProcess): { stdout: () => string; stderr: () => string } {
+    let stdout = ''
+    let stderr = ''
+    child.stdout?.on('data', (chunk) => (stdout += String(chunk)))
+    child.stderr?.on('data', (chunk) => (stderr += String(chunk)))
+    return { stdout: () => stdout, stderr: () => stderr }
+  }
+
+  function exited(child: ChildProcess): Promise<number | null> {
+    return new Promise((done) => child.on('exit', (code) => done(code)))
+  }
+
+  async function seed(token: string): Promise<void> {
+    const first = await startPanel(config({ pairingToken: token }))
+    await first.close()
+  }
+
+  it('exits 1 on a conflicting pinned token with both ways out, no stack trace, and nothing written', async () => {
+    await seed('OLD')
+    const before = await readFile(join(dir, 'pairing-token.txt'))
+
+    const child = launch({ INGOT_PAIRING_TOKEN: 'NEW' })
+    const output = collect(child)
+    expect(await exited(child)).toBe(1)
+
+    expect(output.stderr()).toContain('Pairing token conflict')
+    expect(output.stderr()).toContain('pairing-token.txt')
+    expect(output.stderr()).toContain('INGOT_PAIRING_TOKEN_ROTATE=1')
+    expect(output.stderr()).not.toMatch(/^\s+at /m)
+    expect(output.stdout()).toBe('')
+    expect(await readFile(join(dir, 'pairing-token.txt'))).toEqual(before)
+  }, 20_000)
+
+  it('states a rotation before its usual banner', async () => {
+    await seed('OLD')
+
+    const child = launch({ INGOT_PAIRING_TOKEN: 'NEW', INGOT_PAIRING_TOKEN_ROTATE: '1' })
+    const output = collect(child)
+    try {
+      await vi.waitFor(() => expect(output.stdout()).toContain('Data directory:'), { timeout: 15_000 })
+    } finally {
+      child.kill('SIGTERM')
+      await exited(child)
+    }
+
+    const stdout = output.stdout()
+    expect(stdout).toContain('Pairing token ROTATED')
+    expect(stdout).toContain('must pair again')
+    expect(stdout.indexOf('ROTATED')).toBeLessThan(stdout.indexOf('Pairing token: NEW'))
+    expect(await readFile(join(dir, 'pairing-token.txt'), 'utf8')).toBe('NEW\n')
+  }, 20_000)
 })
