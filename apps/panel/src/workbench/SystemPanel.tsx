@@ -123,7 +123,7 @@ export interface SystemPanelProps {
   onSaveLlmEndpointKey: (key: string) => Promise<void>
   onSaveLlmModel: (model: string) => Promise<void>
   onSaveLlmConnection: (connection: ConnectionId) => Promise<void>
-  onSaveLlmBaseUrl: (baseUrl: string) => Promise<void>
+  onSaveLlmBaseUrl: (baseUrl: string) => Promise<{ endpointKeyCleared: boolean }>
   /**
    * Draft a reason for one override.
    *

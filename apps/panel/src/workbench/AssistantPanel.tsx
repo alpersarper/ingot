@@ -57,7 +57,7 @@ export interface AssistantTabProps {
   onSaveLlmEndpointKey: (key: string) => Promise<void>
   onSaveLlmModel: (model: string) => Promise<void>
   onSaveLlmConnection: (connection: ConnectionId) => Promise<void>
-  onSaveLlmBaseUrl: (baseUrl: string) => Promise<void>
+  onSaveLlmBaseUrl: (baseUrl: string) => Promise<{ endpointKeyCleared: boolean }>
 }
 
 export function AssistantTab(props: AssistantTabProps): ReactNode {
@@ -251,7 +251,7 @@ function ConnectionSetup({
   onSaveLlmKey: (key: string) => Promise<void>
   onSaveLlmEndpointKey: (key: string) => Promise<void>
   onSaveLlmModel: (model: string) => Promise<void>
-  onSaveLlmBaseUrl: (baseUrl: string) => Promise<void>
+  onSaveLlmBaseUrl: (baseUrl: string) => Promise<{ endpointKeyCleared: boolean }>
 }): ReactNode {
   return (
     <div className="flex flex-col gap-3 rounded-md border border-border p-3">
@@ -348,9 +348,9 @@ function ClaudeCliSetup({
 }
 
 /**
- * The value the server keeps for a typed endpoint URL. Mirrors the store rule
- * in `apps/server/src/routes/settings.ts` (`PUT /api/settings`, `llmBaseUrl`:
- * trim, then strip trailing slashes) and must match it: the Save control
+ * The value the server keeps for a typed endpoint URL. Mirrors `storedBaseUrl`
+ * in `apps/server/src/assistant/openai-compatible.ts` (trim, then strip
+ * trailing slashes) and must match it: the Save control
  * compares against what came back from the server, so comparing the raw field
  * text would re-enable it right after a URL typed with a trailing slash saved.
  */
@@ -366,13 +366,14 @@ function OpenAiSetup({
 }: {
   status: AssistantStatus
   busy: boolean
-  onSaveLlmBaseUrl: (baseUrl: string) => Promise<void>
+  onSaveLlmBaseUrl: (baseUrl: string) => Promise<{ endpointKeyCleared: boolean }>
   onSaveLlmEndpointKey: (key: string) => Promise<void>
 }): ReactNode {
   const [url, setUrl] = useState(status.baseUrl ?? '')
   const [key, setKey] = useState('')
   const [saving, setSaving] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [keyCleared, setKeyCleared] = useState(false)
 
   async function save(what: string, operation: () => Promise<void>): Promise<void> {
     setSaving(what)
@@ -435,7 +436,12 @@ function OpenAiSetup({
               disabled={
                 busy || saving !== null || url.trim() === '' || storedBaseUrl(url) === (status.baseUrl ?? '')
               }
-              onClick={() => void save('url', () => onSaveLlmBaseUrl(url.trim()))}
+              onClick={() =>
+                void save('url', async () => {
+                  const { endpointKeyCleared } = await onSaveLlmBaseUrl(url.trim())
+                  setKeyCleared(endpointKeyCleared)
+                })
+              }
             >
               {saving === 'url' ? <Loader2 className="animate-spin" aria-hidden /> : <Check aria-hidden />}
               Save
@@ -473,6 +479,7 @@ function OpenAiSetup({
                 void save('key', async () => {
                   await onSaveLlmEndpointKey(key.trim())
                   setKey('')
+                  setKeyCleared(false)
                 })
               }
             >
@@ -480,8 +487,15 @@ function OpenAiSetup({
               Save
             </Button>
           </div>
+          {keyCleared ? (
+            <p className="text-[11px] leading-relaxed text-foreground" role="status">
+              The stored key was cleared because the endpoint&rsquo;s host changed. Enter this endpoint&rsquo;s key if
+              it needs one.
+            </p>
+          ) : null}
           <p className="text-[11px] leading-relaxed text-muted-foreground">
-            Sent as a bearer token to the endpoint above and nowhere else. A model running on this machine needs none.
+            Sent as a bearer token to the endpoint above and nowhere else; moving the endpoint to a different host
+            clears it. A model running on this machine needs none.
           </p>
         </div>
       )}

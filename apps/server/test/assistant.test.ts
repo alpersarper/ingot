@@ -676,6 +676,70 @@ describe('a credential and an endpoint belong to one connection', () => {
     expect(anthropic?.baseUrl).toBeUndefined()
   })
 
+  it('drops the endpoint key when the endpoint moves to a different host, and never sends it there', async () => {
+    await importAndGenerate()
+    await harness.call('/api/settings', put({ llmConnection: 'openai-compatible' }))
+    await harness.call('/api/settings', put({ llmBaseUrl: 'https://openrouter.ai/api/v1' }))
+    await harness.call('/api/settings', put({ llmModel: 'llama3.2' }))
+    await harness.call('/api/settings', put({ llmEndpointKey: ENDPOINT_KEY }))
+
+    const moved = await harness.call('/api/settings', put({ llmBaseUrl: 'https://api.groq.com/openai/v1' }))
+    const report = (await moved.json()) as {
+      endpointKeyCleared: boolean
+      settings: { llm: { endpointKeyConfigured: boolean } }
+    }
+    expect(report.endpointKeyCleared).toBe(true)
+    expect(report.settings.llm.endpointKeyConfigured).toBe(false)
+    expect(await harness.store.settings.get('llm.endpointKey')).toBeNull()
+
+    harness.llm.reply({ proposals: [] })
+    await harness.call('/api/assistant/suggest', body({ capability: 'derive' }))
+    const config = harness.llm.configs.at(-1)
+    expect(config?.baseUrl).toBe('https://api.groq.com/openai/v1')
+    expect(config?.apiKey).toBeUndefined()
+    expect(harness.llm.configs.some((entry) => entry.apiKey === ENDPOINT_KEY)).toBe(false)
+  })
+
+  it('keeps the endpoint key across a path or trailing-slash edit on the same host', async () => {
+    await importAndGenerate()
+    await harness.call('/api/settings', put({ llmConnection: 'openai-compatible' }))
+    await harness.call('/api/settings', put({ llmBaseUrl: 'http://localhost:11434/v1' }))
+    await harness.call('/api/settings', put({ llmModel: 'llama3.2' }))
+    await harness.call('/api/settings', put({ llmEndpointKey: ENDPOINT_KEY }))
+
+    for (const url of ['http://localhost:11434/v1/', 'http://LOCALHOST:11434/api/v1']) {
+      const edited = await harness.call('/api/settings', put({ llmBaseUrl: url }))
+      expect(((await edited.json()) as { endpointKeyCleared: boolean }).endpointKeyCleared).toBe(false)
+    }
+    expect(await harness.store.settings.get('llm.endpointKey')).toBe(ENDPOINT_KEY)
+
+    harness.llm.reply({ proposals: [] })
+    await harness.call('/api/assistant/suggest', body({ capability: 'derive' }))
+    expect(harness.llm.configs.at(-1)?.apiKey).toBe(ENDPOINT_KEY)
+  })
+
+  it('drops the endpoint key when the endpoint is cleared or moves to another port', async () => {
+    await harness.call('/api/settings', put({ llmBaseUrl: 'http://localhost:11434/v1' }))
+    await harness.call('/api/settings', put({ llmEndpointKey: ENDPOINT_KEY }))
+    await harness.call('/api/settings', put({ llmBaseUrl: 'http://localhost:8080/v1' }))
+    expect(await harness.store.settings.get('llm.endpointKey')).toBeNull()
+
+    await harness.call('/api/settings', put({ llmEndpointKey: ENDPOINT_KEY }))
+    await harness.call('/api/settings', put({ llmBaseUrl: null }))
+    expect(await harness.store.settings.get('llm.endpointKey')).toBeNull()
+  })
+
+  it('keeps a key saved for the new endpoint in the same write', async () => {
+    await harness.call('/api/settings', put({ llmBaseUrl: 'https://openrouter.ai/api/v1' }))
+    await harness.call('/api/settings', put({ llmEndpointKey: 'sk-or-v1-OLDOLDOLDOLDOLDOLD' }))
+    const both = await harness.call(
+      '/api/settings',
+      put({ llmBaseUrl: 'https://api.groq.com/openai/v1', llmEndpointKey: ENDPOINT_KEY }),
+    )
+    expect(((await both.json()) as { endpointKeyCleared: boolean }).endpointKeyCleared).toBe(false)
+    expect(await harness.store.settings.get('llm.endpointKey')).toBe(ENDPOINT_KEY)
+  })
+
   it('sends no key at all to a keyless endpoint, even with an Anthropic key stored', async () => {
     await importAndGenerate()
     await storeKey()

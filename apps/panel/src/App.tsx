@@ -643,9 +643,10 @@ export function App(): ReactNode {
               await refreshAssistant(reviewScope)
             }}
             onSaveLlmBaseUrl={async (baseUrl) => {
-              await api.saveLlmBaseUrl(baseUrl)
+              const saved = await api.saveLlmBaseUrl(baseUrl)
               setSettings(await api.settings().catch(() => null))
               await refreshAssistant(reviewScope)
+              return saved
             }}
           />
         </aside>

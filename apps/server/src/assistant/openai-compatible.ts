@@ -76,6 +76,24 @@ export function completionsUrl(baseUrl: string): string {
   return path === '' ? `${trimmed}/v1/chat/completions` : `${trimmed}/chat/completions`
 }
 
+/**
+ * The form an endpoint is stored in: trimmed, trailing slashes stripped, so the
+ * endpoint `completionsUrl` builds from it is stable. The panel mirrors this in
+ * `AssistantPanel.tsx` and must match it.
+ */
+export function storedBaseUrl(value: string): string {
+  return value.trim().replace(/\/+$/, '')
+}
+
+/** The host, port included, an endpoint sends to; `null` when it is not a URL. */
+export function endpointHost(value: string): string | null {
+  try {
+    return new URL(value.trim()).host
+  } catch {
+    return null
+  }
+}
+
 /** `true` when this looks like a URL worth sending a request to. Not a verdict. */
 export function isUsableBaseUrl(value: string): boolean {
   if (value.trim() === '' || value.length > BASE_URL_MAX) return false

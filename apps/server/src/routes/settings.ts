@@ -40,7 +40,7 @@ import {
   LLM_MODEL_SETTING,
 } from '../assistant/settings-keys'
 import { CONNECTION_IDS, isConnectionId } from '../assistant/connections'
-import { BASE_URL_MAX, isUsableBaseUrl } from '../assistant/openai-compatible'
+import { BASE_URL_MAX, endpointHost, isUsableBaseUrl, storedBaseUrl } from '../assistant/openai-compatible'
 import type { AppContext, AppEnv } from '../context'
 import { isRecord, optionalString, readJsonBody } from '../validate'
 
@@ -114,6 +114,7 @@ export function settingsRoutes(context: AppContext): Hono<AppEnv> {
     const touchesModel = 'llmModel' in body
     const touchesConnection = 'llmConnection' in body
     const touchesBaseUrl = 'llmBaseUrl' in body
+    let endpointKeyCleared = false
     if (!touchesKey && !touchesEndpointKey && !touchesModel && !touchesConnection && !touchesBaseUrl) {
       throw ApiError.badRequest(
         'nothing to update; send llmApiKey, llmEndpointKey, llmConnection, llmBaseUrl or llmModel',
@@ -197,6 +198,8 @@ export function settingsRoutes(context: AppContext): Hono<AppEnv> {
         )
       }
       const value = body['llmBaseUrl']
+      const previous = await store.settings.get(LLM_BASE_URL_SETTING)
+      let next: string | null = null
       if (value === null) {
         await store.settings.delete(LLM_BASE_URL_SETTING)
       } else {
@@ -206,11 +209,29 @@ export function settingsRoutes(context: AppContext): Hono<AppEnv> {
             `llmBaseUrl must be an http:// or https:// URL of at most ${BASE_URL_MAX} characters, or null to clear it`,
           )
         }
-        await store.settings.set(LLM_BASE_URL_SETTING, url.trim().replace(/\/+$/, ''))
+        next = storedBaseUrl(url)
+        await store.settings.set(LLM_BASE_URL_SETTING, next)
+      }
+
+      // A credential never reaches an address it was not saved for. The
+      // endpoint key was saved for the host the stored endpoint named, so a
+      // move to a different host -- or away from any host, or to one that does
+      // not parse -- drops it, and the response says so. A path or
+      // trailing-slash edit on the same host keeps it, and so does a request
+      // that saves a key for the new endpoint in the same write.
+      const previousHost = previous === null ? undefined : endpointHost(previous)
+      const nextHost = next === null ? null : endpointHost(next)
+      if (
+        previousHost !== undefined &&
+        !touchesEndpointKey &&
+        config.llmEndpointKey === undefined &&
+        (previousHost === null || nextHost === null || previousHost !== nextHost)
+      ) {
+        endpointKeyCleared = await store.settings.delete(LLM_ENDPOINT_KEY_SETTING)
       }
     }
 
-    return c.json({ settings: { llm: await llmBlock() } })
+    return c.json({ settings: { llm: await llmBlock() }, endpointKeyCleared })
   })
 
   /**

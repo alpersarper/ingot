@@ -356,9 +356,15 @@ export const api = {
     await write('/api/settings', 'PUT', { llmConnection: connection })
   },
 
-  /** The OpenAI-compatible endpoint. `null` clears it. */
-  async saveLlmBaseUrl(baseUrl: string | null): Promise<void> {
-    await write('/api/settings', 'PUT', { llmBaseUrl: baseUrl })
+  /**
+   * The OpenAI-compatible endpoint. `null` clears it.
+   *
+   * A move to a different host clears the stored endpoint key on the server;
+   * `endpointKeyCleared` reports that it happened, so the panel can say so.
+   */
+  async saveLlmBaseUrl(baseUrl: string | null): Promise<{ endpointKeyCleared: boolean }> {
+    const response = await write<{ endpointKeyCleared?: boolean }>('/api/settings', 'PUT', { llmBaseUrl: baseUrl })
+    return { endpointKeyCleared: response.endpointKeyCleared === true }
   },
 
   async captures(groupId?: string): Promise<CaptureSummary[]> {
