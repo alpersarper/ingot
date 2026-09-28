@@ -40,7 +40,7 @@ so write them for the developer who will read the spec.
   "capturedAt": "2026-02-11T09:14:22.000Z",
   "screenshot": null,               // reserved; see below
   "styles": { /* computed styles */ },
-  "inheritedBackgroundColor": "rgb(255, 255, 255)",  // optional, only when transparent
+  "inheritedBackgroundColor": "rgb(255, 255, 255)",  // optional, only when not opaque
   "notes": "Primary CTA in the page header."   // optional, never read by the engine
 }
 ```
@@ -74,14 +74,20 @@ capture later does not change the record shape.
 ### `inheritedBackgroundColor`
 
 The background **actually painted behind** the element, measured by walking its
-ancestors until one paints a colour. Set only when the element's own
-`styles.backgroundColor` is fully transparent; omitted otherwise, and omitted
-when nothing up the chain paints one either.
+ancestors and compositing any translucent layers down to the first opaque one.
+Set whenever the element's own `styles.backgroundColor` is **not fully opaque**;
+omitted when it is, and omitted when nothing opaque is found up the chain.
+
+A translucent fill still needs the colour behind it, because on its own it is
+only half of what is on screen: a `rgba(255, 255, 255, 0.04)` glass card on a
+`#0b0f19` page is a dark surface, and with its alpha dropped it reads as white.
+The engine lays the element's own fill over this value to get the colour a
+reader sees, and uses that for colour evidence and surface tone.
 
 It sits beside `styles` rather than inside it because it is not a computed
 property of this box -- `styles` is what the browser reported for the element,
-and that stays true. `styles.backgroundColor` still carries the transparent
-value it always did.
+and that stays true. `styles.backgroundColor` still carries the browser's own
+value verbatim, alpha included.
 
 Without it, a ghost button, a heading, or a bordered card on a tinted section
 contributes **no background evidence at all**: a fully transparent colour is read
@@ -97,7 +103,7 @@ own fill. The engine decides what to do with the pair in
   directly.
 
 When authoring a capture by hand, leave it out unless the element really was
-transparent; a value here is a claim about the page, not about the element.
+transparent or translucent; a value here is a claim about the page, not about the element.
 
 ## `styles`
 

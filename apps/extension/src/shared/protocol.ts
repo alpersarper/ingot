@@ -60,8 +60,8 @@ export interface PickedElement {
   componentType: ComponentType
   styles: CaptureRecord['styles']
   /**
-   * The background painted behind the element, when the element paints none of
-   * its own. Travels separately from `styles` because it is not a computed
+   * The background painted behind the element, when its own fill is not fully
+   * opaque. Travels separately from `styles` because it is not a computed
    * style of this box -- see `CaptureRecord.inheritedBackgroundColor`.
    */
   inheritedBackgroundColor?: string

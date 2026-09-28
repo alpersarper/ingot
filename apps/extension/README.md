@@ -150,7 +150,7 @@ whatever the page resolved to. The engine normalises colour; the extension does
 not second-guess it.
 
 There is one thing it **measures** rather than normalises. When the element's own
-background is fully transparent, the picker walks its ancestors for the colour
+background is not fully opaque, the picker walks its ancestors for the colour
 actually painted behind it and sends that as `inheritedBackgroundColor`, marked
 as inherited and beside `styles` rather than inside it -- the record still
 reports `backgroundColor: rgba(0, 0, 0, 0)`, because that is what the browser

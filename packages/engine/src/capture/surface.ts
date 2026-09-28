@@ -19,18 +19,28 @@
  *     reader sees behind the component, so {@link surfaceBackground} prefers the
  *     element's own fill and falls back to the inherited one -- marking which it
  *     returned, because provenance that cannot tell them apart is not provenance.
+ *     The extension records the backdrop whenever the own fill is not fully
+ *     opaque, because a translucent fill is only half a colour: what a reader
+ *     sees is it laid over what is behind, and that composite is what counts.
  *   - **For a component's own fill**, it does not. A ghost button on a white
  *     page is a ghost button, not a white button; `hasOpaqueFill` in
  *     `components/` reads `styles.backgroundColor` directly and must keep
  *     doing so.
  */
-import { parseColor } from '../color/space'
+import { compositeOver, parseColor } from '../color/space'
 import type { CaptureRecord } from './types'
 
 /** A capture's background as it was painted, and whose value it is. */
 export interface SurfaceBackground {
   /** The raw string, exactly as captured. */
   raw: string
+  /**
+   * The colour a reader sees. `raw` itself unless the element's own fill is
+   * translucent and a backdrop was measured, in which case it is the one laid
+   * over the other -- a `rgba(255, 255, 255, 0.04)` glass card on `#0b0f19`
+   * is a dark surface, and read alone it is white.
+   */
+  rendered: string
   /** True when the value came from an ancestor rather than the element itself. */
   inherited: boolean
 }
@@ -40,13 +50,21 @@ export interface SurfaceBackground {
  *
  * `undefined` when neither is a colour this engine can read -- an unparseable
  * string, or a transparent element whose capture carries no inherited value
- * (every record written before the extension measured one).
+ * (every record written before the extension measured one). A translucent own
+ * fill with no backdrop to lay it over is read as it stands rather than over an
+ * invented canvas.
  */
 export function surfaceBackground(capture: CaptureRecord): SurfaceBackground | undefined {
   const own = capture.styles.backgroundColor
-  if (own !== undefined && parseColor(own) !== undefined) return { raw: own.trim(), inherited: false }
   const inherited = capture.inheritedBackgroundColor
-  if (inherited !== undefined && parseColor(inherited) !== undefined) return { raw: inherited.trim(), inherited: true }
+  const backdrop = inherited !== undefined && parseColor(inherited) !== undefined ? inherited.trim() : undefined
+  const parsedOwn = own === undefined ? undefined : parseColor(own)
+  if (own !== undefined && parsedOwn !== undefined) {
+    const raw = own.trim()
+    const rendered = parsedOwn.alpha < 1 && backdrop !== undefined ? compositeOver(raw, backdrop) : undefined
+    return { raw, rendered: rendered ?? raw, inherited: false }
+  }
+  if (backdrop !== undefined) return { raw: backdrop, rendered: backdrop, inherited: true }
   return undefined
 }
 
@@ -82,7 +100,7 @@ export function surfaceTone(capture: CaptureRecord): SurfaceTone {
   const background = surfaceBackground(capture)
   if (background === undefined) return 'unknown'
   if (!background.inherited && capture.componentType !== 'card') return 'unknown'
-  const parsed = parseColor(background.raw)
+  const parsed = parseColor(background.rendered)
   if (parsed === undefined) return 'unknown'
   if (parsed.oklch.l >= LIGHT_TONE_MIN) return 'light'
   if (parsed.oklch.l <= DARK_TONE_MAX) return 'dark'

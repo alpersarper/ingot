@@ -52,6 +52,25 @@ export function parseColor(raw: string): { oklch: Oklch; alpha: number; hex: str
   }
 }
 
+/**
+ * The colour a translucent `top` renders as over `backdrop`: source-over in
+ * sRGB, which is what a browser paints. The backdrop's own alpha is ignored --
+ * it is the thing everything else is laid over. `undefined` when either side
+ * does not parse.
+ */
+export function compositeOver(top: string, backdrop: string): string | undefined {
+  const over = parse(top.trim())
+  const under = parse(backdrop.trim())
+  if (!over || !under) return undefined
+  const a = toRgb(over)
+  const b = toRgb(under)
+  if (!a || !b) return undefined
+  const alpha = clamp(over.alpha ?? 1, 0, 1)
+  const mix = (x: number, y: number): number => clamp(alpha * x + (1 - alpha) * y, 0, 1)
+  const hex = formatHex({ mode: 'rgb', r: mix(a.r, b.r), g: mix(a.g, b.g), b: mix(a.b, b.b) })
+  return hex ? hex.toLowerCase() : undefined
+}
+
 /** Round an OKLCH triple to the precision used everywhere in the output. */
 export function roundOklch(color: Oklch): Oklch {
   return {

@@ -18,6 +18,7 @@ import {
   boundarySummary,
   compositeBackground,
   drawsItself,
+  opaque,
   paints,
   paintsOwnSurface,
   wrapperReason,
@@ -95,8 +96,21 @@ describe('compositeBackground', () => {
     expect(compositeBackground([])).toBeNull()
   })
 
+  it('scales a percentage channel and a percentage alpha separately', () => {
+    expect(compositeBackground(['rgb(50% 0% 0% / 50%)', 'rgb(0, 0, 0)'])).toBe('rgb(64, 0, 0)')
+  })
+
   it('refuses a layer it cannot read rather than guessing at it', () => {
     expect(compositeBackground(['color(srgb 0 0 0 / 0.5)', 'rgb(255, 255, 255)'])).toBeNull()
+  })
+})
+
+describe('opaque', () => {
+  it('holds only a fill that hides everything behind it', () => {
+    expect(opaque('rgb(255, 255, 255)')).toBe(true)
+    expect(opaque('rgba(255, 255, 255, 0.04)')).toBe(false)
+    expect(opaque('rgb(255 255 255 / 80%)')).toBe(false)
+    expect(opaque('rgba(0, 0, 0, 0)')).toBe(false)
   })
 })
 

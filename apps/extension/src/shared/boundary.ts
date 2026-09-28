@@ -65,15 +65,27 @@ export function translucent(color: string): boolean {
   return alpha !== undefined && alpha > 0 && alpha < 1
 }
 
+/**
+ * Does this computed colour hide everything behind it?
+ *
+ * Anything less -- transparent or translucent -- and the colour a reader sees
+ * depends on what is underneath, so the backdrop is still worth measuring.
+ */
+export function opaque(color: string): boolean {
+  return paints(color) && !translucent(color)
+}
+
 /** The sRGB channels and alpha of an `rgb()`/`rgba()` computed colour. */
 function channelsOf(color: string): [number, number, number, number] | undefined {
   const match = /^rgba?\(([^)]*)\)$/.exec(color.trim().toLowerCase())
   if (match === null) return undefined
   const parts = (match[1] as string).split(/[\s,/]+/).filter((part) => part !== '')
   if (parts.length !== 3 && parts.length !== 4) return undefined
-  const numbers = parts.map((part) =>
-    part.endsWith('%') ? Number.parseFloat(part.slice(0, -1)) / 100 : Number.parseFloat(part),
-  )
+  const numbers = parts.map((part, index) => {
+    if (!part.endsWith('%')) return Number.parseFloat(part)
+    const percent = Number.parseFloat(part.slice(0, -1))
+    return index === 3 ? percent / 100 : percent * 2.55
+  })
   if (!numbers.every(Number.isFinite)) return undefined
   const [r, g, b, a = 1] = numbers as [number, number, number, number?]
   return [r, g, b, Math.min(1, Math.max(0, a))]

@@ -107,8 +107,8 @@ export interface CaptureRecord {
    * about which value the browser reported *for this box*. Both travel --
    * `styles.backgroundColor` stays whatever the browser said -- and
    * `capture/surface.ts` owns the decision about which one an answer is built
-   * from. Omitted when the element paints its own fill, or when nothing up the
-   * chain painted one either.
+   * from. Omitted when the element paints a fully opaque fill of its own, or
+   * when nothing opaque up the chain painted one either.
    */
   inheritedBackgroundColor?: string
   /** Free-text human note. Never read by the engine. */

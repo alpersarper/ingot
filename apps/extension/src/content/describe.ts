@@ -10,7 +10,7 @@
  * text -- only how *long* the text is, because a leaf with words in it is
  * typography and a leaf without is a box.
  */
-import { compositeBackground, paints, paintsOwnSurface, translucent } from '../shared/boundary'
+import { compositeBackground, opaque, paints, paintsOwnSurface, translucent } from '../shared/boundary'
 import type { ElementDescriptor, PaintedBackground } from '../shared/descriptor'
 
 const BLOCKISH = new Set(['block', 'flex', 'grid', 'table', 'list-item', 'flow-root'])
@@ -77,6 +77,17 @@ export function inheritedBackgroundOf(element: Element): PaintedBackground | nul
   if (layers.length === 1 && !translucent(layers[0] as string)) return { color: layers[0] as string, inherited: true }
   const color = compositeBackground(layers)
   return color === null ? null : { color, inherited: true }
+}
+
+/**
+ * The backdrop a capture record carries: measured whenever the element's own
+ * fill is not fully opaque, because a translucent fill is only half of the
+ * colour on screen. `null` when the fill hides everything behind it, or when
+ * nothing opaque was found behind.
+ */
+export function recordedBackdropOf(element: Element): string | null {
+  if (opaque(getComputedStyle(element).backgroundColor)) return null
+  return inheritedBackgroundOf(element)?.color ?? null
 }
 
 export function describeElement(element: Element): ElementDescriptor {

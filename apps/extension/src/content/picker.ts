@@ -42,9 +42,8 @@
  * one kind of evidence.
  */
 import type { ComponentType } from '@ingot/engine'
-import { describeElement, nearestBoundary, structuralPath, styleReaderFor } from './describe'
+import { describeElement, nearestBoundary, recordedBackdropOf, structuralPath, styleReaderFor } from './describe'
 import { boundarySummary, wrapperReason } from '../shared/boundary'
-import type { ElementDescriptor } from '../shared/descriptor'
 import { guessComponentType } from '../shared/component-type'
 import { captureIdFor } from '../shared/identity'
 import { extractStyles } from '../shared/styles'
@@ -528,7 +527,7 @@ export function createPicker(host: PickerHost): { start(): void; stop(): void; a
     cancel.addEventListener('click', () => closeSheet())
     save.addEventListener('click', () => {
       if (chosen === null) return
-      void commit(element, descriptor, chosen, shot.screenshot, save)
+      void commit(element, chosen, shot.screenshot, save)
     })
     actions.append(cancel, save)
 
@@ -588,7 +587,6 @@ export function createPicker(host: PickerHost): { start(): void; stop(): void; a
 
   async function commit(
     element: Element,
-    descriptor: ElementDescriptor,
     componentType: ComponentType,
     screenshot: ScreenshotBlob | null,
     trigger: HTMLButtonElement,
@@ -596,7 +594,7 @@ export function createPicker(host: PickerHost): { start(): void; stop(): void; a
     trigger.disabled = true
     trigger.textContent = 'Saving...'
     const box = rectOf(element)
-    const inherited = descriptor.painted !== null && descriptor.painted.inherited ? descriptor.painted.color : null
+    const inherited = recordedBackdropOf(element)
     const picked: PickedElement = {
       componentType,
       styles: extractStyles(styleReaderFor(element), box),
@@ -604,9 +602,9 @@ export function createPicker(host: PickerHost): { start(): void; stop(): void; a
       captureId: captureIdFor(location.href, structuralPath(element)),
       rect: box,
       devicePixelRatio: window.devicePixelRatio,
-      // Only when the element paints nothing itself: the record keeps the
-      // browser's own `backgroundColor` either way, and this is the colour that
-      // was actually behind it. See `capture/surface.ts` in the engine.
+      // Only when the element's own fill is not fully opaque: the record keeps
+      // the browser's own `backgroundColor` either way, and this is the colour
+      // that was actually behind it. See `capture/surface.ts` in the engine.
       ...(inherited === null ? {} : { inheritedBackgroundColor: inherited }),
     }
     const result = await host.save(picked, screenshot)

@@ -70,9 +70,9 @@ export interface ColorCluster {
 export function readColors(captures: readonly CaptureRecord[]): ColorObservation[] {
   const out: ColorObservation[] = []
 
-  const push = (capture: CaptureRecord, channel: ColorChannel, raw: string | undefined): void => {
-    if (raw === undefined) return
-    const parsed = parseColor(raw)
+  const push = (capture: CaptureRecord, channel: ColorChannel, raw: string | undefined, rendered = raw): void => {
+    if (raw === undefined || rendered === undefined) return
+    const parsed = parseColor(rendered)
     if (!parsed) return
     out.push({
       captureId: capture.id,
@@ -85,7 +85,8 @@ export function readColors(captures: readonly CaptureRecord[]): ColorObservation
   }
 
   for (const capture of captures) {
-    push(capture, 'background', surfaceBackground(capture)?.raw)
+    const background = surfaceBackground(capture)
+    push(capture, 'background', background?.raw, background?.rendered)
     push(capture, 'foreground', capture.styles.color)
     if (hasVisibleBorder(capture)) push(capture, 'border', capture.styles.borderColor)
   }

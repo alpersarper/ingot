@@ -37,7 +37,7 @@ describe('surfaceBackground', () => {
           inheritedBackgroundColor: 'rgb(255, 255, 255)',
         }),
       ),
-    ).toEqual({ raw: 'rgb(94, 106, 210)', inherited: false })
+    ).toEqual({ raw: 'rgb(94, 106, 210)', rendered: 'rgb(94, 106, 210)', inherited: false })
   })
 
   it('falls back to what showed through a transparent one, and says so', () => {
@@ -48,7 +48,24 @@ describe('surfaceBackground', () => {
           inheritedBackgroundColor: 'rgb(12, 14, 22)',
         }),
       ),
-    ).toEqual({ raw: 'rgb(12, 14, 22)', inherited: true })
+    ).toEqual({ raw: 'rgb(12, 14, 22)', rendered: 'rgb(12, 14, 22)', inherited: true })
+  })
+
+  it('lays a translucent own fill over the backdrop it was measured on', () => {
+    const glass = capture({
+      styles: { backgroundColor: 'rgba(255, 255, 255, 0.04)' },
+      inheritedBackgroundColor: '#0b0f19',
+    })
+    expect(surfaceBackground(glass)).toEqual({ raw: 'rgba(255, 255, 255, 0.04)', rendered: '#151922', inherited: false })
+    expect(glass.styles.backgroundColor).toBe('rgba(255, 255, 255, 0.04)')
+  })
+
+  it('reads a translucent fill as it stands when nothing was measured behind it', () => {
+    expect(surfaceBackground(capture({ styles: { backgroundColor: 'rgba(0, 0, 0, 0.5)' } }))).toEqual({
+      raw: 'rgba(0, 0, 0, 0.5)',
+      rendered: 'rgba(0, 0, 0, 0.5)',
+      inherited: false,
+    })
   })
 
   it('reports nothing when nothing was measured', () => {
@@ -85,6 +102,18 @@ describe('surfaceTone', () => {
         }),
       ),
     ).toBe('light')
+  })
+
+  it('judges a glass card by what a reader sees through it', () => {
+    // A Linear- or BetterStack-style card: near-invisible white over a dark
+    // page. With its alpha dropped it would read as white and call a dark kit
+    // light.
+    const dark = capture({ styles: { backgroundColor: 'rgba(255, 255, 255, 0.04)' }, inheritedBackgroundColor: '#0b0f19' })
+    const light = capture({ styles: { backgroundColor: 'rgba(0, 0, 0, 0.03)' }, inheritedBackgroundColor: '#ffffff' })
+    expect(surfaceTone(dark)).toBe('dark')
+    expect(surfaceTone(light)).toBe('light')
+    expect(dark.styles.backgroundColor).toBe('rgba(255, 255, 255, 0.04)')
+    expect(light.styles.backgroundColor).toBe('rgba(0, 0, 0, 0.03)')
   })
 
   it('refuses to call a brand fill dark', () => {
@@ -129,6 +158,16 @@ describe('readColors, with an inherited background', () => {
       ['background', '#ffffff'],
       ['foreground', '#111111'],
     ])
+  })
+
+  it('counts a glass card as the colour it renders, keeping its own raw value', () => {
+    const glass = capture({
+      styles: { backgroundColor: 'rgba(255, 255, 255, 0.04)' },
+      inheritedBackgroundColor: '#0b0f19',
+    })
+    const [background] = readColors([glass])
+    expect(background).toMatchObject({ channel: 'background', raw: 'rgba(255, 255, 255, 0.04)', hex: '#151922' })
+    expect(glass.styles.backgroundColor).toBe('rgba(255, 255, 255, 0.04)')
   })
 
   it('still reads nothing from a transparent capture that measured nothing', () => {
