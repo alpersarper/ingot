@@ -101,9 +101,10 @@ the CLI does. (It is also in `pairing-token.txt` on the volume;
 The two differ in exactly three defaults, each a difference between a laptop and
 a container: the npx path binds `127.0.0.1` rather than `0.0.0.0`, keeps its data
 in `~/.ingot` rather than `./data` (the volume at `/data` in the container), and
-serves the panel from the packaged `dist/panel`. Everything else -- the engine, the storage schema, the guards, every
-`INGOT_*` variable -- is shared code. A library written by one is readable by the
-other if you point them at the same directory.
+serves the panel from the packaged `dist/panel`. Everything else -- the engine,
+the storage schema, the guards, every `INGOT_*` variable -- is shared code. A
+library written by one is readable by the other if you point them at the same
+directory.
 
 ### The extension
 

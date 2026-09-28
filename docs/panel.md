@@ -29,8 +29,8 @@ the one the browser extension is pointed at
 Three ways in, **one server**. `apps/server/src/index.ts` exports `startPanel`,
 which binds the port, then opens the data directory, establishes the pairing
 token and installs the shutdown handlers -- in that order, so a start that loses
-the port to a running panel writes nothing to that panel's library; `docker compose up` and `npx` are two callers of
-it that print different things. There is no second configuration system: the CLI
+the port to a running panel writes nothing to that panel's library.
+`docker compose up` and `npx` are two callers of it that print different things. There is no second configuration system: the CLI
 resolves its flags into the `INGOT_*` variables below and `loadConfig` decides
 what they mean, so a flag is only a more convenient spelling of a variable and a
 variable documented here works under both. The precedence is flag, then
