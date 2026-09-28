@@ -101,7 +101,8 @@ own fill. The engine decides what to do with the pair in
   transparent one;
 - **what a component draws** does not. A ghost button on a white page is a ghost
   button, not a white one, so `hasOpaqueFill` reads `styles.backgroundColor`
-  directly.
+  directly and counts only a fully opaque one: a glass button you can see the
+  page through is a ghost button too.
 
 When authoring a capture by hand, leave it out unless the element really was
 transparent or translucent; a value here is a claim about the page, not about the element.
