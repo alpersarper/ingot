@@ -29,6 +29,7 @@ import { describeElement, structuralPath, styleReaderFor } from './describe'
 import { guessComponentType } from '../shared/component-type'
 import { captureIdFor } from '../shared/identity'
 import { extractStyles } from '../shared/styles'
+import { saveMessage } from '../shared/outcome'
 import { OVERLAY_CSS } from './overlay.css'
 import type { PickedElement, Rect, SaveResult, ScreenshotBlob, ShootResult } from '../shared/protocol'
 
@@ -197,19 +198,32 @@ export function createPicker(host: PickerHost): { start(): void; stop(): void; a
     chip.style.top = above ? `${box.y - 24}px` : `${box.y + 4}px`
   }
 
+  /**
+   * Say something, for long enough to be read.
+   *
+   * A failure stays up far longer than a confirmation, because the two are not
+   * the same kind of message: "Captured" is a receipt you glance at, while
+   * "the panel would not accept this -- check the pairing token" is an
+   * instruction, and an instruction that vanishes in two seconds is one the
+   * person will conclude they imagined.
+   */
   function showToast(message: string, tone: 'ok' | 'error'): void {
     toast?.remove()
     toast = el('div', 'toast')
     toast.dataset['tone'] = tone
+    toast.setAttribute('role', tone === 'error' ? 'alert' : 'status')
     toast.textContent = message
     shadow?.append(toast)
     const shown = toast
-    window.setTimeout(() => {
-      if (toast === shown) {
-        shown.remove()
-        toast = null
-      }
-    }, 2600)
+    window.setTimeout(
+      () => {
+        if (toast === shown) {
+          shown.remove()
+          toast = null
+        }
+      },
+      tone === 'error' ? 9000 : 2600,
+    )
   }
 
   /**
@@ -393,11 +407,12 @@ export function createPicker(host: PickerHost): { start(): void; stop(): void; a
     }
     const result = await host.save(picked, screenshot)
     closeSheet()
-    if (result.ok) {
-      showToast(result.pending > 0 ? `Captured -- ${result.pending} waiting for the panel` : 'Captured', 'ok')
-    } else {
-      showToast(result.error ?? 'could not save this capture', 'error')
-    }
+    // The wording is not decided here. `saveMessage` owns it, so that "a
+    // capture the panel did not take is never reported in the success tone" is
+    // a property of a pure function the suite asserts on, rather than of a
+    // branch in a content script no test can reach.
+    const message = saveMessage(result)
+    showToast(message.text, message.tone)
   }
 
   function onKeyDown(event: KeyboardEvent): void {

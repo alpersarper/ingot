@@ -55,13 +55,25 @@ outlines it in amber and says *cannot capture inside frames* rather than
 capturing the frame's own empty box.
 
 **When the panel is down**, captures queue in the extension and the toolbar
-badge shows how many are waiting. They survive a browser restart, drain in the
-order you took them as soon as the panel answers, and can be pushed by hand with
-**Sync now** on the options page. Only a capture the panel will never accept --
-a schema error (a 400 or 422), rather than an unreachable server or a setting
-to fix -- is set aside there with the reason, so one bad record cannot block
-the ones behind it. Everything else, a wrong token or a mistyped address some
-other server answers, holds the queue: correct the setting and it drains.
+badge shows how many are waiting, in amber. They survive a browser restart,
+drain in the order you took them as soon as the panel answers, and can be
+pushed by hand with **Sync now** on the options page. Only a capture the panel
+will never accept -- a schema error (a 400 or 422), rather than an unreachable
+server or a setting to fix -- is set aside there with the reason, so one bad
+record cannot block the ones behind it. Everything else, a wrong token or a
+mistyped address some other server answers, holds the queue: correct the
+setting and it drains.
+
+**You are told when a capture did not arrive, on the page where you took it.**
+The popover's confirmation is a receipt for something that happened, so it says
+`Captured` only when the panel took the capture. Anything else names the
+panel's own answer and what to do about it -- *the panel would not accept this
+(401 -- this panel is not paired with you) -- check the panel address and
+pairing token in this extension's options* -- and stays on screen long enough
+to read. A capture the panel **refused outright** also turns the toolbar badge
+red and keeps it red until you deal with it on the options page, because that
+capture is not waiting for anything: it is the one case where work was dropped,
+and it used to be the one case with no indicator at all.
 
 ## What it reads, and what it sends
 

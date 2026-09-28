@@ -6,8 +6,10 @@
  * automatic retry the same code path, so the manual button cannot drift into a
  * second, subtly different drain.
  */
-import { chromeLocalStore, hostPatternFor, patternToRevoke, readSettings, writeSettings } from '../shared/settings'
+import { chromeLocalStore, readSettings, saveSettings } from '../shared/settings'
+import type { HostAccess } from '../shared/settings'
 import { DEFAULT_PANEL_URL } from '../shared/protocol'
+import { adviceFor } from '../shared/outcome'
 import type { OptionsMessage, QueueStatus } from '../shared/protocol'
 
 const store = chromeLocalStore()
@@ -40,8 +42,11 @@ async function send<T>(message: OptionsMessage): Promise<T> {
 function render(status: QueueStatus): void {
   pending.textContent = String(status.pending)
 
-  queueError.hidden = status.lastError === null
-  queueError.textContent = status.lastError ?? ''
+  // The same sentence the capture popover shows, from the same function: one
+  // failure should not read as two different problems depending on where the
+  // user happens to be looking at it.
+  queueError.hidden = status.lastFailure === null
+  queueError.textContent = status.lastFailure === null ? '' : adviceFor(status.lastFailure)
 
   rejectedSection.hidden = status.rejected.length === 0
   rejectedList.textContent = ''
@@ -65,55 +70,42 @@ async function refresh(): Promise<void> {
 }
 
 /**
- * Ask for host access to whatever address was typed.
+ * Chrome's permission API, as the save sequence wants it.
  *
- * The default is in `host_permissions` and needs nothing. Anything else is an
- * optional permission requested from this click -- Chrome requires a user
- * gesture, and requiring one is the right shape anyway: the extension gets
- * access to exactly the host the user named, at the moment they name it.
+ * The three calls are wrapped here and the decisions are in
+ * `shared/settings.ts`, which is what lets "a refused grant never loses the
+ * token" be a Node test rather than something only a real browser could show.
  */
-async function ensureHostAccess(url: string): Promise<{ ok: true } | { ok: false; message: string }> {
-  const pattern = hostPatternFor(url)
-  if (pattern === null) return { ok: false, message: 'that is not an http(s) address' }
-  if (await chrome.permissions.contains({ origins: [pattern] })) return { ok: true }
-  const granted = await chrome.permissions.request({ origins: [pattern] })
-  return granted ? { ok: true } : { ok: false, message: `without access to ${pattern} captures cannot be sent` }
-}
-
-/**
- * Drop the grant the previous address needed, once a new one is saved.
- *
- * `patternToRevoke` decides; this only carries the decision to Chrome. A
- * removal Chrome refuses or that throws is ignored on purpose: the settings
- * are already written, and a save must not fail over a revocation.
- */
-async function dropSupersededGrant(previousUrl: string, nextUrl: string): Promise<void> {
-  const pattern = patternToRevoke(previousUrl, nextUrl, DEFAULT_PANEL_URL)
-  if (pattern === null) return
-  try {
-    await chrome.permissions.remove({ origins: [pattern] })
-  } catch {
-    // The save already succeeded; a refused revocation changes nothing here.
-  }
+const access: HostAccess = {
+  contains: (pattern) => chrome.permissions.contains({ origins: [pattern] }),
+  request: (pattern) => chrome.permissions.request({ origins: [pattern] }),
+  remove: async (pattern) => void (await chrome.permissions.remove({ origins: [pattern] })),
 }
 
 form.addEventListener('submit', (event) => {
   event.preventDefault()
   void (async () => {
     const address = panelUrl.value.trim() === '' ? DEFAULT_PANEL_URL : panelUrl.value.trim()
-    const access = await ensureHostAccess(address)
-    if (!access.ok) {
-      say(settingsStatus, access.message, 'error')
+    say(settingsStatus, 'Saving...')
+    let outcome
+    try {
+      outcome = await saveSettings({ store, access, defaultUrl: DEFAULT_PANEL_URL }, { panelUrl: address, token: token.value })
+    } catch (error) {
+      // Nothing may leave this handler silently. The old version let a
+      // rejection escape a floating async function, which showed the user an
+      // empty status line and a form that had quietly done nothing.
+      say(settingsStatus, `could not save: ${error instanceof Error ? error.message : String(error)}`, 'error')
       return
     }
-    const previous = await readSettings(store)
-    await writeSettings(store, { panelUrl: address, token: token.value })
-    await dropSupersededGrant(previous.panelUrl, address)
+
     const current = await readSettings(store)
     panelUrl.value = current.panelUrl
-    say(settingsStatus, 'Saved.')
-    // A settings change is the commonest reason a stalled queue can move again.
-    render(await send<QueueStatus>({ type: 'ingot:sync' }))
+    say(settingsStatus, outcome.message, outcome.tone)
+    // A settings change is the commonest reason a stalled queue can move again
+    // -- but only try when the address is actually reachable, so a failed grant
+    // does not bury its own message under a drain error.
+    if (outcome.granted) render(await send<QueueStatus>({ type: 'ingot:sync' }))
+    else await refresh()
   })()
 })
 

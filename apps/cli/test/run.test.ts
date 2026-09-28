@@ -30,7 +30,12 @@ async function invoke(argv: readonly string[]): Promise<number> {
 }
 
 async function startOwnPanel(token: string): Promise<PanelHandle> {
-  const config = loadConfig({ INGOT_DATA_DIR: dir, INGOT_HOST: '127.0.0.1', INGOT_PAIRING_TOKEN: token })
+  const config = loadConfig({
+    INGOT_DATA_DIR: dir,
+    INGOT_HOST: '127.0.0.1',
+    INGOT_PAIRING_TOKEN: token,
+    INGOT_REQUEST_LOG: '0',
+  })
   return startPanel({ ...config, port: 0 })
 }
 
@@ -62,6 +67,10 @@ beforeEach(async () => {
     if (key.startsWith('INGOT_')) vi.stubEnv(key, undefined)
   }
   vi.stubEnv('INGOT_DATA_DIR', dir)
+  // The server logs a line per request on stdout by default, which is right
+  // for a panel somebody is running and only noise inside a suite that makes
+  // dozens of them.
+  vi.stubEnv('INGOT_REQUEST_LOG', '0')
 })
 
 afterEach(async () => {

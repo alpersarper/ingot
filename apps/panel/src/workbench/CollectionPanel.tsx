@@ -38,6 +38,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input, Textarea } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
+import { CaptureThumb } from './CaptureThumb'
 import { ConfirmDialog } from './ConfirmDialog'
 import { SIZING_GUIDANCE, groupSlug, typeMix } from './selection'
 import { RESET_CONFIRMATION } from '@/lib/api'
@@ -578,7 +579,20 @@ function CaptureRow({
           onChange={onToggle}
           aria-label={`Select ${capture.id}`}
         />
-        <span className="min-w-0 flex-1 truncate font-mono text-xs">{capture.id}</span>
+        {/*
+         * The picture, first, because it is what a reviewer actually reads.
+         * A capture is values *and* a reference image by decision; a library
+         * that shows only the id asks somebody to curate from memory.
+         */}
+        <CaptureThumb
+          captureId={capture.id}
+          hasScreenshot={capture.hasScreenshot}
+          componentType={capture.componentType}
+        />
+        <div className="min-w-0 flex-1">
+          <span className="block truncate font-mono text-xs">{capture.id}</span>
+          <span className="block truncate text-[11px] text-muted-foreground">{hostOf(capture.sourceUrl)}</span>
+        </div>
         <Badge variant="outline">{capture.componentType}</Badge>
         <button
           type="button"
@@ -590,9 +604,8 @@ function CaptureRow({
           <Trash2 className="size-3.5" aria-hidden />
         </button>
       </div>
-      <p className="mt-1 truncate pl-6 text-[11px] text-muted-foreground">{hostOf(capture.sourceUrl)}</p>
       {capture.tags.length === 0 ? null : (
-        <div className="mt-1.5 flex flex-wrap gap-1 pl-6">
+        <div className="mt-1.5 flex flex-wrap gap-1 pl-[3.125rem]">
           {capture.tags.map((tag) => (
             <Badge key={tag}>{tag}</Badge>
           ))}

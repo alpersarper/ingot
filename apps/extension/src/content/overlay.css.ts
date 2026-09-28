@@ -194,6 +194,12 @@ export const OVERLAY_CSS = `
   font-size: 12px;
   line-height: 18px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  /* A success toast is two words; a failure names the panel's own answer and
+     what to do about it, and a sentence that cannot wrap is a sentence nobody
+     reads. Wide enough to be read, bounded so it never covers the component. */
+  max-width: min(620px, calc(100vw - 48px));
+  text-align: center;
+  text-wrap: pretty;
 }
 
 .toast[data-tone="error"] { background: #7a2716; color: #ffe8e0; }

@@ -41,7 +41,19 @@ export function contentTypeForPath(path: string): string {
 export interface ScreenshotStore {
   /** Writes the image and returns its path relative to the screenshot root. */
   put(captureId: string, contentType: ScreenshotContentType, bytes: Uint8Array): Promise<string>
-  read(relativePath: string): Promise<Uint8Array>
+  /**
+   * The bytes, or `null` when the row points at a file the volume no longer
+   * holds.
+   *
+   * Null rather than a thrown `ENOENT`, because a missing file is a thing that
+   * happens -- a volume restored from a database backup, a file removed by
+   * hand -- and it is not this server's bug. It became worth answering
+   * properly the day the panel started rendering screenshots: before that
+   * nothing but a manual request ever read one, and now every capture in the
+   * library asks. A 500 with a stack trace for a file somebody deleted is the
+   * server going quiet about a thing it knows exactly.
+   */
+  read(relativePath: string): Promise<Uint8Array | null>
   remove(relativePath: string): Promise<void>
 }
 
@@ -67,7 +79,14 @@ export function createScreenshotStore(root: string): ScreenshotStore {
       return relativePath
     },
     async read(relativePath) {
-      return readFile(resolveWithin(relativePath))
+      try {
+        return await readFile(resolveWithin(relativePath))
+      } catch (error) {
+        // Only a missing file is an answer; anything else -- a permission
+        // problem, a broken volume -- is still a fault worth raising.
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+        throw error
+      }
     },
     async remove(relativePath) {
       await rm(resolveWithin(relativePath), { force: true })

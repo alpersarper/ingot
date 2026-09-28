@@ -306,6 +306,21 @@ history owns the chronology.
   reports the disagreement. The assistant may propose the *colour* and is
   refused the *decision* — a consent card a reviewer clicked through on the
   assistant's suggestion would not be consent.
+- **A capture reports the fate it actually had.** The confirmation in the page
+  says `Captured` only when the panel took it; every other outcome names the
+  panel's own answer and the fix, in the error tone, and a capture the panel
+  refused outright holds a red toolbar badge until a person deals with it. The
+  buffer's promise — nothing is lost while the panel is down — is not a licence
+  to report a failure as a success. Forbids the service worker discarding what
+  the drain learned, and forbids a second wording: `saveMessage` is the only
+  place a `SaveResult` becomes a sentence, in the page and on the options page
+  alike.
+- **The library shows the picture.** Capture is reference-grade — computed
+  values *and* an image — so the collection column renders each capture's
+  screenshot, fetched through the pairing-token door and handed to the `<img>`
+  as an object URL. Forbids putting the token in an image URL to avoid the blob
+  round-trip. A capture with no screenshot, or one whose file the volume has
+  lost, keeps its row.
 - **A state is collapsed when a reader cannot see it, not when two hexes
   match.** Perceptibility floors are measured against the rendered colours, and
   the derivation spends chroma to restore a state before the diagnostic

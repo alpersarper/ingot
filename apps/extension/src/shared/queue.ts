@@ -19,6 +19,7 @@
  */
 import type { CaptureRecord } from '@ingot/engine'
 import type { QueuedCapture, QueueStatus, RejectedCapture, ScreenshotBlob } from './protocol'
+import type { DrainFailure } from './outcome'
 import type { Transport } from './transport'
 
 export const PENDING_KEY = 'ingot.queue.pending'
@@ -45,21 +46,47 @@ export interface KeyValueStore {
   set(items: Record<string, unknown>): Promise<void>
 }
 
-/** Surfaces the pending count. In the extension this is the toolbar badge. */
-export type CountSink = (pending: number) => void | Promise<void>
+/**
+ * How many captures are waiting, and how many the panel has refused outright.
+ *
+ * Both, because the toolbar badge has to tell them apart: waiting is patience
+ * and refused is data the panel will never take. A sink given only the pending
+ * count is how a parked capture ends up with no indicator at all, which is the
+ * state this extension used to leave a 422 in.
+ */
+export interface QueueCounts {
+  pending: number
+  rejected: number
+}
+
+/** Surfaces the counts. In the extension this is the toolbar badge. */
+export type CountSink = (counts: QueueCounts) => void | Promise<void>
 
 interface QueueState {
-  lastError: string | null
+  lastFailure: DrainFailure | null
   lastAttemptAt: string | null
+}
+
+/** What one drain did, and why it stopped if it did. */
+export interface DrainReport extends QueueCounts {
+  sent: number
+  /**
+   * Why the drain did not empty the queue, or null when everything got through.
+   *
+   * Returned rather than only written to storage because the caller that
+   * started the drain is usually a person waiting for an answer, and an error
+   * left in storage for the options page is an error that person never sees.
+   */
+  failure: DrainFailure | null
 }
 
 export interface Queue {
   enqueue(record: CaptureRecord, screenshot: ScreenshotBlob | null, queuedAt: string): Promise<number>
-  /** Send what is waiting, oldest first. Returns how many got through. */
-  drain(): Promise<{ sent: number; pending: number; error: string | null }>
+  /** Send what is waiting, oldest first. */
+  drain(): Promise<DrainReport>
   status(): Promise<QueueStatus>
   clearRejected(): Promise<void>
-  pendingCount(): Promise<number>
+  counts(): Promise<QueueCounts>
 }
 
 export class QueueFullError extends Error {
@@ -109,15 +136,40 @@ export function createQueue(options: QueueOptions): Queue {
     return Array.isArray(raw) ? (raw as RejectedCapture[]) : []
   }
 
+  /**
+   * The last drain's verdict, tolerating what an older version of this
+   * extension wrote.
+   *
+   * The buffer survives updates -- that is its whole promise -- so it also has
+   * to survive its own shape changing. Before the failure carried a kind, this
+   * key held `{ lastError: string | null }`; that is read back as a `refused`,
+   * the kind whose advice ("check the address and token") is the one that is
+   * useful whatever the old message actually was.
+   */
   async function readState(): Promise<QueueState> {
     const raw = (await store.get([STATE_KEY]))[STATE_KEY]
-    if (typeof raw === 'object' && raw !== null) return raw as QueueState
-    return { lastError: null, lastAttemptAt: null }
+    if (typeof raw !== 'object' || raw === null) return { lastFailure: null, lastAttemptAt: null }
+    const candidate = raw as Partial<QueueState> & { lastError?: unknown }
+    const lastAttemptAt = typeof candidate.lastAttemptAt === 'string' ? candidate.lastAttemptAt : null
+    if (candidate.lastFailure !== undefined && candidate.lastFailure !== null) {
+      return { lastFailure: candidate.lastFailure, lastAttemptAt }
+    }
+    if (typeof candidate.lastError === 'string' && candidate.lastError !== '') {
+      return { lastFailure: { kind: 'refused', message: candidate.lastError }, lastAttemptAt }
+    }
+    return { lastFailure: null, lastAttemptAt }
+  }
+
+  async function announce(): Promise<QueueCounts> {
+    const [pending, rejected] = await Promise.all([readPending(), readRejected()])
+    const counts = { pending: pending.length, rejected: rejected.length }
+    await onCount?.(counts)
+    return counts
   }
 
   async function writePending(pending: QueuedCapture[]): Promise<void> {
     await store.set({ [PENDING_KEY]: pending })
-    await onCount?.(pending.length)
+    await announce()
   }
 
   /**
@@ -141,12 +193,12 @@ export function createQueue(options: QueueOptions): Queue {
    * once. Two overlapping drains would each read the same queue and the second
    * write would resurrect what the first had already sent.
    */
-  let inFlight: Promise<{ sent: number; pending: number; error: string | null }> | null = null
+  let inFlight: Promise<DrainReport> | null = null
 
-  async function runDrain(): Promise<{ sent: number; pending: number; error: string | null }> {
+  async function runDrain(): Promise<DrainReport> {
     const transport = await options.transport()
     let sent = 0
-    let error: string | null = null
+    let failure: DrainFailure | null = null
 
     for (;;) {
       const head = (await serialized(readPending))[0]
@@ -160,7 +212,7 @@ export function createQueue(options: QueueOptions): Queue {
       }
 
       if (outcome.kind === 'rejected') {
-        error = `${head.record.id}: ${outcome.message}`
+        failure = { kind: 'rejected', message: `${head.record.id}: ${outcome.message}` }
         await serialized(async () => {
           const rejected = await readRejected()
           rejected.push({ record: head.record, reason: outcome.message, rejectedAt: now() })
@@ -172,13 +224,15 @@ export function createQueue(options: QueueOptions): Queue {
 
       // `unreachable` or `refused`: the capture is fine, the world is not.
       // Leave it at the head and stop, so order survives.
-      error = outcome.message
+      failure = outcome
       break
     }
 
-    const pending = await serialized(readPending)
-    await store.set({ [STATE_KEY]: { lastError: error, lastAttemptAt: now() } satisfies QueueState })
-    return { sent, pending: pending.length, error }
+    await store.set({ [STATE_KEY]: { lastFailure: failure, lastAttemptAt: now() } satisfies QueueState })
+    // Read back through the sink, so the badge and the answer can never
+    // disagree about how many captures are parked or waiting.
+    const counts = await serialized(announce)
+    return { sent, ...counts, failure }
   }
 
   return {
@@ -219,7 +273,7 @@ export function createQueue(options: QueueOptions): Queue {
       return {
         pending: pending.length,
         rejected,
-        lastError: state.lastError,
+        lastFailure: state.lastFailure,
         lastAttemptAt: state.lastAttemptAt,
       }
     },
@@ -227,11 +281,15 @@ export function createQueue(options: QueueOptions): Queue {
     async clearRejected() {
       await serialized(async () => {
         await store.set({ [REJECTED_KEY]: [] })
+        // The badge counts parked captures, so discarding them has to put it
+        // back -- otherwise the one indicator that said "look here" keeps
+        // saying it after the user has looked.
+        await announce()
       })
     },
 
-    async pendingCount() {
-      return (await readPending()).length
+    async counts() {
+      return serialized(announce)
     },
   }
 }

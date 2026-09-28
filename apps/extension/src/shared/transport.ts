@@ -27,12 +27,9 @@
  */
 import type { CaptureRecord } from '@ingot/engine'
 import type { ScreenshotBlob, Settings } from './protocol'
+import type { DrainFailure } from './outcome'
 
-export type SendOutcome =
-  | { kind: 'sent' }
-  | { kind: 'unreachable'; message: string }
-  | { kind: 'refused'; message: string }
-  | { kind: 'rejected'; message: string }
+export type SendOutcome = { kind: 'sent' } | DrainFailure
 
 export interface Transport {
   /** Send one capture and, when there is one, its screenshot. */

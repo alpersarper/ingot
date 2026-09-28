@@ -406,6 +406,20 @@ export const api = {
     return (await get<{ captures: CaptureSummary[] }>(`/api/captures${query}`)).captures
   },
 
+  /**
+   * The picture the extension took of this component.
+   *
+   * A blob rather than a URL to put in an `<img src>`, and that is not a
+   * preference. The pairing token lives in a header, and a header cannot ride
+   * on an `<img>`: a bare `src` would either 401 or force the token into the
+   * URL, where it lands in history, in a `Referer` and in any log. The blob
+   * round-trip is the price of not doing that -- the same price the downloads
+   * below already pay, for the same reason.
+   */
+  async captureScreenshot(captureId: string): Promise<Blob> {
+    return (await send(`/api/captures/${encodeURIComponent(captureId)}/screenshot`)).blob()
+  },
+
   async groups(): Promise<GroupSummary[]> {
     return (await get<{ groups: GroupSummary[] }>('/api/groups')).groups
   },

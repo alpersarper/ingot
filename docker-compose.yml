@@ -21,6 +21,9 @@ services:
       # Set to 1, with a new token above, to replace the one the volume already
       # stores. Without it a different pinned token refuses to start.
       INGOT_PAIRING_TOKEN_ROTATE: ${INGOT_PAIRING_TOKEN_ROTATE:-}
+      # One line per request in `docker compose logs panel` -- method, path and
+      # status, never a header, a body or a query value. On unless set to 0.
+      INGOT_REQUEST_LOG: ${INGOT_REQUEST_LOG:-}
       # The assistant. All optional: with no key it shows its setup path and
       # every other panel feature works. Pinning a key here makes it
       # uneditable from the panel, which is the point of pinning it.
