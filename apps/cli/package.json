@@ -1,0 +1,46 @@
+{
+  "name": "ingot-workbench",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Design-kit distillation workbench: capture UI components while browsing, distill them into one coherent token-driven design kit. Runs locally with npx.",
+  "keywords": [
+    "design-system",
+    "design-tokens",
+    "design.md",
+    "tailwind",
+    "shadcn",
+    "llm"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alpersarper/ingot.git",
+    "directory": "apps/cli"
+  },
+  "homepage": "https://github.com/alpersarper/ingot#readme",
+  "bugs": "https://github.com/alpersarper/ingot/issues",
+  "bin": {
+    "ingot": "bin/ingot.mjs"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "prepack": "pnpm --filter @ingot/panel build && node build.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3"
+  },
+  "devDependencies": {
+    "@ingot/engine": "workspace:*",
+    "@ingot/server": "workspace:*",
+    "@ingot/panel": "workspace:*",
+    "esbuild": "^0.28.2"
+  }
+}

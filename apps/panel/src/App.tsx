@@ -24,7 +24,7 @@ import { FirstRun } from './workbench/FirstRun'
 import { CanonicalPreview } from './preview/CanonicalPreview'
 import type { PreviewView } from './preview/CanonicalPreview'
 import type { PreviewTheme } from './preview/counterpart'
-import { ApiError, api, saveBlob, storeToken, storedToken } from './lib/api'
+import { ApiError, api, forgetTokenInUrl, saveBlob, storeToken, storedToken, tokenInUrl } from './lib/api'
 import type { KitFile } from './lib/api'
 import type {
   AssistantAnswer,
@@ -167,11 +167,20 @@ export function App(): ReactNode {
   }, [])
 
   useEffect(() => {
-    if (storedToken() === null) {
-      setPhase('unpaired')
-      return
-    }
     void (async () => {
+      // A token in the fragment is `npx ingot-workbench` pairing this browser for
+      // the user. It is verified before it is kept, and taken out of the address
+      // bar either way -- see `tokenInUrl` for why the fragment and not a query.
+      const handed = tokenInUrl(window.location.hash)
+      if (handed !== null) {
+        forgetTokenInUrl()
+        if (await api.verifyPairing(handed).catch(() => false)) storeToken(handed)
+      }
+
+      if (storedToken() === null) {
+        setPhase('unpaired')
+        return
+      }
       try {
         setSettings(await api.settings())
         await refreshLibrary()

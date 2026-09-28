@@ -12,6 +12,40 @@ import type { OverrideConflict, RejectedOverride, TokensDocument } from '@ingot/
 
 const TOKEN_STORAGE_KEY = 'ingot.pairingToken'
 
+/**
+ * A pairing token handed over in the URL fragment, if there is one.
+ *
+ * `npx ingot-workbench` opens the panel at `#token=...` so the user does not have
+ * to copy a secret out of a terminal to use a workbench that is already theirs.
+ * The *fragment* rather than the query string, because a fragment is never sent
+ * to a server, never lands in an access log and never travels in a `Referer`.
+ *
+ * None of this weakens the guard: the token is still required on every call, a
+ * page on another origin can no more read this fragment than it could read this
+ * origin's `localStorage`, and the value is verified against the server before it
+ * is kept. See `apps/cli/src/resolve.ts` and `docs/panel.md`.
+ */
+export function tokenInUrl(hash: string): string | null {
+  const token = new URLSearchParams(hash.replace(/^#/, '')).get('token')
+  return token === null || token.trim() === '' ? null : token.trim()
+}
+
+/**
+ * Take the token out of the address bar.
+ *
+ * Called before the value is verified rather than after, so a reload, a
+ * bookmark or a shared screen never carries it -- and so a failed verification
+ * leaves nothing behind either.
+ */
+export function forgetTokenInUrl(): void {
+  try {
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
+  } catch {
+    // A browser that refuses `replaceState` still pairs; the fragment just stays
+    // visible, which is no worse than the token the user would have pasted.
+  }
+}
+
 /** The token the user pasted on the first-run screen, if they have. */
 export function storedToken(): string | null {
   try {

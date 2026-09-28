@@ -14,7 +14,9 @@ scope, quality-bar and architecture rulings, and why they hold.
 Two halves: `packages/engine` decides, and the panel (`apps/server` +
 `apps/panel`) is where a human reviews those decisions -- and overrides them,
 which is the experience rather than an escape hatch. The panel is an ordinary
-web app that currently runs locally in Docker -- [docs/panel.md](docs/panel.md).
+web app that runs locally, from `npx ingot-workbench` (`apps/cli`, the
+quickstart) or from a container (the durable path) --
+[docs/panel.md](docs/panel.md).
 The LLM assistant is a third thing beside those two: it advises, and it is the
 only part of the product that is allowed to be wrong on purpose. Which model it
 asks is configuration -- the local Claude Code CLI, any OpenAI-compatible
@@ -29,7 +31,12 @@ that picks one component off a page and posts it to the panel's captures API --
 `pnpm skeleton`, `pnpm skeleton --check`, `pnpm dev`, `pnpm build`. See the
 table in the README. `docker compose up` runs the whole panel on one port.
 `pnpm build:extension` writes the unpacked extension to `apps/extension/dist`;
-it is deliberately outside `pnpm build`, which builds what goes in the container.
+`pnpm build:cli` bundles the publishable `ingot-workbench` package and
+`pnpm pack:cli` packs it. Both are deliberately outside `pnpm build`, which
+builds what goes in the container. Publishing is `cd apps/cli && npm publish`
+(its `prepack` builds the panel and the bundle) and has never been run: the
+package has no `license` field because the repository has no LICENSE, which is
+the one thing to settle before a first publish.
 
 ## Non-negotiables
 
@@ -131,6 +138,20 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
   a property reader, the type guess takes a flat descriptor, the buffer takes a
   key-value store, so the suite runs in Node against the values a real browser
   returns rather than the ones jsdom can fake.
+- **`npx ingot-workbench` and `docker compose up` are two launchers over one
+  server.** `apps/cli` resolves flags into the `INGOT_*` variables
+  `loadConfig` already understands and calls the server's own `startPanel`; it
+  decides nothing else. A configuration knob belongs in
+  `apps/server/src/config.ts` and may be *spelled* as a flag, never implemented
+  in the CLI. The npx path is full-fidelity -- same engine, same SQLite schema,
+  same guards -- and diverges in exactly three defaults, each documented with its
+  reason in [docs/panel.md](docs/panel.md#running-it): loopback instead of
+  `0.0.0.0`, `~/.ingot` instead of `./data`, and the panel served out of the
+  packaged `dist/panel`. A new workspace project also needs its manifest copied
+  in the `Dockerfile`'s install stage, or `--frozen-lockfile` fails the image
+  build. The CLI's own suite covers only its pure parts (flag parsing, the
+  flag/environment/default precedence); the npx path itself is verified by
+  `pnpm pack:cli` and running `npx ./<tarball>`, which is a release step.
 - **The two guards on the API are the pairing token and the CORS lock.** Every
   route except `/api/health` and `/api/pairing*` requires `x-ingot-token`, and
   the open list in `apps/server/src/routes/pairing.ts` is an allowlist rather

@@ -32,6 +32,16 @@ export default defineConfig({
       },
       {
         test: {
+          // The CLI's own suite covers the two pure parts -- flag parsing and the
+          // flag/environment/default precedence -- so it needs neither a port nor
+          // the native SQLite module.
+          name: 'cli',
+          include: ['apps/cli/test/**/*.test.ts'],
+          environment: 'node',
+        },
+      },
+      {
+        test: {
           name: 'server',
           include: ['apps/server/test/**/*.test.ts'],
           environment: 'node',

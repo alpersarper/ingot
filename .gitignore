@@ -7,3 +7,6 @@ coverage/
 
 # Local panel data directory (`pnpm dev`). The container uses a volume.
 data/
+
+# The packed npx tarball (`pnpm pack:cli`). Built, never committed.
+*.tgz
