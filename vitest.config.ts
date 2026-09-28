@@ -32,6 +32,16 @@ export default defineConfig({
       },
       {
         test: {
+          // The CLI's own suite covers flag parsing, the flag/environment/default
+          // precedence, and a run that finds its port already held -- the one
+          // part that needs real servers on real ports to observe.
+          name: 'cli',
+          include: ['apps/cli/test/**/*.test.ts'],
+          environment: 'node',
+        },
+      },
+      {
+        test: {
           name: 'server',
           include: ['apps/server/test/**/*.test.ts'],
           environment: 'node',

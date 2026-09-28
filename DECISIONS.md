@@ -162,6 +162,47 @@ history owns the chronology.
   class, and forbids the constant and the manifest drifting apart — a test
   derives one from the other.
 
+## Distribution
+
+- **`npx` is the primary quickstart; Docker is the durable path.** Ruling
+  2026-09-24, from the same competitor scan as the DESIGN.md ruling: every
+  competitor that won distribution opens with a no-account `npx` one-liner, while
+  Ingot's first README instruction was `docker compose up`. A first run that
+  requires Docker loses the people most likely to like the product -- indie
+  developers shipping with LLMs, who are the stated audience -- and it loses them
+  before they have seen a kit. Requires: the README leads with the one-liner, and
+  Docker is documented as what a long-lived install should be rather than as the
+  way in. Forbids presenting the two as alternatives of equal standing, and
+  forbids a quickstart that needs an account -- there are none, and pairing is not
+  one.
+- **The published name is `ingot-workbench`; the command is `ingot`.** `ingot` on
+  npm is an unrelated, abandoned 2014 package (Appcelerator, last version 0.1.4),
+  so `npx ingot` would run someone else's tool. The `bin` is still `ingot`, so a
+  global install gives the obvious command. Requires: the README says which name
+  is published and why, because a one-liner that does not match the product name
+  otherwise reads as a typo. No npm org was claimed and no name dispute was filed
+  -- both are outward-facing actions and neither is authorised.
+- **One server, two launchers -- never two servers.** `apps/cli` is a launcher over
+  the server's own `startPanel`: it resolves flags into the `INGOT_*` variables
+  `loadConfig` already understands and prints a banner. Requires: a new
+  configuration knob is a server variable that the CLI may spell as a flag, never
+  a CLI-only behaviour; and the npx and Docker paths share the engine, the storage
+  schema and both guards, so a library written by one is readable by the other.
+  Forbids a second `createApp` call site, a second storage decision, and any
+  divergence beyond the three defaults named in
+  [docs/panel.md](docs/panel.md#running-it) -- loopback instead of `0.0.0.0`,
+  `~/.ingot` instead of `./data`, and the packaged panel.
+- **The CLI pairs the browser through the URL fragment, not a query string.** The
+  token is handed over as `#token=...`; the panel verifies it against the server,
+  keeps it only on agreement, and strips it from the address bar either way. A
+  fragment is never sent to a server, never lands in an access log and never
+  travels in a `Referer`, all of which a query string does. This does not weaken
+  the guard in **Security & keys**: the token is still required on every call, and
+  the fragment is no more readable from another origin than `localStorage` is.
+  Forbids ever putting the token in a query string or a header the browser would
+  send onward, and forbids skipping the verification step -- the panel must not
+  store a token the server has not confirmed.
+
 ## Security & keys
 
 - **The LLM keys are server-side only and write-only.** Both of them: the

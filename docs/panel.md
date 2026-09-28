@@ -1,16 +1,17 @@
 # The panel
 
 The workbench: review captures, generate kits, look at the result. It is an
-ordinary web app that happens to run locally in Docker, and it is written that
-way on purpose -- writing it deployable today is nearly free, and converting it
-later would be a rewrite.
+ordinary web app that happens to run locally -- from `npx` or from a container --
+and it is written that way on purpose: writing it deployable today is nearly free,
+and converting it later would be a rewrite.
 
 ```
 apps/server/   Node + TypeScript. Storage, API, and the engine run server-side.
 apps/panel/    React + Vite + Tailwind + shadcn conventions. The workbench UI.
+apps/cli/      The published `ingot-workbench` package. A launcher, nothing more.
 ```
 
-The container exposes **one port**: the server serves the built panel, so the
+Either way it exposes **one port**: the server serves the built panel, so the
 API and the UI share an origin and there is exactly one address to configure --
 the one the browser extension is pointed at
 ([apps/extension](../apps/extension/README.md)).
@@ -19,19 +20,55 @@ the one the browser extension is pointed at
 
 | | |
 | --- | --- |
-| `docker compose up` | The whole thing on `http://localhost:4310`. |
+| `npx ingot-workbench` | The whole thing on `http://127.0.0.1:4310`, nothing installed. The quickstart. |
+| `docker compose up` | The same thing in a container. The durable path. |
 | `pnpm dev` | Server on 4310, Vite on 5173 with `/api` proxied. Use this to develop. |
 | `pnpm build` | Build the panel, then bundle the server into `apps/server/dist`. |
+| `pnpm build:cli` | Build the publishable `ingot-workbench` package (`apps/cli`). |
+
+Three ways in, **one server**. `apps/server/src/index.ts` exports `startPanel`,
+which binds the port, then opens the data directory, establishes the pairing
+token and installs the shutdown handlers -- in that order, so a start that loses
+the port to a running panel writes nothing to that panel's library.
+`docker compose up` and `npx` are two callers of it that print different things. There is no second configuration system: the CLI
+resolves its flags into the `INGOT_*` variables below and `loadConfig` decides
+what they mean, so a flag is only a more convenient spelling of a variable and a
+variable documented here works under both. The precedence is flag, then
+environment, then default (`apps/cli/src/resolve.ts`).
+
+The npx path differs in exactly three defaults, and each is a difference between
+a laptop and a container. It serves the panel out of the published tarball
+(`dist/panel`), so there is nothing to build. It binds `127.0.0.1` rather than
+`0.0.0.0`, because a container has to accept connections from outside itself and a
+laptop does not -- a workbench full of someone's captures should not appear on the
+coffee-shop wifi because they typed one command. And its data directory is
+`~/.ingot` rather than `./data`, because `npx` runs in whatever directory the user
+happened to be in and a relative default would scatter one library across many
+folders.
+
+It also hands the pairing token to the browser in the URL **fragment**
+(`http://127.0.0.1:4310/#token=...`), which is what makes the one-liner need no
+copy-paste. A fragment is never sent to a server, never lands in an access log
+and never travels in a `Referer`; the panel verifies it against
+`/api/pairing/verify`, keeps it only if the server agrees, and strips it from the
+address bar either way. The guard below is unchanged -- the token is still
+required on every call, and a page on another origin can no more read this
+fragment than it could read the panel's `localStorage`.
+
+One data directory serves one panel at a time; a second panel needs its own
+`INGOT_DATA_DIR` (or `--data-dir`), not just its own port.
 
 Environment (all optional; see `apps/server/src/config.ts`):
 
 | Variable | Default | |
 | -------- | ------- | --- |
-| `INGOT_PORT` | `4310` | |
-| `INGOT_DATA_DIR` | `./data` (`/data` in the container) | Database, screenshots, pairing token. |
-| `INGOT_PANEL_DIR` | unset | Built panel to serve. Unset means API only. |
+| `INGOT_PORT` | `4310` | Also `--port`. `0` lets the OS choose; the address printed at startup is the one bound. |
+| `INGOT_HOST` | `0.0.0.0` (`127.0.0.1` under npx) | Also `--host`. |
+| `INGOT_DATA_DIR` | `./data` (`/data` in the container, `~/.ingot` under npx) | Database, screenshots, pairing token. Also `--data-dir`. |
+| `INGOT_PANEL_DIR` | unset (the packaged panel under npx) | Built panel to serve. Unset means API only. |
 | `INGOT_PANEL_ORIGIN` | `http://localhost:5173` | Comma-separated CORS allowlist. |
-| `INGOT_PAIRING_TOKEN` | minted on first run | Pin to skip the first-run screen. |
+| `INGOT_PAIRING_TOKEN` | minted on first run | Pin to skip the first-run screen. Also `--token`. A data directory that already stores a different token refuses to start rather than replacing it -- see [rotating the token](#rotating-the-pairing-token). |
+| `INGOT_PAIRING_TOKEN_ROTATE` | unset | `1` lets a pinned token replace a different stored one. Also `--rotate-token`. |
 | `INGOT_LLM_CONNECTION` | unset | Pin the assistant's connection: `claude-cli`, `openai-compatible` or `anthropic-api`. Unset, the server uses whichever is ready. |
 | `INGOT_LLM_API_KEY` | unset | Pin the Anthropic key instead of typing it into the panel. Sent only by the Anthropic connection. |
 | `INGOT_LLM_ENDPOINT_KEY` | unset | Pin the OpenAI-compatible endpoint's bearer token. Sent only by that connection. |
@@ -48,13 +85,50 @@ Environment (all optional; see `apps/server/src/config.ts`):
 a guard any site in any tab could script requests at it and read the user's
 captures. The server mints a token on first run, writes it to
 `<data>/pairing-token.txt` and logs it; the user pastes it into the first-run
-screen; the panel sends it as `x-ingot-token` on every call. A header is the
+screen, or `npx ingot-workbench` hands it over in the URL fragment as described
+above; the panel sends it as `x-ingot-token` on every call. A header is the
 point -- a form post or an image tag cannot attach one, so a cross-site request
 cannot forge it. Only `/api/health` and `/api/pairing*` are open, and they are
 open because a client needs them *before* it holds a token.
 
 It is not a login. There are no accounts, and the screen says so, because a
 screen that looks like a login invites someone to type a password into it.
+
+### Rotating the pairing token
+
+A pinned token that differs from the one the data directory stores refuses to
+start and changes nothing, because another panel may still be serving that
+library with the stored token. Replacing it -- a leaked token, say -- is a
+deliberate act: pin the new token *and* ask for rotation. Rotation is a modifier
+on a pinned token, never an action by itself.
+
+Generate the new token the way the server mints them (32 random bytes,
+base64url):
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+```
+
+- npx: `npx ingot-workbench --token <new> --rotate-token`.
+- Docker compose: set `INGOT_PAIRING_TOKEN=<new>` and
+  `INGOT_PAIRING_TOKEN_ROTATE=1` (compose passes both through), then
+  `docker compose up -d`.
+
+The startup output says the token was **rotated** and that every browser and
+extension paired with the old one must pair again. With the new token already
+stored, a later start that still asks for rotation changes nothing and says so,
+so leaving both variables set afterwards is harmless.
+
+The rotate setting *without* a pinned token -- `--rotate-token` alone, or
+`INGOT_PAIRING_TOKEN_ROTATE=1` with `INGOT_PAIRING_TOKEN` unset -- is a usage
+error that exits non-zero before opening anything. It deliberately does not mint
+a fresh token instead: left set in a compose file, that would mint on every
+restart and unpair the browser and the extension again each time.
+
+Under compose's `restart: unless-stopped` an unresolved conflict, or a rotate
+setting with no token, restarts the container over and over until it is
+resolved, which is why both errors name the variables rather than a flag a
+container cannot take.
 
 **CORS.** `apps/server/src/cors.ts` answers preflights for the allowlist and
 *rejects* any cross-origin request whose `Origin` is not on it, rather than

@@ -31,6 +31,25 @@ importers:
         specifier: ^3.0.5
         version: 3.2.7(@types/debug@4.1.13)(@types/node@22.20.1)(jiti@2.7.0)(jsdom@30.0.1)(lightningcss@1.32.0)(tsx@4.23.13)(yaml@2.9.1)
 
+  apps/cli:
+    dependencies:
+      better-sqlite3:
+        specifier: ^13.0.3
+        version: 13.0.3
+    devDependencies:
+      '@ingot/engine':
+        specifier: workspace:*
+        version: link:../../packages/engine
+      '@ingot/panel':
+        specifier: workspace:*
+        version: link:../panel
+      '@ingot/server':
+        specifier: workspace:*
+        version: link:../server
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
+
   apps/extension:
     dependencies:
       '@ingot/engine':

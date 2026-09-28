@@ -20,12 +20,12 @@ unpacked** → choose `apps/extension/dist`. (Load `dist`, not
 
 Open the extension's **Details → Extension options** and fill in:
 
-- **Panel address** -- `http://localhost:4310` by default, which is what
-  `docker compose up` serves. Any other address is fine; Chrome asks for
+- **Panel address** -- `http://localhost:4310` by default, which is what both
+  `npx ingot-workbench` and `docker compose up` serve. Any other address is fine; Chrome asks for
   permission for that host when you save, and the extension has no access to it
   until you grant it.
 - **Pairing token** -- printed by the server on first start, and in
-  `pairing-token.txt` on the panel's data volume.
+  `pairing-token.txt` in the panel's data directory (`~/.ingot` under npx).
 
 **Test connection** checks both against the panel before you rely on them.
 

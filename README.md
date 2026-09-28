@@ -11,7 +11,8 @@ every decision traceable and overridable.
 ## What is in this repository today
 
 The deterministic distillation engine, proven end to end on fixture data, and
-the workbench that stands on it: a local web app in Docker where you import
+the workbench that stands on it: a local web app -- one `npx` command, or a
+container -- where you import
 captures, generate a kit, review every decision the engine made, override the
 ones you disagree with, and watch the preview, the docs and every export turn
 together -- with an LLM assistant in the right column that proposes names, fills
@@ -24,6 +25,7 @@ packages/engine/   the distillation core -- pure, no DOM, no I/O, no network
 apps/server/       panel server: storage behind an interface, API, engine host
 apps/panel/        the workbench UI -- React, Vite, Tailwind, shadcn conventions
 apps/extension/    the Chrome capture extension -- MV3, no framework, loads unpacked
+apps/cli/          the published `ingot-workbench` package: `npx` starts the panel
 fixtures/          four hand-authored capture sets standing in for real captures
 examples/          generated tokens.json + design-kit.md + DESIGN.md, committed as evidence
 schemas/           normative JSON Schema for both formats
@@ -33,18 +35,31 @@ scripts/skeleton.ts  fixtures -> examples
 
 ## Quick start
 
-### The panel
-
 ```bash
-docker compose up
+npx ingot-workbench
 ```
 
-Then open <http://localhost:4310>. The server prints a **pairing token** on first
-start -- paste it into the panel's first-run screen. (It is also in
-`pairing-token.txt` on the data volume; `docker compose logs panel` if you
-scrolled past it.)
+That is the whole setup. It starts the panel on <http://127.0.0.1:4310> and opens
+it, already paired. **No account, no sign-up, no Docker, no database to
+provision** -- the library is a SQLite file in `~/.ingot`, and nothing leaves your
+machine unless you turn the optional [assistant](#the-assistant-optional) on.
+Ctrl-C stops it; run it again and your library is where you left it.
 
-From there: **Paste a capture set** on the left, paste
+> The npm name `ingot` belongs to an unrelated, abandoned 2014 package, so the
+> published package carries the product's other word. The command it installs is
+> `ingot`.
+
+Needs Node 22+. `--port`, `--data-dir`, `--host` and `--no-open` are there when
+you need them (`npx ingot-workbench --help`), and so is every `INGOT_*`
+environment variable in [docs/panel.md](docs/panel.md#running-it); flags win.
+One data directory serves one panel at a time: to run a second panel, give it its
+own `--data-dir`.
+For a long-lived install -- a pinned image, a managed volume, a restart policy --
+use [Docker](#the-durable-path-docker) instead. It is the same server either way.
+
+### First kit
+
+**Paste a capture set** on the left, paste
 [`fixtures/ghost-warm/set.json`](fixtures/ghost-warm/set.json), **Generate kit**
 on the right. The middle column renders a sample screen entirely from the kit's
 tokens, and switches to a browsable component-library documentation view drawn
@@ -65,8 +80,31 @@ standard; save it at a repository root under that exact name. Ingot's own
 document is deliberately the richer of the two, and is not narrowed to fit the
 spec -- see [DECISIONS.md](DECISIONS.md#hard-boundaries-v1-scope).
 
-One container, one port, one volume (`/data`: the database, screenshots and the
-pairing token).
+### The durable path: Docker
+
+`npx` is the fastest way in and the right one for trying Ingot, working through a
+kit, or running it now and then. Reach for Docker when the panel should be a
+fixture rather than a command you remember: a pinned image, a volume with a
+backup story, and a process that comes back after a reboot.
+
+```bash
+docker compose up
+```
+
+Same panel on <http://localhost:4310>, same API, same data format. One container,
+one port, one volume (`/data`: the database, screenshots and the pairing token).
+It prints a **pairing token** on first start -- paste that into the panel's
+first-run screen, because a container cannot open your browser for you the way
+the CLI does. (It is also in `pairing-token.txt` on the volume;
+`docker compose logs panel` if you scrolled past it.)
+
+The two differ in exactly three defaults, each a difference between a laptop and
+a container: the npx path binds `127.0.0.1` rather than `0.0.0.0`, keeps its data
+in `~/.ingot` rather than `./data` (the volume at `/data` in the container), and
+serves the panel from the packaged `dist/panel`. Everything else -- the engine,
+the storage schema, the guards, every `INGOT_*` variable -- is shared code. A
+library written by one is readable by the other if you point them at the same
+directory.
 
 ### The extension
 
@@ -183,6 +221,8 @@ Requires Node 20+ and pnpm 10.
 | `pnpm dev` | The server, the panel, and the extension's watch build, outside Docker. |
 | `pnpm build` | Build the panel, bundle the server. |
 | `pnpm build:extension` | Build the unpacked Chrome extension into `apps/extension/dist`. |
+| `pnpm build:cli` | Build the panel, then bundle the publishable `ingot-workbench` package. |
+| `pnpm pack:cli` | Pack that package into a tarball, to try `npx ./<tarball>` before publishing. |
 | `pnpm test` | The whole suite, across engine, extension, server and panel. |
 | `pnpm typecheck` | `tsc --noEmit` across the workspace. |
 | `pnpm skeleton` | Distil every fixture set into `examples/<set>/`. |
@@ -328,6 +368,13 @@ unresolved, not as passing. See [DECISIONS.md](DECISIONS.md#quality-bar).
 - **Storage sits behind an interface.** SQLite runs the container today;
   Postgres is an adapter, not a rewrite. The contract, and what a second adapter
   has to honour, is in [docs/storage.md](docs/storage.md).
-- **The panel is a normal web app.** It runs locally in Docker now and is
-  deployable later without being rewritten, which is nearly free to do today and
-  expensive to retrofit. [docs/panel.md](docs/panel.md).
+- **The panel is a normal web app.** It runs locally -- from `npx` or from a
+  container, the same server either way -- and is deployable later without being
+  rewritten, which is nearly free to do today and expensive to retrofit.
+  [docs/panel.md](docs/panel.md).
+- **Distribution leads with `npx`, and Docker is the durable path.** The
+  one-liner is the front door because a first run that needs Docker loses people
+  who would have liked the product; the container is what a long-lived install
+  should be. Neither is a fork of the other: `apps/cli` is a launcher over the
+  same `startPanel`, so there is one server to reason about.
+  [DECISIONS.md](DECISIONS.md#distribution).
