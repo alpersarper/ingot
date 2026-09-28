@@ -31,10 +31,18 @@ function capture(id: string, componentType: string, styles: CaptureRecord['style
   }
 }
 
-/** A capture off a light page, and one off a dark page. */
-const onLight = (id: string, type = 'card'): CaptureSummary =>
-  capture(id, type, { backgroundColor: 'rgb(255, 255, 255)' })
-const onDark = (id: string, type = 'card'): CaptureSummary => capture(id, type, { backgroundColor: '#0b0f19' })
+/**
+ * A capture off a light page, and one off a dark page: a card by its own fill,
+ * anything else by the backdrop it was measured on.
+ */
+function onPage(id: string, type: string, backdrop: string): CaptureSummary {
+  if (type === 'card') return capture(id, type, { backgroundColor: backdrop })
+  const summary = capture(id, type, { backgroundColor: 'rgba(0, 0, 0, 0)' })
+  summary.record.inheritedBackgroundColor = backdrop
+  return summary
+}
+const onLight = (id: string, type = 'card'): CaptureSummary => onPage(id, type, 'rgb(255, 255, 255)')
+const onDark = (id: string, type = 'card'): CaptureSummary => onPage(id, type, '#0b0f19')
 
 function group(slug: string): GroupSummary {
   return { id: `g-${slug}`, slug, name: slug, description: '', origin: 'manual', captureCount: 0 }
@@ -130,6 +138,18 @@ describe('selectionWarnings', () => {
       selectionWarnings([
         onLight('c1', 'card'),
         capture('b1', 'button', { backgroundColor: '#5e6ad2' }),
+        onLight('i1', 'input'),
+      ]),
+    ).toEqual([])
+  })
+
+  it('does not call a near-black CTA on a light page a second theme', () => {
+    // A navy button is a control, not a surface: its own fill says nothing
+    // about which theme the page it came off is.
+    expect(
+      selectionWarnings([
+        onLight('c1', 'card'),
+        capture('b1', 'button', { backgroundColor: '#0a2540' }),
         onLight('i1', 'input'),
       ]),
     ).toEqual([])

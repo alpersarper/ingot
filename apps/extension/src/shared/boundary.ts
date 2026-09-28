@@ -59,6 +59,52 @@ export function paints(color: string): boolean {
   return alpha === undefined || alpha > 0
 }
 
+/** Does this computed colour paint, but let what is behind it show through? */
+export function translucent(color: string): boolean {
+  const alpha = alphaOf(color.trim().toLowerCase())
+  return alpha !== undefined && alpha > 0 && alpha < 1
+}
+
+/** The sRGB channels and alpha of an `rgb()`/`rgba()` computed colour. */
+function channelsOf(color: string): [number, number, number, number] | undefined {
+  const match = /^rgba?\(([^)]*)\)$/.exec(color.trim().toLowerCase())
+  if (match === null) return undefined
+  const parts = (match[1] as string).split(/[\s,/]+/).filter((part) => part !== '')
+  if (parts.length !== 3 && parts.length !== 4) return undefined
+  const numbers = parts.map((part) =>
+    part.endsWith('%') ? Number.parseFloat(part.slice(0, -1)) / 100 : Number.parseFloat(part),
+  )
+  if (!numbers.every(Number.isFinite)) return undefined
+  const [r, g, b, a = 1] = numbers as [number, number, number, number?]
+  return [r, g, b, Math.min(1, Math.max(0, a))]
+}
+
+/**
+ * The one opaque colour a stack of background layers puts on screen.
+ *
+ * `layers` runs nearest first, the way an ancestor walk finds them. They are
+ * composited source-over in sRGB, which is what the browser does, down to the
+ * first fully opaque layer. A stack with nothing opaque at the bottom returns
+ * `null` rather than being laid over an assumed white canvas, for the same
+ * reason the walk that collects it does; so does a layer this cannot read,
+ * because guessing at one channel is guessing at the colour.
+ */
+export function compositeBackground(layers: readonly string[]): string | null {
+  let remaining = 1
+  let [red, green, blue] = [0, 0, 0]
+  for (const layer of layers) {
+    const channels = channelsOf(layer)
+    if (channels === undefined) return null
+    const [r, g, b, alpha] = channels
+    red += remaining * alpha * r
+    green += remaining * alpha * g
+    blue += remaining * alpha * b
+    remaining *= 1 - alpha
+    if (alpha >= 1) return `rgb(${[red, green, blue].map((channel) => Math.round(channel)).join(', ')})`
+  }
+  return null
+}
+
 /**
  * Does the element draw a background, border or shadow **of its own**?
  *
@@ -76,6 +122,37 @@ export function isTextish(element: ElementDescriptor): boolean {
   return element.textLength > 0 && !element.hasBlockChildren
 }
 
+const SELF_DRAWN_TAGS = new Set([
+  'input',
+  'textarea',
+  'select',
+  'button',
+  'summary',
+  'img',
+  'svg',
+  'video',
+  'canvas',
+  'picture',
+  'object',
+  'embed',
+  'iframe',
+  'audio',
+  'meter',
+  'progress',
+])
+
+/**
+ * Does the element draw itself without a computed background or border?
+ *
+ * Form controls paint through the UA stylesheet and `appearance` -- a Chrome
+ * checkbox or range slider reports a transparent background and no border and
+ * is plainly on screen -- and replaced elements paint their own content. For
+ * these, "paints no background of its own" is not evidence of anything.
+ */
+export function drawsItself(element: Pick<ElementDescriptor, 'tagName'>): boolean {
+  return SELF_DRAWN_TAGS.has(element.tagName)
+}
+
 /**
  * Why this element looks like a layout wrapper rather than a component, in the
  * words the picker puts on screen. `null` when it looks like a component.
@@ -84,7 +161,7 @@ export function wrapperReason(element: ElementDescriptor): string | null {
   if (element.viewportWidth > 0 && element.width >= element.viewportWidth * FULL_BLEED_RATIO) {
     return 'it is as wide as the whole viewport'
   }
-  if (!paintsOwnSurface(element) && !isTextish(element)) {
+  if (!paintsOwnSurface(element) && !isTextish(element) && !drawsItself(element)) {
     return 'it paints no background, border or shadow of its own'
   }
   return null

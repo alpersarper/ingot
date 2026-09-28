@@ -413,8 +413,12 @@ export function distillComponents(
   const buttons = captures.filter((capture) => capture.componentType === 'button')
   const cards = captures.filter((capture) => capture.componentType === 'card')
   const inputsCaptured = captures.filter((capture) => capture.componentType === 'input')
+  // A button that paints no fill of its own is never the primary recipe,
+  // whatever it happens to be sitting on: its background role is the inherited
+  // colour showing through it, and a ghost button on a brand hero is still a
+  // ghost button.
   const primaryButtons = buttons.filter(
-    (capture) => backgroundRoleByCapture.get(capture.id) === 'primary',
+    (capture) => hasOpaqueFill(capture) && backgroundRoleByCapture.get(capture.id) === 'primary',
   )
   const ghostButtons = buttons.filter((capture) => !hasOpaqueFill(capture))
   const secondaryButtons = buttons.filter(

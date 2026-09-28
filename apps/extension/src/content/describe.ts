@@ -10,7 +10,7 @@
  * text -- only how *long* the text is, because a leaf with words in it is
  * typography and a leaf without is a box.
  */
-import { paints, paintsOwnSurface } from '../shared/boundary'
+import { compositeBackground, paints, paintsOwnSurface, translucent } from '../shared/boundary'
 import type { ElementDescriptor, PaintedBackground } from '../shared/descriptor'
 
 const BLOCKISH = new Set(['block', 'flex', 'grid', 'table', 'list-item', 'flow-root'])
@@ -46,27 +46,37 @@ function paddingOf(style: CSSStyleDeclaration): [number, number, number, number]
 }
 
 /**
- * The background showing through a transparent element: the nearest ancestor
- * that paints one.
+ * The background showing through a transparent element: every ancestor layer
+ * that paints one, composited down to the first opaque one.
  *
  * This is the measurement a transparent capture used to be missing entirely, and
  * the reason five of seven captures off real sites carried `rgba(0, 0, 0, 0)` as
- * the component's colour.
+ * the component's colour. It composites rather than stopping at the first layer
+ * that paints, because a `rgba(0, 0, 0, 0.04)` tinted row on a white page is
+ * near-white on screen, not black.
  *
- * When nothing up the chain paints a background this returns `null` rather than
- * white. The browser's canvas *is* usually white, but "usually" is not a
- * measurement: a UA dark mode, a user stylesheet or a `color-scheme` on the root
- * all change it, and a capture record that asserted white would be the engine
- * distilling a value nobody chose. Not knowing is reported as not knowing.
+ * When nothing up the chain paints an opaque background this returns `null`
+ * rather than laying what it found over white. The browser's canvas *is* usually
+ * white, but "usually" is not a measurement: a UA dark mode, a user stylesheet
+ * or a `color-scheme` on the root all change it, and a capture record that
+ * asserted white would be the engine distilling a value nobody chose. Not
+ * knowing is reported as not knowing.
  */
 export function inheritedBackgroundOf(element: Element): PaintedBackground | null {
+  const layers: string[] = []
   let node = element.parentElement
   while (node !== null) {
-    const value = getComputedStyle(node).backgroundColor
-    if (paints(value)) return { color: value.trim(), inherited: true }
+    const value = getComputedStyle(node).backgroundColor.trim()
+    if (paints(value)) {
+      layers.push(value)
+      if (!translucent(value)) break
+    }
     node = node.parentElement
   }
-  return null
+  if (layers.length === 0) return null
+  if (layers.length === 1 && !translucent(layers[0] as string)) return { color: layers[0] as string, inherited: true }
+  const color = compositeBackground(layers)
+  return color === null ? null : { color, inherited: true }
 }
 
 export function describeElement(element: Element): ElementDescriptor {

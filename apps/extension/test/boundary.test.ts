@@ -12,7 +12,16 @@
  * on those pages, and the rule has to separate them.
  */
 import { describe, expect, it } from 'vitest'
-import { boundarySummary, paints, paintsOwnSurface, wrapperReason } from '../src/shared/boundary'
+import { surfaceTone } from '@ingot/engine'
+import type { CaptureRecord } from '@ingot/engine'
+import {
+  boundarySummary,
+  compositeBackground,
+  drawsItself,
+  paints,
+  paintsOwnSurface,
+  wrapperReason,
+} from '../src/shared/boundary'
 import { describeAs, filled, onTop } from './element'
 
 describe('paints', () => {
@@ -38,6 +47,56 @@ describe('paints', () => {
 
   it('keeps a partly transparent fill, which is still a fill', () => {
     expect(paints('rgba(0, 0, 0, 0.4)')).toBe(true)
+  })
+})
+
+/** The tone the engine reads off a transparent capture sitting on `backdrop`. */
+function toneOn(backdrop: string): string {
+  const record: CaptureRecord = {
+    schemaVersion: 1,
+    id: 'c-1',
+    componentType: 'button',
+    sourceUrl: 'https://example.com/',
+    capturedAt: '2026-01-01T00:00:00.000Z',
+    styles: { backgroundColor: 'rgba(0, 0, 0, 0)' },
+    inheritedBackgroundColor: backdrop,
+  }
+  return surfaceTone(record)
+}
+
+describe('compositeBackground', () => {
+  it('reads a faint tinted row on a white page as near-white, not black', () => {
+    const color = compositeBackground(['rgba(0, 0, 0, 0.04)', 'rgb(255, 255, 255)'])
+    expect(color).toBe('rgb(245, 245, 245)')
+    expect(toneOn(color as string)).toBe('light')
+  })
+
+  it('reads a frosted layer on a dark page as light, but not as white', () => {
+    const color = compositeBackground(['rgba(255, 255, 255, 0.8)', 'rgb(12, 14, 22)'])
+    expect(color).toBe('rgb(206, 207, 208)')
+    expect(color).not.toBe('rgb(255, 255, 255)')
+    expect(toneOn(color as string)).toBe('light')
+  })
+
+  it('stops at the first opaque layer', () => {
+    expect(compositeBackground(['rgb(10, 20, 30)', 'rgb(255, 255, 255)'])).toBe('rgb(10, 20, 30)')
+  })
+
+  it('stacks several translucent layers in the order the walk found them', () => {
+    expect(
+      compositeBackground(['rgba(255, 0, 0, 0.5)', 'rgba(0, 0, 255, 0.5)', 'rgb(0, 0, 0)']),
+    ).toBe('rgb(128, 0, 64)')
+  })
+
+  it('reports nothing when nothing opaque is behind the translucent layers', () => {
+    // Laying them over an assumed white canvas would be recording a value
+    // nobody measured.
+    expect(compositeBackground(['rgba(0, 0, 0, 0.04)'])).toBeNull()
+    expect(compositeBackground([])).toBeNull()
+  })
+
+  it('refuses a layer it cannot read rather than guessing at it', () => {
+    expect(compositeBackground(['color(srgb 0 0 0 / 0.5)', 'rgb(255, 255, 255)'])).toBeNull()
   })
 })
 
@@ -101,6 +160,31 @@ describe('wrapperReason', () => {
     // The exception that has to be carved out: text is visible because it is
     // text. Flagging every `<h1>` as a wrapper would make the warning noise.
     expect(wrapperReason(onTop('rgb(255, 255, 255)', { tagName: 'h1', textLength: 28, height: 40 }))).toBeNull()
+  })
+
+  it('passes a Chrome checkbox, which draws itself through the UA stylesheet', () => {
+    const checkbox = onTop('rgb(255, 255, 255)', { tagName: 'input', inputType: 'checkbox', width: 13, height: 13 })
+    expect(drawsItself(checkbox)).toBe(true)
+    expect(wrapperReason(checkbox)).toBeNull()
+  })
+
+  it('passes a range input, which paints no background and is plainly a control', () => {
+    expect(
+      wrapperReason(onTop('rgb(255, 255, 255)', { tagName: 'input', inputType: 'range', width: 160, height: 16 })),
+    ).toBeNull()
+  })
+
+  it('passes an icon-only svg button, which has no text and no fill', () => {
+    expect(wrapperReason(onTop('rgb(255, 255, 255)', { tagName: 'svg', width: 24, height: 24 }))).toBeNull()
+    expect(
+      wrapperReason(onTop('rgb(255, 255, 255)', { tagName: 'button', childElementCount: 1, width: 32, height: 32 })),
+    ).toBeNull()
+  })
+
+  it('still flags a self-drawn element that spans the viewport', () => {
+    expect(wrapperReason(onTop('rgb(255, 255, 255)', { tagName: 'video', width: 1440, viewportWidth: 1440 }))).toBe(
+      'it is as wide as the whole viewport',
+    )
   })
 
   it('still flags a transparent section that merely contains text', () => {

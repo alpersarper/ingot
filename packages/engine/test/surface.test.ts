@@ -9,8 +9,13 @@
  * behind such an element; this is where the engine decides what that is worth.
  */
 import { describe, expect, it } from 'vitest'
-import { DARK_TONE_MAX, LIGHT_TONE_MIN, readColors, surfaceBackground, surfaceTone } from '../src/index'
-import type { CaptureRecord } from '../src/index'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { DARK_TONE_MAX, LIGHT_TONE_MIN, distill, readColors, surfaceBackground, surfaceTone } from '../src/index'
+import type { CaptureRecord, CaptureSet } from '../src/index'
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 
 function capture(overrides: Partial<CaptureRecord> & { styles: CaptureRecord['styles'] }): CaptureRecord {
   return {
@@ -89,6 +94,23 @@ describe('surfaceTone', () => {
     expect(surfaceTone(capture({ styles: { backgroundColor: '#808080' } }))).toBe('mid')
   })
 
+  it('judges a control by what it sits on, not by its own fill', () => {
+    // A near-black CTA off a light pricing page is one theme, not two.
+    const cta = { componentType: 'button' as const, styles: { backgroundColor: '#0a2540' } }
+    expect(surfaceTone(capture(cta))).toBe('unknown')
+    expect(surfaceTone(capture({ ...cta, inheritedBackgroundColor: 'rgb(255, 255, 255)' }))).toBe('unknown')
+    expect(surfaceTone(capture({ componentType: 'input', styles: { backgroundColor: '#ffffff' } }))).toBe('unknown')
+    expect(
+      surfaceTone(
+        capture({
+          componentType: 'button',
+          styles: { backgroundColor: 'rgba(0, 0, 0, 0)' },
+          inheritedBackgroundColor: '#0b0f19',
+        }),
+      ),
+    ).toBe('dark')
+  })
+
   it('separates "neither" from "not measured"', () => {
     expect(surfaceTone(capture({ styles: { backgroundColor: 'rgba(0, 0, 0, 0)' } }))).toBe('unknown')
     expect(LIGHT_TONE_MIN).toBeGreaterThan(DARK_TONE_MAX)
@@ -112,5 +134,37 @@ describe('readColors, with an inherited background', () => {
   it('still reads nothing from a transparent capture that measured nothing', () => {
     const observations = readColors([capture({ styles: { backgroundColor: 'rgba(0, 0, 0, 0)', color: '#111111' } })])
     expect(observations.map((observation) => observation.channel)).toEqual(['foreground'])
+  })
+})
+
+describe('a ghost button on a brand surface', () => {
+  it('is a ghost button, and never the primary recipe', () => {
+    const set = JSON.parse(readFileSync(join(ROOT, 'fixtures', 'ghost-warm', 'set.json'), 'utf8')) as CaptureSet
+    const primary = set.captures.find((entry) => entry.id === 'ghost-btn-primary')
+    const brand = primary?.styles.backgroundColor as string
+    const ghost: CaptureRecord = {
+      schemaVersion: 1,
+      id: 'ghost-btn-on-brand',
+      componentType: 'button',
+      sourceUrl: 'https://example.com/',
+      capturedAt: '2026-01-01T00:00:00.000Z',
+      styles: {
+        backgroundColor: 'rgba(0, 0, 0, 0)',
+        color: '#ffffff',
+        paddingTop: '40px',
+        paddingBottom: '40px',
+        paddingLeft: '64px',
+        paddingRight: '64px',
+      },
+      inheritedBackgroundColor: brand,
+    }
+    const tokens = distill({ ...set, captures: [...set.captures, ghost] })
+    const button = tokens.components.recipes.find((recipe) => recipe.name === 'button.primary')
+    const ghostRecipe = tokens.components.recipes.find((recipe) => recipe.name === 'button.ghost')
+    for (const token of [button?.paddingY, button?.paddingX]) {
+      expect(token?.provenance.captureIds).toContain('ghost-btn-primary')
+      expect(token?.provenance.captureIds).not.toContain(ghost.id)
+    }
+    expect(ghostRecipe?.paddingY.provenance.captureIds).toContain(ghost.id)
   })
 })

@@ -70,9 +70,18 @@ export const LIGHT_TONE_MIN = 0.75
 /** At or below it, a dark one. */
 export const DARK_TONE_MAX = 0.4
 
+/**
+ * A theme is a *surface*, so a capture's own fill counts as evidence of one
+ * only when the capture is a card; every other type is judged by what it sits
+ * on. The case this exists for is the near-black CTA on a light page -- a
+ * `#0a2540` button off a white pricing page is one theme, not two, and a fill
+ * that voted would report a clash on an ordinary light site. It errs one way
+ * only: it can lose evidence, never invent a clash.
+ */
 export function surfaceTone(capture: CaptureRecord): SurfaceTone {
   const background = surfaceBackground(capture)
   if (background === undefined) return 'unknown'
+  if (!background.inherited && capture.componentType !== 'card') return 'unknown'
   const parsed = parseColor(background.raw)
   if (parsed === undefined) return 'unknown'
   if (parsed.oklch.l >= LIGHT_TONE_MIN) return 'light'

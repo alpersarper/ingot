@@ -294,8 +294,10 @@ leaves the engine with no evidence for the other three, so it states sanctioned
 defaults instead and the kit comes back looking finished and thin. A selection
 that **mixes clearly light and clearly dark surfaces** -- measured on the
 painted background of each capture, the engine's `surfaceTone`, so a transparent
-capture is judged by what was behind it and a brand-blue fill is not mistaken
-for a dark theme -- is two kits: one background is chosen and every contrast pair
+capture is judged by what was behind it, a brand-blue fill is not mistaken
+for a dark theme, and only a card's own fill counts as a surface (a near-black
+`#0a2540` CTA off a light page is a control, judged by its backdrop or not at
+all) -- is two kits: one background is chosen and every contrast pair
 is held against it, so the minority is re-derived rather than kept. Each warning
 states the fact and names the way out, and neither disables anything: a
 deliberately button-only kit is a legitimate thing to want, and a workbench that
