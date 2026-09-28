@@ -40,7 +40,7 @@ import {
   LLM_MODEL_SETTING,
 } from '../assistant/settings-keys'
 import { CONNECTION_IDS, isConnectionId } from '../assistant/connections'
-import { BASE_URL_MAX, endpointHost, isUsableBaseUrl, storedBaseUrl } from '../assistant/openai-compatible'
+import { BASE_URL_MAX, endpointOrigin, isUsableBaseUrl, storedBaseUrl } from '../assistant/openai-compatible'
 import type { AppContext, AppEnv } from '../context'
 import { isRecord, optionalString, readJsonBody } from '../validate'
 
@@ -213,19 +213,21 @@ export function settingsRoutes(context: AppContext): Hono<AppEnv> {
         await store.settings.set(LLM_BASE_URL_SETTING, next)
       }
 
-      // A credential never reaches an address it was not saved for. The
-      // endpoint key was saved for the host the stored endpoint named, so a
-      // move to a different host -- or away from any host, or to one that does
-      // not parse -- drops it, and the response says so. A path or
-      // trailing-slash edit on the same host keeps it, and so does a request
-      // that saves a key for the new endpoint in the same write.
-      const previousHost = previous === null ? undefined : endpointHost(previous)
-      const nextHost = next === null ? null : endpointHost(next)
+      // A credential never reaches an address it was not saved for, and the
+      // address is the ORIGIN: scheme + host + port, compared together. Not the
+      // host alone -- that would keep the key across an https -> http downgrade
+      // and send it in cleartext. The endpoint key was saved for the origin the
+      // stored endpoint named, so a move to a different origin -- or away from
+      // any, or to one that does not parse -- drops it, and the response says
+      // so. A path or trailing-slash edit on the same origin keeps it, and so
+      // does a request that saves a key for the new endpoint in the same write.
+      const previousOrigin = previous === null ? undefined : endpointOrigin(previous)
+      const nextOrigin = next === null ? null : endpointOrigin(next)
       if (
-        previousHost !== undefined &&
+        previousOrigin !== undefined &&
         !touchesEndpointKey &&
         config.llmEndpointKey === undefined &&
-        (previousHost === null || nextHost === null || previousHost !== nextHost)
+        (previousOrigin === null || nextOrigin === null || previousOrigin !== nextOrigin)
       ) {
         endpointKeyCleared = await store.settings.delete(LLM_ENDPOINT_KEY_SETTING)
       }

@@ -489,13 +489,13 @@ function OpenAiSetup({
           </div>
           {keyCleared ? (
             <p className="text-[11px] leading-relaxed text-foreground" role="status">
-              The stored key was cleared because the endpoint&rsquo;s host changed. Enter this endpoint&rsquo;s key if
-              it needs one.
+              The stored key was cleared because the endpoint moved to a different address (scheme, host or port).
+              Enter this endpoint&rsquo;s key if it needs one.
             </p>
           ) : null}
           <p className="text-[11px] leading-relaxed text-muted-foreground">
-            Sent as a bearer token to the endpoint above and nowhere else; moving the endpoint to a different host
-            clears it. A model running on this machine needs none.
+            Sent as a bearer token to the endpoint above and nowhere else; moving the endpoint to a different scheme,
+            host or port clears it. A model running on this machine needs none.
           </p>
         </div>
       )}

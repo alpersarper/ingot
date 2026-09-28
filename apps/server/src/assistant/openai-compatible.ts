@@ -85,10 +85,13 @@ export function storedBaseUrl(value: string): string {
   return value.trim().replace(/\/+$/, '')
 }
 
-/** The host, port included, an endpoint sends to; `null` when it is not a URL. */
-export function endpointHost(value: string): string | null {
+/**
+ * The origin an endpoint sends to -- scheme, host and port together, so
+ * `https://a` and `http://a` are two addresses -- or `null` when it is not a URL.
+ */
+export function endpointOrigin(value: string): string | null {
   try {
-    return new URL(value.trim()).host
+    return new URL(value.trim()).origin
   } catch {
     return null
   }

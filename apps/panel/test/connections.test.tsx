@@ -296,7 +296,7 @@ describe('the same panel in a container', () => {
     fireEvent.change(endpoint, { target: { value: 'https://api.groq.com/openai/v1' } })
     await user.click(within(systemPanel()).getByRole('button', { name: 'Save endpoint' }))
 
-    await within(systemPanel()).findByText(/stored key was cleared because the endpoint.s host changed/)
+    await within(systemPanel()).findByText(/stored key was cleared because the endpoint moved to a different address/)
     expect(await harness?.store.settings.get('llm.endpointKey')).toBeNull()
 
     await harness?.call('/api/settings', put({ llmModel: 'llama3.2' }))
@@ -308,6 +308,41 @@ describe('the same panel in a container', () => {
     expect(sent?.baseUrl).toBe('https://api.groq.com/openai/v1')
     expect(sent?.apiKey).toBeUndefined()
     expect(harness?.llm.configs.some((entry) => entry.apiKey === 'sk-or-v1-HOSTAKEYHOSTAKEY')).toBe(false)
+  })
+
+  it('clears the endpoint key on an https to http downgrade of the same host, and never sends it there', async () => {
+    await serve({ cli: SIGNED_IN, containerized: true })
+    const user = userEvent.setup()
+    await reachTheWorkbench(user)
+
+    await user.click(within(systemPanel()).getByRole('radio', { name: /OpenAI-compatible endpoint/ }))
+    const endpoint = await screen.findByLabelText('Endpoint URL')
+    fireEvent.change(endpoint, { target: { value: 'https://openrouter.ai/api/v1' } })
+    await user.click(within(systemPanel()).getByRole('button', { name: 'Save endpoint' }))
+    await waitFor(async () => {
+      expect(await harness?.store.settings.get('llm.baseUrl')).toBe('https://openrouter.ai/api/v1')
+    })
+    fireEvent.change(screen.getByLabelText('API key (optional)'), { target: { value: 'sk-or-v1-TLSKEYTLSKEYTLS' } })
+    await user.click(within(systemPanel()).getByRole('button', { name: 'Save endpoint key' }))
+    await waitFor(async () => {
+      expect(await harness?.store.settings.get('llm.endpointKey')).toBe('sk-or-v1-TLSKEYTLSKEYTLS')
+    })
+
+    fireEvent.change(endpoint, { target: { value: 'http://openrouter.ai/api/v1' } })
+    await user.click(within(systemPanel()).getByRole('button', { name: 'Save endpoint' }))
+
+    await within(systemPanel()).findByText(/stored key was cleared because the endpoint moved to a different address/)
+    expect(await harness?.store.settings.get('llm.endpointKey')).toBeNull()
+
+    await harness?.call('/api/settings', put({ llmModel: 'llama3.2' }))
+    harness?.llm.reply({ proposals: [] })
+    await harness?.call('/api/kits', body({ groupId: null }))
+    const suggested = await harness?.call('/api/assistant/suggest', body({ capability: 'derive' }))
+    expect(suggested?.status).toBe(200)
+    const sent = harness?.llm.configs.at(-1)
+    expect(sent?.baseUrl).toBe('http://openrouter.ai/api/v1')
+    expect(sent?.apiKey).toBeUndefined()
+    expect(harness?.llm.configs.some((entry) => entry.apiKey === 'sk-or-v1-TLSKEYTLSKEYTLS')).toBe(false)
   })
 
   it('stores the endpoint field\'s key as the endpoint key, never as the Anthropic key', async () => {

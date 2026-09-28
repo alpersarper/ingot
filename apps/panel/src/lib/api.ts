@@ -359,7 +359,7 @@ export const api = {
   /**
    * The OpenAI-compatible endpoint. `null` clears it.
    *
-   * A move to a different host clears the stored endpoint key on the server;
+   * A move to a different origin (scheme, host or port) clears the stored endpoint key on the server;
    * `endpointKeyCleared` reports that it happened, so the panel can say so.
    */
   async saveLlmBaseUrl(baseUrl: string | null): Promise<{ endpointKeyCleared: boolean }> {

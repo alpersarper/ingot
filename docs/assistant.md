@@ -215,9 +215,10 @@ for a panel that shows one connection at a time.
   connection points at — and an Ollama URL saved in the panel never redirects
   the Anthropic client. (The Anthropic hosted-proxy seam is env-only:
   `INGOT_LLM_BASE_URL`.) Within the one connection, the endpoint key saved in
-  the panel belongs to the endpoint's host: moving the endpoint to a different
-  host clears it and the panel says so, while a path edit on the same host
-  keeps it.
+  the panel belongs to the endpoint's origin -- scheme, host and port together:
+  moving the endpoint to a different origin (an `https` to `http` downgrade
+  included) clears it and the panel says so, while a path edit on the same
+  origin keeps it.
 - **The assistant still never writes a token.** Every proposal, from every
   connection, goes through the engine's own `applyOverrides` before it becomes a
   card, and becomes a value only when a person accepts it.

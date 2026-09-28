@@ -700,7 +700,25 @@ describe('a credential and an endpoint belong to one connection', () => {
     expect(harness.llm.configs.some((entry) => entry.apiKey === ENDPOINT_KEY)).toBe(false)
   })
 
-  it('keeps the endpoint key across a path or trailing-slash edit on the same host', async () => {
+  it('drops the endpoint key on an https to http downgrade of the same host, and never sends it there', async () => {
+    await importAndGenerate()
+    await harness.call('/api/settings', put({ llmConnection: 'openai-compatible' }))
+    await harness.call('/api/settings', put({ llmBaseUrl: 'https://openrouter.ai/api/v1' }))
+    await harness.call('/api/settings', put({ llmModel: 'llama3.2' }))
+    await harness.call('/api/settings', put({ llmEndpointKey: ENDPOINT_KEY }))
+
+    const downgraded = await harness.call('/api/settings', put({ llmBaseUrl: 'http://openrouter.ai/api/v1' }))
+    expect(((await downgraded.json()) as { endpointKeyCleared: boolean }).endpointKeyCleared).toBe(true)
+    expect(await harness.store.settings.get('llm.endpointKey')).toBeNull()
+
+    harness.llm.reply({ proposals: [] })
+    await harness.call('/api/assistant/suggest', body({ capability: 'derive' }))
+    expect(harness.llm.configs.at(-1)?.baseUrl).toBe('http://openrouter.ai/api/v1')
+    expect(harness.llm.configs.at(-1)?.apiKey).toBeUndefined()
+    expect(harness.llm.configs.some((entry) => entry.apiKey === ENDPOINT_KEY)).toBe(false)
+  })
+
+  it('keeps the endpoint key across a path or trailing-slash edit on the same origin', async () => {
     await importAndGenerate()
     await harness.call('/api/settings', put({ llmConnection: 'openai-compatible' }))
     await harness.call('/api/settings', put({ llmBaseUrl: 'http://localhost:11434/v1' }))
@@ -718,7 +736,7 @@ describe('a credential and an endpoint belong to one connection', () => {
     expect(harness.llm.configs.at(-1)?.apiKey).toBe(ENDPOINT_KEY)
   })
 
-  it('drops the endpoint key when the endpoint is cleared or moves to another port', async () => {
+  it('drops the endpoint key when the endpoint is cleared or moves to another port on the same host', async () => {
     await harness.call('/api/settings', put({ llmBaseUrl: 'http://localhost:11434/v1' }))
     await harness.call('/api/settings', put({ llmEndpointKey: ENDPOINT_KEY }))
     await harness.call('/api/settings', put({ llmBaseUrl: 'http://localhost:8080/v1' }))
