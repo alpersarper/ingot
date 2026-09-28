@@ -20,15 +20,16 @@ the one the browser extension is pointed at
 
 | | |
 | --- | --- |
-| `npx ingot-workbench` | The whole thing on `http://localhost:4310`, nothing installed. The quickstart. |
+| `npx ingot-workbench` | The whole thing on `http://127.0.0.1:4310`, nothing installed. The quickstart. |
 | `docker compose up` | The same thing in a container. The durable path. |
 | `pnpm dev` | Server on 4310, Vite on 5173 with `/api` proxied. Use this to develop. |
 | `pnpm build` | Build the panel, then bundle the server into `apps/server/dist`. |
 | `pnpm build:cli` | Build the publishable `ingot-workbench` package (`apps/cli`). |
 
 Three ways in, **one server**. `apps/server/src/index.ts` exports `startPanel`,
-which opens the data directory, establishes the pairing token, binds the port and
-installs the shutdown handlers; `docker compose up` and `npx` are two callers of
+which binds the port, then opens the data directory, establishes the pairing
+token and installs the shutdown handlers -- in that order, so a start that loses
+the port to a running panel writes nothing to that panel's library; `docker compose up` and `npx` are two callers of
 it that print different things. There is no second configuration system: the CLI
 resolves its flags into the `INGOT_*` variables below and `loadConfig` decides
 what they mean, so a flag is only a more convenient spelling of a variable and a
@@ -46,7 +47,7 @@ happened to be in and a relative default would scatter one library across many
 folders.
 
 It also hands the pairing token to the browser in the URL **fragment**
-(`http://localhost:4310/#token=...`), which is what makes the one-liner need no
+(`http://127.0.0.1:4310/#token=...`), which is what makes the one-liner need no
 copy-paste. A fragment is never sent to a server, never lands in an access log
 and never travels in a `Referer`; the panel verifies it against
 `/api/pairing/verify`, keeps it only if the server agrees, and strips it from the

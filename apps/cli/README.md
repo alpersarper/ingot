@@ -7,7 +7,7 @@ workbench, running on your machine with nothing installed.
 npx ingot-workbench
 ```
 
-That starts the panel on <http://localhost:4310> and opens it. No account, no
+That starts the panel on <http://127.0.0.1:4310> and opens it. No account, no
 sign-up, no Docker, no database to provision: the library is a SQLite file in
 `~/.ingot`, and nothing leaves your machine unless you turn the optional LLM
 assistant on.

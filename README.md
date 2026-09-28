@@ -39,7 +39,7 @@ scripts/skeleton.ts  fixtures -> examples
 npx ingot-workbench
 ```
 
-That is the whole setup. It starts the panel on <http://localhost:4310> and opens
+That is the whole setup. It starts the panel on <http://127.0.0.1:4310> and opens
 it, already paired. **No account, no sign-up, no Docker, no database to
 provision** -- the library is a SQLite file in `~/.ingot`, and nothing leaves your
 machine unless you turn the optional [assistant](#the-assistant-optional) on.
@@ -96,10 +96,10 @@ first-run screen, because a container cannot open your browser for you the way
 the CLI does. (It is also in `pairing-token.txt` on the volume;
 `docker compose logs panel` if you scrolled past it.)
 
-The two differ in exactly three defaults, and `docker compose up` is the one that
-needs them: it binds `0.0.0.0` rather than loopback, keeps its data in the volume
-at `/data` rather than in `~/.ingot`, and pairs by paste rather than by opening a
-browser. Everything else -- the engine, the storage schema, the guards, every
+The two differ in exactly three defaults, each a difference between a laptop and
+a container: the npx path binds `127.0.0.1` rather than `0.0.0.0`, keeps its data
+in `~/.ingot` rather than `./data` (the volume at `/data` in the container), and
+serves the panel from the packaged `dist/panel`. Everything else -- the engine, the storage schema, the guards, every
 `INGOT_*` variable -- is shared code. A library written by one is readable by the
 other if you point them at the same directory.
 

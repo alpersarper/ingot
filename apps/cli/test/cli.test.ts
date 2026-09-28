@@ -16,7 +16,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { HELP, parseArgs } from '../src/args'
-import { pairingUrl, panelEnv } from '../src/resolve'
+import { pairingUrl, panelEnv, panelUrl } from '../src/resolve'
 
 const DEFAULTS = { home: '/home/someone', panelDir: '/pkg/dist/panel' }
 
@@ -135,9 +135,29 @@ describe('panelEnv', () => {
   })
 })
 
+describe('panelUrl', () => {
+  it('prints the host in effect rather than assuming localhost', () => {
+    expect(panelUrl('127.0.0.1', 4310)).toBe('http://127.0.0.1:4310')
+    expect(panelUrl('192.168.1.20', 4311)).toBe('http://192.168.1.20:4311')
+  })
+
+  it('brackets an IPv6 host', () => {
+    expect(panelUrl('::1', 4310)).toBe('http://[::1]:4310')
+  })
+
+  it('sends a browser to loopback for a wildcard bind', () => {
+    expect(panelUrl('0.0.0.0', 4310)).toBe('http://localhost:4310')
+    expect(panelUrl('::', 4310)).toBe('http://localhost:4310')
+  })
+})
+
 describe('pairingUrl', () => {
+  it('opens the host the panel is bound to', () => {
+    expect(new URL(pairingUrl('192.168.1.20', 4310, 'abc')).host).toBe('192.168.1.20:4310')
+  })
+
   it('hands the token over in the fragment, never the query string', () => {
-    const url = new URL(pairingUrl(4310, 'tok+en/with=chars'))
+    const url = new URL(pairingUrl('127.0.0.1', 4310, 'tok+en/with=chars'))
     expect(url.search).toBe('')
     expect(url.hash).toBe('#token=tok%2Ben%2Fwith%3Dchars')
     expect(new URLSearchParams(url.hash.slice(1)).get('token')).toBe('tok+en/with=chars')

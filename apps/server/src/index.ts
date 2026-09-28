@@ -19,6 +19,7 @@ import { chmod, mkdir, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { serve } from '@hono/node-server'
+import type { ServerType } from '@hono/node-server'
 import { createApp } from './app'
 import { createAssistant } from './assistant/service'
 import { createRateLimiter } from './assistant/rate-limit'
@@ -80,6 +81,8 @@ export interface PanelHandle {
   readonly pairingToken: string
   /** Where the token was written, so a caller can point a human at it. */
   readonly tokenFile: string
+  /** Stop listening and close the database, as SIGINT/SIGTERM would, without exiting. */
+  close(): Promise<void>
 }
 
 /**
@@ -95,8 +98,20 @@ async function writePairingToken(config: ServerConfig, token: string): Promise<s
   return file
 }
 
+function closeServer(server: ServerType): Promise<void> {
+  return new Promise((done) => server.close(() => done()))
+}
+
 /**
- * Open the volume, bind the port, and stay up until a signal says otherwise.
+ * Bind the port, then open the volume, and stay up until a signal says otherwise.
+ *
+ * The port comes first, and that order is the point: the data directory may
+ * belong to a panel that is already running, and a second start that lost the
+ * race for the port must leave its database, its settings row and its token
+ * file exactly as it found them. Otherwise a pinned token would be written over
+ * the running panel's before the port refused, and the file would disagree with
+ * the token that panel still enforces. Until the context exists -- a few
+ * milliseconds -- a request is answered 503 rather than queued.
  *
  * Deliberately silent: the caller owns what gets printed. What it does *not*
  * leave to the caller is the shutdown path -- closing the listener and the
@@ -104,41 +119,63 @@ async function writePairingToken(config: ServerConfig, token: string): Promise<s
  * one way of launching it.
  */
 export async function startPanel(config: ServerConfig = loadConfig()): Promise<PanelHandle> {
-  const context = await createContext(config)
-  const tokenFile = await writePairingToken(config, context.pairingToken)
-
-  const app = createApp(context)
-  const port = await new Promise<number>((ready, fail) => {
+  let app: ReturnType<typeof createApp> | undefined
+  const { server, port } = await new Promise<{ server: ServerType; port: number }>((ready, fail) => {
     // A port already in use is the one startup failure a caller can act on, so it
     // arrives as a rejection rather than as an unhandled event. Only *before*
     // listening, though: once the panel is up this listener is removed, because a
     // later socket error is not a reason to close the database underneath a
     // running server.
-    const failToStart = (cause: Error): void => {
-      // The database is closed on the way out: the CLI reports and exits, and a
-      // held file lock would outlive the message.
-      void context.store.close().then(
-        () => fail(cause),
-        () => fail(cause),
-      )
-    }
-
-    const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
-      server.off('error', failToStart)
-      const shutdown = (signal: string): void => {
-        process.stdout.write(`\n  ${signal}: shutting down\n`)
-        server.close(() => {
-          void context.store.close().then(() => process.exit(0))
-        })
-      }
-      process.on('SIGINT', () => shutdown('SIGINT'))
-      process.on('SIGTERM', () => shutdown('SIGTERM'))
-      ready(info.port)
-    })
-    server.on('error', failToStart)
+    const server = serve(
+      {
+        fetch: (request, env) =>
+          app === undefined ? new Response('starting', { status: 503 }) : app.fetch(request, env),
+        hostname: config.host,
+        port: config.port,
+      },
+      (info) => {
+        server.off('error', fail)
+        ready({ server, port: info.port })
+      },
+    )
+    server.on('error', fail)
   })
 
-  return { port, config, pairingToken: context.pairingToken, tokenFile }
+  let context: AppContext
+  let tokenFile: string
+  try {
+    context = await createContext(config)
+  } catch (cause) {
+    await closeServer(server)
+    throw cause
+  }
+  try {
+    tokenFile = await writePairingToken(config, context.pairingToken)
+    app = createApp(context)
+  } catch (cause) {
+    // The database is closed on the way out: the caller reports and exits, and a
+    // held file lock would outlive the message.
+    await closeServer(server)
+    await context.store.close().catch(() => undefined)
+    throw cause
+  }
+
+  const close = async (): Promise<void> => {
+    process.off('SIGINT', onSigint)
+    process.off('SIGTERM', onSigterm)
+    await closeServer(server)
+    await context.store.close()
+  }
+  const shutdown = (signal: string): void => {
+    process.stdout.write(`\n  ${signal}: shutting down\n`)
+    void close().then(() => process.exit(0))
+  }
+  const onSigint = (): void => shutdown('SIGINT')
+  const onSigterm = (): void => shutdown('SIGTERM')
+  process.on('SIGINT', onSigint)
+  process.on('SIGTERM', onSigterm)
+
+  return { port, config, pairingToken: context.pairingToken, tokenFile, close }
 }
 
 async function main(): Promise<void> {

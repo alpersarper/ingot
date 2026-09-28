@@ -55,6 +55,19 @@ export function packagedPanelDir(moduleUrl: string): string {
 }
 
 /**
+ * The address to send a browser to for the host the server actually bound.
+ *
+ * A wildcard bind is not an address a browser can be pointed at everywhere, and
+ * this machine's loopback is always on it, so that one is printed as
+ * `localhost`. Every other host is the one in effect, bracketed if it is IPv6.
+ */
+export function panelUrl(host: string, port: number): string {
+  const wildcard = host === '' || host === '0.0.0.0' || host === '::'
+  const name = wildcard ? 'localhost' : host.includes(':') ? `[${host}]` : host
+  return `http://${name}:${port}`
+}
+
+/**
  * Hand the token over in the URL *fragment*.
  *
  * A fragment is never sent to a server, never lands in an access log and never
@@ -64,6 +77,62 @@ export function packagedPanelDir(moduleUrl: string): string {
  * token is still required on every call, and a page on another origin can no
  * more read this fragment than it could read the panel's storage.
  */
-export function pairingUrl(port: number, token: string): string {
-  return `http://localhost:${port}/#token=${encodeURIComponent(token)}`
+export function pairingUrl(host: string, port: number, token: string): string {
+  return `${panelUrl(host, port)}/#token=${encodeURIComponent(token)}`
+}
+
+/** What to say, and how to exit, when the port was already held. */
+export interface PortHeld {
+  readonly exitCode: 0 | 1
+  readonly stream: 'stdout' | 'stderr'
+  readonly message: string
+}
+
+/**
+ * The answer to a port someone else already holds.
+ *
+ * Nothing here claims something it cannot verify. The open health route says
+ * only that an Ingot panel answers -- deliberately not which library it serves,
+ * because that would hand a filesystem path to any page that asks. So a bare
+ * `npx ingot-workbench` finding one is pointed at it with exit 0, since "open my
+ * panel" is a fair reading of a command that named nothing, but told that the
+ * library may be another one. A run that *named* a library or an address with
+ * `--data-dir` or `--host` cannot be told it got what it asked for, so it fails
+ * with the way out. The decision keys on the flag being typed, not on the value
+ * it resolved to: an environment variable is a standing preference, a flag is
+ * this run's request. A stranger on the port always fails.
+ */
+export function portHeld(
+  options: RunOptions,
+  held: { readonly url: string; readonly port: number; readonly dataDir: string; readonly ingot: boolean },
+): PortHeld {
+  const next = `--port ${held.port === 65535 ? held.port - 1 : held.port + 1}`
+  const named = options.dataDir !== undefined || options.host !== undefined
+
+  if (!held.ingot) {
+    return {
+      exitCode: 1,
+      stream: 'stderr',
+      message:
+        `\n  ingot: something else is already listening on port ${held.port}.\n` +
+        `  Pick another with \`${next}\`.\n\n`,
+    }
+  }
+  if (named) {
+    return {
+      exitCode: 1,
+      stream: 'stderr',
+      message:
+        `\n  ingot: an Ingot panel is already running on ${held.url}, and there is no way to\n` +
+        `  confirm it is serving ${held.dataDir} on the address you asked for.\n` +
+        `  Stop that panel, or pick another port with \`${next}\`.\n\n`,
+    }
+  }
+  return {
+    exitCode: 0,
+    stream: 'stdout',
+    message:
+      `\n  An Ingot panel is already running on ${held.url}\n` +
+      `  It may be serving a different library from ${held.dataDir}; if so, stop it and run this again.\n\n`,
+  }
 }

@@ -16,7 +16,7 @@ import { homedir } from 'node:os'
 import { ENGINE_NAME } from '@ingot/engine'
 import { loadConfig, startPanel } from '@ingot/server'
 import { HELP, parseArgs } from './args'
-import { packagedPanelDir, pairingUrl, panelEnv } from './resolve'
+import { packagedPanelDir, pairingUrl, panelEnv, panelUrl, portHeld } from './resolve'
 
 /** This package's version, read from the manifest npm published beside it. */
 async function version(): Promise<string> {
@@ -52,9 +52,9 @@ function isAddressInUse(cause: unknown): boolean {
 }
 
 /** Whether what already holds this port is an Ingot panel rather than a stranger. */
-async function ingotAnswersOn(port: number): Promise<boolean> {
+async function ingotAnswersOn(url: string): Promise<boolean> {
   try {
-    const response = await fetch(`http://localhost:${port}/api/health`, { signal: AbortSignal.timeout(2000) })
+    const response = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(2000) })
     if (!response.ok) return false
     const body = (await response.json()) as { engine?: { name?: unknown } }
     return body.engine?.name === ENGINE_NAME
@@ -90,22 +90,19 @@ export async function run(argv: readonly string[]): Promise<void> {
     handle = await startPanel(config)
   } catch (cause) {
     if (!isAddressInUse(cause)) throw cause
-    // A panel already on the port is the user's own workbench, and having one
-    // there is what they asked for: say where it is and exit 0. A *stranger* on
-    // the port is a real failure, so that one exits non-zero with the way out.
-    if (await ingotAnswersOn(config.port)) {
-      out(`\n  An Ingot panel is already running on http://localhost:${config.port}\n\n`)
-      return
-    }
-    process.stderr.write(
-      `\n  ingot: something else is already listening on port ${config.port}.\n` +
-        `  Pick another with \`--port ${config.port + 1}\`.\n\n`,
-    )
-    process.exitCode = 1
+    const url = panelUrl(config.host, config.port)
+    const outcome = portHeld(parsed.options, {
+      url,
+      port: config.port,
+      dataDir: config.dataDir,
+      ingot: await ingotAnswersOn(url),
+    })
+    process[outcome.stream].write(outcome.message)
+    process.exitCode = outcome.exitCode
     return
   }
 
-  const url = `http://localhost:${handle.port}`
+  const url = panelUrl(handle.config.host, handle.port)
   out(
     `\n  Ingot ${await version()}\n\n` +
       `  Panel     ${url}\n` +
@@ -115,7 +112,7 @@ export async function run(argv: readonly string[]): Promise<void> {
   )
 
   if (parsed.options.open) {
-    openBrowser(pairingUrl(handle.port, handle.pairingToken))
+    openBrowser(pairingUrl(handle.config.host, handle.port, handle.pairingToken))
     out('  Opening your browser -- it pairs itself. Ctrl-C stops the panel.\n\n')
   } else {
     out(`  Open ${url} and paste the token into the first-run screen. Ctrl-C stops the panel.\n\n`)

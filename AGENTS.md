@@ -149,8 +149,9 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
   `0.0.0.0`, `~/.ingot` instead of `./data`, and the panel served out of the
   packaged `dist/panel`. A new workspace project also needs its manifest copied
   in the `Dockerfile`'s install stage, or `--frozen-lockfile` fails the image
-  build. The CLI's own suite covers only its pure parts (flag parsing, the
-  flag/environment/default precedence); the npx path itself is verified by
+  build. The CLI's own suite covers flag parsing, the flag/environment/default
+  precedence and what a run says and leaves on disk when the port is already
+  held; the npx path itself is verified by
   `pnpm pack:cli` and running `npx ./<tarball>`, which is a release step.
 - **The two guards on the API are the pairing token and the CORS lock.** Every
   route except `/api/health` and `/api/pairing*` requires `x-ingot-token`, and
