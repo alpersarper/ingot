@@ -315,6 +315,31 @@ history owns the chronology.
   the drain learned, and forbids a second wording: `saveMessage` is the only
   place a `SaveResult` becomes a sentence, in the page and on the options page
   alike.
+- **The picker captures a boundary, not a box.** The cursor lands on layout far
+  more often than on a component, so the hover states the boundary it measured
+  — background, border, padding — and an element a reader could not see is
+  called a wrapper out loud, with the arrow keys and one suggestion key to
+  correct it. When an element paints no background of its own, the colour
+  actually painted behind it is measured and recorded as
+  `inheritedBackgroundColor`, marked as inherited, beside the browser's own
+  transparent value rather than replacing it. Forbids the engine treating that
+  inherited colour as the component's own fill: colour evidence uses the painted
+  background, and what a component *draws* does not. Forbids assuming white when
+  nothing up the chain paints one — not knowing is recorded as not knowing.
+- **The type is chosen, not guessed.** The confirm popover marks the guess and
+  will not save until a person picks one of the four. Forbids a pre-selected
+  default: a session in which nobody disagreed with the guess is how a library
+  ends up holding nothing but cards, and the cost is invisible until a kit has
+  been distilled from it. The popover states the running type mix for the same
+  reason — the cheapest moment to learn that the evidence is all one kind is
+  while there is still a page open to capture from.
+- **A selection states what will weaken the kit before the generation is
+  spent.** All one type, and a mix of clearly light and clearly dark surfaces,
+  are each named with the remedy. They **never block**: a deliberately
+  button-only kit is a legitimate thing to want, and a workbench that refuses to
+  distil what it was pointed at is one that gets worked around. Forbids silence,
+  which is what let seven cards off three sites become a kit nobody could see
+  was thin.
 - **The library shows the picture.** Capture is reference-grade — computed
   values *and* an image — so the collection column renders each capture's
   screenshot, fetched through the pairing-token door and handed to the `<img>`

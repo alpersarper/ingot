@@ -40,7 +40,8 @@ import { Input, Textarea } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { CaptureThumb } from './CaptureThumb'
 import { ConfirmDialog } from './ConfirmDialog'
-import { SIZING_GUIDANCE, groupSlug, typeMix } from './selection'
+import { SelectionWarnings } from './SelectionWarnings'
+import { SIZING_GUIDANCE, groupSlug, selectionWarnings, typeMix } from './selection'
 import { RESET_CONFIRMATION } from '@/lib/api'
 import type { CaptureSummary, GroupSummary } from '@/lib/api'
 
@@ -469,6 +470,8 @@ function SelectionBar({
         {typeMix(chosen)}
       </p>
 
+      <SelectionWarnings warnings={selectionWarnings(chosen)} />
+
       {grouping ? (
         <div className="mt-3 flex flex-col gap-2 rounded-md border border-border bg-background p-2.5">
           <label className="text-[11px] font-medium">
@@ -590,8 +593,14 @@ function CaptureRow({
           componentType={capture.componentType}
         />
         <div className="min-w-0 flex-1">
-          <span className="block truncate font-mono text-xs">{capture.id}</span>
-          <span className="block truncate text-[11px] text-muted-foreground">{hostOf(capture.sourceUrl)}</span>
+          {/* The thumbnail costs the id some width, so the full id and the
+              whole source URL are on the hover instead of lost. */}
+          <span className="block truncate font-mono text-xs" title={capture.id}>
+            {capture.id}
+          </span>
+          <span className="block truncate text-[11px] text-muted-foreground" title={capture.sourceUrl}>
+            {hostOf(capture.sourceUrl)}
+          </span>
         </div>
         <Badge variant="outline">{capture.componentType}</Badge>
         <button

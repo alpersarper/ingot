@@ -115,6 +115,13 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
   weaken it: a kit row stores the engine's own bytes and `effectiveKit()` replays
   the reviewer's values on read, short-circuiting to the stored strings when
   there are none.
+- **The picker and the panel both say what will weaken the kit.** The confirm
+  popover will not save until a type is chosen and states the running type mix;
+  a selection that is all one type, or that mixes clearly light and clearly dark
+  surfaces (`surfaceTone`, on the *painted* background), is warned about in the
+  panel before the generation is spent. Both are advice and neither blocks --
+  the rulings and their reasons are in
+  [DECISIONS.md](DECISIONS.md#law-settled-rulings--change-these-only-by-an-explicit-new-ruling).
 - **The library is a pool; groups are non-exclusive curations of it; a kit
   generates from a scope.** Multi-select in the left column is the primary verb,
   and its bar acts on exactly what is ticked. A selection kit (`scope:
@@ -136,7 +143,13 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
 - **The extension reads one element and sends to one address.** It emits a
   `CaptureRecord` per `schemas/capture-record.schema.json` and nothing else: no
   markup, no stylesheets, no text, no attributes beyond `role` and an input's
-  `type`. Its `chrome.storage.local` buffer is what makes a capture survive a
+  `type`. The one thing it reads *off* the element is the background painted
+  behind a transparent one -- an ancestor walk recorded as
+  `inheritedBackgroundColor`, marked as inherited and never replacing the
+  browser's own value; `packages/engine/src/capture/surface.ts` owns what the
+  engine then does with the pair, and the split is the point (colour evidence
+  takes the painted background, `hasOpaqueFill` does not).
+  Its `chrome.storage.local` buffer is what makes a capture survive a
   panel that is down, and the drain is strictly FIFO --
   `apps/extension/test/queue.test.ts` walks the whole lifecycle, service-worker
   eviction included, and `test/record.test.ts` puts the emitted record through
@@ -144,9 +157,12 @@ These are enforced by tests; breaking one fails CI rather than showing up later.
   normalisations the browser forces -- percentage radii, variable-font weights,
   `gap`, phantom border colours -- are in `src/shared/styles.ts` with the
   reasoning. Everything worth testing is pure by construction: extraction takes
-  a property reader, the type guess takes a flat descriptor, the buffer takes a
-  key-value store, so the suite runs in Node against the values a real browser
-  returns rather than the ones jsdom can fake.
+  a property reader, the type guess and the wrapper check take a flat descriptor
+  (`shared/descriptor.ts`, `shared/boundary.ts`), the buffer and the type tally
+  take a key-value store, so the suite runs in Node against the values a real
+  browser returns rather than the ones jsdom can fake. The picker itself is the
+  part no Node test can reach, so a change to it is verified by driving a real
+  Chrome over CDP -- the keys it answers to are in `apps/extension/README.md`.
 - **A capture reports the fate it actually had.** `saveMessage`
   (`apps/extension/src/shared/outcome.ts`) is the only place a `SaveResult`
   becomes a sentence, and it says `Captured` only when the panel took it;

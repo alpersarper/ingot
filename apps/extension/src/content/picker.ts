@@ -1,7 +1,7 @@
 /**
  * Pick mode: the overlay, the hover outline, and the confirm popover.
  *
- * Three decisions here are load-bearing on real sites rather than on a test
+ * Several decisions here are load-bearing on real sites rather than on a test
  * page, so they are worth stating before the code:
  *
  * **The overlay swallows every pointer event.** The obvious build lets events
@@ -23,13 +23,34 @@
  * frame element itself. Capturing that would record the frame's box and none of
  * the component inside it, so the outline turns amber and says why. Frames are
  * out of scope for v1 (the brief); failing silently is not.
+ *
+ * **The cursor lands on layout, so the boundary is negotiable.** Modern pages
+ * are built out of transparent `<div>`s, and `elementFromPoint` has no opinion
+ * about which of the nine nested boxes under the cursor is the component. A
+ * first real session produced seven captures and five of them were wrappers:
+ * transparent, unbordered, padding `0px` or `128px`. So the chip now states the
+ * boundary it measured -- background, border, padding -- the arrow keys walk out
+ * to the parent and back in to the child, and an element a reader could not see
+ * says so and offers the nearest box that paints one. The picker cannot know
+ * which element was meant; what it can do is show its evidence and make the
+ * correction one keystroke.
+ *
+ * **The type is chosen, not guessed.** The popover will not save until one of
+ * the four is picked. The guess is shown and can be taken with a keystroke, but
+ * it is never the default that a hurried person ships: seven captures that all
+ * said `card` because nobody disagreed with the guess is a kit distilled from
+ * one kind of evidence.
  */
 import type { ComponentType } from '@ingot/engine'
-import { describeElement, structuralPath, styleReaderFor } from './describe'
+import { describeElement, nearestBoundary, structuralPath, styleReaderFor } from './describe'
+import { boundarySummary, wrapperReason } from '../shared/boundary'
+import type { ElementDescriptor } from '../shared/descriptor'
 import { guessComponentType } from '../shared/component-type'
 import { captureIdFor } from '../shared/identity'
 import { extractStyles } from '../shared/styles'
 import { saveMessage } from '../shared/outcome'
+import { emptyTally, tallyLine } from '../shared/tally'
+import type { TypeTally } from '../shared/tally'
 import { OVERLAY_CSS } from './overlay.css'
 import type { PickedElement, Rect, SaveResult, ScreenshotBlob, ShootResult } from '../shared/protocol'
 
@@ -57,11 +78,25 @@ const TYPE_LABELS: Record<ComponentType, string> = {
 
 const COMPONENT_TYPES = Object.keys(TYPE_LABELS) as ComponentType[]
 
+/** The key that takes the picker's suggestion of a better boundary. */
+const BOUNDARY_KEY = 'w'
+
+/**
+ * How far the pointer may drift before an arrow-key choice is given up.
+ *
+ * Without it, walking to the parent and then nudging the mouse by one pixel
+ * silently throws the choice away -- which makes the feature look broken rather
+ * than transient.
+ */
+const PIN_SLACK_PX = 12
+
 export interface PickerHost {
   /** Ask the service worker for a cropped screenshot of this viewport rect. */
   shoot(rect: Rect, devicePixelRatio: number): Promise<ShootResult>
   /** Hand the finished capture to the service worker, which queues it. */
   save(picked: PickedElement, screenshot: ScreenshotBlob | null): Promise<SaveResult>
+  /** How many of each type this browser has captured so far. */
+  tally(): Promise<TypeTally>
 }
 
 function rectOf(element: Element): Rect {
@@ -88,6 +123,12 @@ export function createPicker(host: PickerHost): { start(): void; stop(): void; a
   let hovered: Element | null = null
   let frozen: Element | null = null
   let pointer = { x: 0, y: 0 }
+  /** Where the pointer was when the arrow keys last chose an element. */
+  let pinnedAt: { x: number; y: number } | null = null
+  /** True while the chip is offering a better boundary than the hovered box. */
+  let offering = false
+  /** Number keys, installed while the confirm popover is open. */
+  let sheetKeys: ((key: string) => boolean) | null = null
   let running = false
 
   function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string): HTMLElementTagNameMap[K] {
@@ -114,10 +155,13 @@ export function createPicker(host: PickerHost): { start(): void; stop(): void; a
     }
     hint.append(
       document.createTextNode('Click a component to capture it \u00b7 '),
-      key('Esc'),
-      document.createTextNode(' to exit \u00b7 hold '),
+      key('\u2191'),
+      key('\u2193'),
+      document.createTextNode(' parent/child \u00b7 hold '),
       key('Alt'),
-      document.createTextNode(' for the parent'),
+      document.createTextNode(' for the parent \u00b7 '),
+      key('Esc'),
+      document.createTextNode(' to exit'),
     )
     shadow.append(style, halo, chip, hint)
     halo.style.display = 'none'
@@ -163,7 +207,16 @@ export function createPicker(host: PickerHost): { start(): void; stop(): void; a
     return null
   }
 
+  /**
+   * Draw the outline and say what was measured.
+   *
+   * Three lines rather than one, and each is a different kind of claim: what the
+   * picker thinks this is, what it measured to think so, and -- when the box is
+   * one a reader could not see -- that it is probably not the thing that was
+   * meant, with the key that fixes it.
+   */
   function paintHighlight(element: Element | null): void {
+    offering = false
     if (element === null) {
       halo.style.display = 'none'
       chip.style.display = 'none'
@@ -179,23 +232,51 @@ export function createPicker(host: PickerHost): { start(): void; stop(): void; a
     halo.style.height = `${box.height}px`
     halo.dataset['refused'] = String(refused !== null)
 
-    const descriptor = describeElement(element)
     chip.style.display = ''
     chip.dataset['refused'] = String(refused !== null)
     chip.textContent = ''
-    const label = el('span')
-    label.textContent =
-      refused === null
-        ? `${TYPE_LABELS[guessComponentType(descriptor)]} · ${element.tagName.toLowerCase()}`
-        : refused
-    const size = el('span', 'dim')
-    size.textContent = `${Math.round(box.width)}×${Math.round(box.height)}`
-    chip.append(label, size)
+    halo.dataset['wrapper'] = 'false'
 
-    // Above the box when there is room, inside its top edge when there is not.
-    const above = box.y > 26
-    chip.style.left = `${Math.max(4, Math.min(box.x, window.innerWidth - 160))}px`
-    chip.style.top = above ? `${box.y - 24}px` : `${box.y + 4}px`
+    if (refused !== null) {
+      const line = el('div', 'line')
+      line.textContent = refused
+      chip.append(line)
+    } else {
+      const descriptor = describeElement(element)
+      const head = el('div', 'line')
+      const label = el('span')
+      label.textContent = `${TYPE_LABELS[guessComponentType(descriptor)]} · ${element.tagName.toLowerCase()}`
+      const size = el('span', 'dim')
+      size.textContent = `${Math.round(box.width)}×${Math.round(box.height)}`
+      head.append(label, size)
+
+      const measured = el('div', 'line dim')
+      measured.textContent = boundarySummary(descriptor)
+      chip.append(head, measured)
+
+      // The better boundary is searched for when the key is pressed, not here.
+      // Naming the candidate's tag in the chip would read slightly better and
+      // would cost a bounded DOM walk on every hover frame, on exactly the
+      // sprawling page sections where a hover is already expensive.
+      const wrapper = wrapperReason(descriptor)
+      if (wrapper !== null) {
+        offering = true
+        const warn = el('div', 'line warn')
+        warn.textContent = `this looks like a wrapper: ${wrapper} -- press W for the nearest box that paints one`
+        chip.append(warn)
+      }
+      halo.dataset['wrapper'] = String(wrapper !== null)
+    }
+
+    place(box)
+  }
+
+  /** Above the box when there is room, inside its top edge when there is not. */
+  function place(box: Rect): void {
+    const height = chip.getBoundingClientRect().height
+    const above = box.y > height + 6
+    chip.style.left = `${Math.max(4, Math.min(box.x, window.innerWidth - 220))}px`
+    chip.style.top = above ? `${box.y - height - 4}px` : `${box.y + 4}px`
   }
 
   /**
@@ -239,6 +320,13 @@ export function createPicker(host: PickerHost): { start(): void; stop(): void; a
   function onMouseMove(event: MouseEvent): void {
     pointer = { x: event.clientX, y: event.clientY }
     if (frozen !== null) return
+    // An element walked to with the arrow keys survives a shaky hand, and is
+    // given up as soon as the pointer is genuinely somewhere else.
+    if (pinnedAt !== null) {
+      const drifted = Math.abs(pointer.x - pinnedAt.x) + Math.abs(pointer.y - pinnedAt.y) > PIN_SLACK_PX
+      if (!drifted) return
+      pinnedAt = null
+    }
     const first = queued === null
     queued = { x: event.clientX, y: event.clientY, alt: event.altKey }
     if (!first) return
@@ -257,7 +345,48 @@ export function createPicker(host: PickerHost): { start(): void; stop(): void; a
     if (frozen !== null) return
     const found = elementUnder(pointer.x, pointer.y)
     hovered = found
+    pinnedAt = null
     paintHighlight(hovered)
+  }
+
+  /** Move the outline to a different element, and keep it there for a moment. */
+  function walkTo(element: Element | null): void {
+    if (element === null) return
+    hovered = element
+    pinnedAt = { ...pointer }
+    paintHighlight(hovered)
+  }
+
+  /** The parent, unless the parent is the page itself. */
+  function parentOf(element: Element): Element | null {
+    const parent = element.parentElement
+    if (parent === null || parent === document.body || parent === document.documentElement) return null
+    return parent
+  }
+
+  /**
+   * The child to walk into: the one under the cursor, else the largest.
+   *
+   * Under the cursor first because that is the one the person is pointing at; the
+   * largest as the fallback so a pointer parked over a gap between children
+   * still goes somewhere useful rather than nowhere.
+   */
+  function childOf(element: Element): Element | null {
+    const children = Array.from(element.children).filter((child) => {
+      const box = child.getBoundingClientRect()
+      return box.width >= 1 && box.height >= 1
+    })
+    if (children.length === 0) return null
+    const under = children.find((child) => {
+      const box = child.getBoundingClientRect()
+      return pointer.x >= box.left && pointer.x <= box.right && pointer.y >= box.top && pointer.y <= box.bottom
+    })
+    if (under !== undefined) return under
+    return children.reduce((best, candidate) => {
+      const a = candidate.getBoundingClientRect()
+      const b = best.getBoundingClientRect()
+      return a.width * a.height > b.width * b.height ? candidate : best
+    })
   }
 
   /**
@@ -312,8 +441,13 @@ export function createPicker(host: PickerHost): { start(): void; stop(): void; a
 
   async function openSheet(element: Element): Promise<void> {
     const descriptor = describeElement(element)
-    let chosen = guessComponentType(descriptor)
+    const guess = guessComponentType(descriptor)
+    let chosen: ComponentType | null = null
     const shot = await screenshotOf(element)
+    // Read before the popover is built, so the line is never briefly wrong. A
+    // failure here is not worth refusing a capture over: no counts yet reads as
+    // an empty tally, which is what a first capture honestly has.
+    const tally = await host.tally().catch(() => emptyTally())
 
     sheet = el('div', 'sheet')
     sheet.setAttribute('role', 'dialog')
@@ -326,57 +460,120 @@ export function createPicker(host: PickerHost): { start(): void; stop(): void; a
 
     const thumb = el('img', 'thumb')
     thumb.alt = ''
+    // The popover is measured to be placed, and an undecoded image measures
+    // zero: without this the layout it was positioned against is 50px shorter
+    // than the one on screen.
+    thumb.addEventListener('load', () => placeSheet(rectOf(element)))
     if (shot.screenshot !== null) thumb.src = shot.screenshot.dataUrl
+
+    const measured = el('p', 'note')
+    measured.textContent = boundarySummary(descriptor)
+
+    const save = el('button', 'save')
+    save.type = 'button'
+    save.textContent = 'Save capture'
+    save.disabled = true
+
+    const prompt = el('p', 'note')
+    prompt.dataset['tone'] = 'ask'
+    prompt.textContent = `Which is it? The guess is ${TYPE_LABELS[guess]} -- press 1-4 or click.`
 
     const types = el('div', 'types')
     const buttons = new Map<ComponentType, HTMLButtonElement>()
-    for (const type of COMPONENT_TYPES) {
+    const choose = (type: ComponentType): void => {
+      chosen = type
+      for (const [candidate, node] of buttons) node.setAttribute('aria-pressed', String(candidate === chosen))
+      delete prompt.dataset['tone']
+      prompt.textContent = `Capturing as ${TYPE_LABELS[type]}${
+        type === guess ? '' : ` -- the guess was ${TYPE_LABELS[guess]}`
+      }.`
+      save.disabled = false
+      save.focus()
+    }
+    COMPONENT_TYPES.forEach((type, index) => {
       const button = el('button')
       button.type = 'button'
-      button.textContent = TYPE_LABELS[type]
-      button.setAttribute('aria-pressed', String(type === chosen))
-      button.addEventListener('click', () => {
-        chosen = type
-        for (const [candidate, node] of buttons) node.setAttribute('aria-pressed', String(candidate === chosen))
-      })
+      const number = el('span', 'num')
+      number.textContent = String(index + 1)
+      button.append(number, document.createTextNode(TYPE_LABELS[type]))
+      button.setAttribute('aria-pressed', 'false')
+      button.dataset['guess'] = String(type === guess)
+      button.addEventListener('click', () => choose(type))
       buttons.set(type, button)
       types.append(button)
-    }
+    })
 
-    const note = el('p', 'note')
+    const notes: HTMLElement[] = []
+    const wrapper = wrapperReason(descriptor)
+    if (wrapper !== null) {
+      const note = el('p', 'note')
+      note.dataset['tone'] = 'warn'
+      note.textContent = `This looks like a wrapper rather than a component: ${wrapper}. Cancel, then use the arrow keys to pick a different box -- or save it anyway.`
+      notes.push(note)
+    }
     if (shot.error !== undefined) {
+      const note = el('p', 'note')
       note.dataset['tone'] = 'warn'
       note.textContent = `No screenshot: ${shot.error}`
-    } else {
-      note.textContent = 'The guess is a starting point -- set the type you meant.'
+      notes.push(note)
     }
+    const mix = el('p', 'note')
+    mix.textContent = `Captured so far: ${tallyLine(tally)}`
+    notes.push(mix)
 
     const actions = el('div', 'actions')
     const cancel = el('button', 'cancel')
     cancel.type = 'button'
     cancel.textContent = 'Cancel'
     cancel.addEventListener('click', () => closeSheet())
-    const save = el('button', 'save')
-    save.type = 'button'
-    save.textContent = 'Save capture'
     save.addEventListener('click', () => {
-      void commit(element, chosen, shot.screenshot, save)
+      if (chosen === null) return
+      void commit(element, descriptor, chosen, shot.screenshot, save)
     })
     actions.append(cancel, save)
 
-    sheet.append(title, origin, ...(shot.screenshot !== null ? [thumb] : []), types, note, actions)
+    sheet.append(
+      title,
+      origin,
+      ...(shot.screenshot !== null ? [thumb] : []),
+      measured,
+      prompt,
+      types,
+      ...notes,
+      actions,
+    )
     shadow?.append(sheet)
     placeSheet(rectOf(element))
-    save.focus()
+    // The guess gets the focus rather than Save, because Save is disabled: one
+    // Enter takes the guess, which is a keystroke a person spent on purpose.
+    const first = buttons.get(guess)
+    if (first !== undefined) first.focus()
+    sheetKeys = (key: string): boolean => {
+      const type = COMPONENT_TYPES[Number.parseInt(key, 10) - 1]
+      if (!/^[1-9]$/.test(key) || type === undefined) return false
+      choose(type)
+      return true
+    }
   }
 
+  /**
+   * Put the popover near the element, and never outside the window.
+   *
+   * The clamp is the part that matters. Preferring "below, else above" alone put
+   * the popover's own Save button 20px past the bottom edge of an 819px viewport
+   * -- present, enabled, and impossible to press, with nothing on screen saying
+   * why. It happened because the height is measured the moment the popover is
+   * appended and the thumbnail has not decoded yet, so the measurement was 50px
+   * short of the truth; `placeSheet` is therefore called again when the image
+   * lands, and clamps whatever it then measures into the viewport.
+   */
   function placeSheet(box: Rect): void {
     if (sheet === null) return
-    const height = sheet.getBoundingClientRect().height
-    const width = sheet.getBoundingClientRect().width
+    const { width, height } = sheet.getBoundingClientRect()
     const below = box.y + box.height + 12
-    const top = below + height < window.innerHeight ? below : Math.max(12, box.y - height - 12)
-    const left = Math.max(12, Math.min(box.x, window.innerWidth - width - 12))
+    const preferred = below + height + 12 <= window.innerHeight ? below : box.y - height - 12
+    const top = Math.min(Math.max(12, preferred), Math.max(12, window.innerHeight - height - 12))
+    const left = Math.min(Math.max(12, box.x), Math.max(12, window.innerWidth - width - 12))
     sheet.style.top = `${top}px`
     sheet.style.left = `${left}px`
   }
@@ -384,12 +581,14 @@ export function createPicker(host: PickerHost): { start(): void; stop(): void; a
   function closeSheet(): void {
     sheet?.remove()
     sheet = null
+    sheetKeys = null
     frozen = null
     reposition()
   }
 
   async function commit(
     element: Element,
+    descriptor: ElementDescriptor,
     componentType: ComponentType,
     screenshot: ScreenshotBlob | null,
     trigger: HTMLButtonElement,
@@ -397,6 +596,7 @@ export function createPicker(host: PickerHost): { start(): void; stop(): void; a
     trigger.disabled = true
     trigger.textContent = 'Saving...'
     const box = rectOf(element)
+    const inherited = descriptor.painted !== null && descriptor.painted.inherited ? descriptor.painted.color : null
     const picked: PickedElement = {
       componentType,
       styles: extractStyles(styleReaderFor(element), box),
@@ -404,6 +604,10 @@ export function createPicker(host: PickerHost): { start(): void; stop(): void; a
       captureId: captureIdFor(location.href, structuralPath(element)),
       rect: box,
       devicePixelRatio: window.devicePixelRatio,
+      // Only when the element paints nothing itself: the record keeps the
+      // browser's own `backgroundColor` either way, and this is the colour that
+      // was actually behind it. See `capture/surface.ts` in the engine.
+      ...(inherited === null ? {} : { inheritedBackgroundColor: inherited }),
     }
     const result = await host.save(picked, screenshot)
     closeSheet()
@@ -416,12 +620,39 @@ export function createPicker(host: PickerHost): { start(): void; stop(): void; a
   }
 
   function onKeyDown(event: KeyboardEvent): void {
-    if (event.key !== 'Escape') return
-    event.preventDefault()
-    event.stopPropagation()
-    // One Escape backs out of the confirm popover; a second leaves pick mode.
-    if (sheet !== null) closeSheet()
-    else stop()
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      // One Escape backs out of the confirm popover; a second leaves pick mode.
+      if (sheet !== null) closeSheet()
+      else stop()
+      return
+    }
+
+    if (sheet !== null) {
+      if (sheetKeys?.(event.key) === true) {
+        event.preventDefault()
+        event.stopPropagation()
+      }
+      return
+    }
+
+    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      event.preventDefault()
+      event.stopPropagation()
+      const from = hovered ?? elementUnder(pointer.x, pointer.y)
+      if (from === null) return
+      walkTo(event.key === 'ArrowUp' ? parentOf(from) : childOf(from))
+      return
+    }
+
+    if (event.key.toLowerCase() === BOUNDARY_KEY && offering && hovered !== null) {
+      event.preventDefault()
+      event.stopPropagation()
+      const better = nearestBoundary(hovered)
+      if (better === null) showToast('nothing near this element paints a boundary of its own', 'error')
+      else walkTo(better)
+    }
   }
 
   const listeners: Array<[EventTarget, string, EventListener, AddEventListenerOptions]> = []
@@ -451,6 +682,9 @@ export function createPicker(host: PickerHost): { start(): void; stop(): void; a
     }
     hovered = null
     frozen = null
+    offering = false
+    pinnedAt = null
+    sheetKeys = null
     unmount()
   }
 

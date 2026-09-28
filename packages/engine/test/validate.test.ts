@@ -41,6 +41,32 @@ describe('validateCaptureRecord', () => {
     )
   })
 
+  it('accepts the inherited background the extension measures for a transparent box', () => {
+    const transparent = {
+      ...record,
+      styles: { backgroundColor: 'rgba(0, 0, 0, 0)', color: '#ffffff' },
+      inheritedBackgroundColor: 'rgb(255, 255, 255)',
+    }
+    expect(validateCaptureRecord(transparent).inheritedBackgroundColor).toBe('rgb(255, 255, 255)')
+  })
+
+  it('rejects an inherited background that is not a string', () => {
+    expect(issuesOf(() => validateCaptureRecord({ ...record, inheritedBackgroundColor: 0 }))).toContain(
+      'record.inheritedBackgroundColor: expected a string',
+    )
+  })
+
+  it('refuses the inherited background inside styles, where it is not a computed property', () => {
+    // It is the *ancestor's* value, not one the browser reported for this box.
+    // Allowing it in `styles` would make the record's own account of what was
+    // measured untrue, which is the whole reason it sits beside styles instead.
+    expect(
+      issuesOf(() =>
+        validateCaptureRecord({ ...record, styles: { ...record.styles, inheritedBackgroundColor: '#fff' } }),
+      ),
+    ).toContain('record.styles.inheritedBackgroundColor: unknown style property')
+  })
+
   it('rejects an unknown component type', () => {
     expect(issuesOf(() => validateCaptureRecord({ ...record, componentType: 'modal' })).join()).toContain(
       'componentType',

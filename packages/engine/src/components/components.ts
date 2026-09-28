@@ -169,7 +169,14 @@ export function destructiveButtonFrom(primary: ComponentRecipe): ComponentRecipe
   }
 }
 
-/** True when a capture paints an opaque fill of its own. */
+/**
+ * True when a capture paints an opaque fill **of its own**.
+ *
+ * Deliberately `styles.backgroundColor` rather than `surfaceBackground`: this is
+ * what separates a ghost button from a filled one, and a ghost button on a white
+ * page is a ghost button. The painted-background fallback is for colour
+ * evidence, not for deciding what a component draws -- see `capture/surface.ts`.
+ */
 function hasOpaqueFill(capture: CaptureRecord): boolean {
   const raw = capture.styles.backgroundColor
   return raw !== undefined && parseColor(raw) !== undefined
@@ -273,7 +280,11 @@ function observedStep<T extends string>(
 
 export interface ComponentInputs {
   color: ColorTokens
-  /** The role a capture's own background colour resolved to, when any. */
+  /**
+   * The role the background painted behind a capture resolved to, when any.
+   * That is the capture's own fill where it has one and the inherited colour
+   * where it does not, which is what `readColors` observed.
+   */
   backgroundRoleByCapture: ReadonlyMap<string, ColorRoleName>
   spacing: SpacingTokens
   border: BorderTokens

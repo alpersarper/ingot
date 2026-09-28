@@ -59,6 +59,12 @@ export interface RejectedCapture {
 export interface PickedElement {
   componentType: ComponentType
   styles: CaptureRecord['styles']
+  /**
+   * The background painted behind the element, when the element paints none of
+   * its own. Travels separately from `styles` because it is not a computed
+   * style of this box -- see `CaptureRecord.inheritedBackgroundColor`.
+   */
+  inheritedBackgroundColor?: string
   sourceUrl: string
   /** Stable across recaptures of the same element; see `identity.ts`. */
   captureId: string
@@ -79,6 +85,7 @@ export type PickerMessage =
   | { type: 'ingot:ping' }
   | { type: 'ingot:shoot'; rect: Rect; devicePixelRatio: number }
   | { type: 'ingot:save'; picked: PickedElement; screenshot: ScreenshotBlob | null }
+  | { type: 'ingot:tally' }
 
 /** Messages the service worker sends the page. */
 export type PickerCommand = { type: 'ingot:start' } | { type: 'ingot:stop' }

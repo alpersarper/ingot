@@ -89,6 +89,9 @@ function checkRecord(value: unknown, at: string, issues: string[]): CaptureRecor
   if ('notes' in value && typeof value['notes'] !== 'string') {
     issues.push(`${at}.notes: expected a string`)
   }
+  if ('inheritedBackgroundColor' in value && typeof value['inheritedBackgroundColor'] !== 'string') {
+    issues.push(`${at}.inheritedBackgroundColor: expected a string`)
+  }
 
   const styles = value['styles']
   if (!isRecord(styles)) {

@@ -36,14 +36,27 @@ on the extension's card in `chrome://extensions` to pick the rebuild up.
 
 Click the toolbar button to turn **pick mode** on for that tab.
 
-- **Hover** outlines the element under the cursor and names the component type
-  it is going to guess. The outline is drawn over the page and changes nothing
-  about its layout.
-- **Alt** while hovering selects the parent instead, for when the thing you want
-  is the card and the cursor keeps landing on the text inside it.
+- **Hover** outlines the element under the cursor and states three things: the
+  type it is going to guess, the boundary it measured -- background, border,
+  padding -- and, when that boundary is one a reader could not see, that this
+  looks like a wrapper rather than a component. The outline is drawn over the
+  page and changes nothing about its layout.
+- **Up and Down arrows** walk to the parent and back into the child, re-outlining
+  as they go. The cursor lands on layout far more often than on a component, and
+  the element you meant is usually one step away. **Alt** while hovering is the
+  same move without leaving the mouse.
+- **W** takes the picker's suggestion: the nearest box that actually paints a
+  background, a border or a shadow, searched inwards first and then outwards.
 - **Click** freezes that element, takes its picture, and opens a small popover:
-  the cropped screenshot, the four component types with the guess selected, and
-  **Save capture**. The guess is a starting point -- set the type you meant.
+  the cropped screenshot, the boundary it measured, the four component types
+  with the guess *marked* -- and **Save capture**, which stays disabled until you
+  choose one. Press 1-4 or click. The guess is never the answer by default,
+  because a hurried session in which nobody disagreed with it is how a library
+  ends up holding nothing but cards.
+- The popover also says **what you have captured so far**, by type. `1 button ·
+  1 card · 0 inputs · 1 type -- grab some inputs next` is the cheapest possible
+  moment to find out that a kit is going to be distilled from one kind of
+  evidence.
 - **Escape** closes the popover; Escape again leaves pick mode.
 
 While pick mode is on, the page gets no clicks: a capture on a link does not
@@ -78,8 +91,10 @@ and it used to be the one case with no indicator at all.
 ## What it reads, and what it sends
 
 - **Reads** the computed style values of the one element you click, that
-  element's size and position, and the page URL. Never the page's markup,
-  text, stylesheets, cookies or storage. Capture is reference-grade by
+  element's size and position, the page URL, and -- when the element is
+  transparent -- the background colour of the nearest ancestor that paints one,
+  so that a ghost button is not recorded as evidence of no background. Never the
+  page's markup, text, stylesheets, cookies or storage. Capture is reference-grade by
   [decision](../../DECISIONS.md#hard-boundaries-v1-scope): values and a picture,
   never anything aiming at reproducing the DOM.
 - **Screenshots** that element's box, cropped in the extension from a shot of
@@ -134,6 +149,18 @@ Colours are passed through exactly as reported -- `rgb(...)`, `rgba(...)`,
 whatever the page resolved to. The engine normalises colour; the extension does
 not second-guess it.
 
+There is one thing it **measures** rather than normalises. When the element's own
+background is fully transparent, the picker walks its ancestors for the colour
+actually painted behind it and sends that as `inheritedBackgroundColor`, marked
+as inherited and beside `styles` rather than inside it -- the record still
+reports `backgroundColor: rgba(0, 0, 0, 0)`, because that is what the browser
+said about the element. Without it, a ghost button, a heading, or a bordered
+card on a tinted section is evidence of *no background*, and a library captured
+mostly that way distils its surface from whichever two or three captures
+happened to paint their own. When nothing up the chain paints one either, the
+field is left out rather than assumed to be white: a UA dark mode or a user
+stylesheet changes the canvas, and not knowing is reported as not knowing.
+
 ### Capture ids
 
 An id must be the same when you capture the same element again, so that
@@ -152,14 +179,18 @@ page's content is in it, and the hash is all that travels.
 extension` on their own.
 
 Everything worth testing here is pure by construction: extraction takes a
-property reader rather than an element, the type guess takes a flat descriptor,
-and the buffer takes a key-value store rather than `chrome.storage`. So the
+property reader rather than an element, the type guess and the boundary check
+take a flat descriptor, the tally takes a key-value store, and so does the
+buffer rather than `chrome.storage`. So the
 tests run in Node, with the values a real browser actually returns -- which is
 the point, because the cases worth pinning (`"50%"` radii, `"450"` weights,
 phantom border colours) are ones jsdom cannot produce. `test/queue.test.ts`
 walks the whole buffer lifecycle, service-worker eviction included, against a
 panel that can be switched off; `test/record.test.ts` puts the result through
-both the engine's validator and the published JSON Schema.
+both the engine's validator and the published JSON Schema; and
+`test/boundary.test.ts` is built from the captures that made the boundary check
+necessary -- seven off three real sites, five of them transparent layout
+`<div>`s recorded as cards.
 
 ## Known limits
 
@@ -170,4 +201,8 @@ both the engine's validator and the published JSON Schema.
 - **`captureVisibleTab` photographs the visible viewport**, so an element that
   does not fit on screen is captured as the part that does, and one scrolled out
   of view is saved without a picture and says so in the popover.
+- **The wrapper check is advice, not a gate.** It can be wrong in both
+  directions -- an image with no fill of its own reads as a wrapper, and a
+  full-bleed section that does paint one is called out anyway -- so it says what
+  it measured and lets you save regardless.
 - **Store publishing is not in scope.** This loads unpacked.

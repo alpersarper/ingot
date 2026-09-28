@@ -299,7 +299,15 @@ claimed (`"role": null`), with the near-duplicates each cluster absorbed in
 #### How roles are assigned
 
 1. Colours are read per channel (`background`, `foreground`, `border`) and
-   clustered so perceptually identical values merge. Clustering is leader
+   clustered so perceptually identical values merge. A capture's `background` is
+   the colour **painted behind it**: its own fill where it has one, and otherwise
+   the ancestor colour the extension measured into
+   [`inheritedBackgroundColor`](./capture-record.md#inheritedbackgroundcolor).
+   A fully transparent value is read as "no colour" and contributes nothing, so
+   without that fallback a ghost button or a heading is evidence of *no
+   background at all* -- which is not what a reader sees. What a component
+   *draws* is a separate question and still reads the element's own fill only:
+   a ghost button on a white page is a ghost button, not a white one. Clustering is leader
    clustering in OKLab against a running centroid, radius `0.012` -- roughly the
    point where two flat swatches stop being separable side by side. Comparing
    against the centroid rather than any member stops a long ramp of

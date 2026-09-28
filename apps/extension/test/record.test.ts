@@ -69,6 +69,26 @@ const PILL_BUTTON: Record<string, string> = {
   boxShadow: 'none',
 }
 
+/**
+ * A ghost button as Chrome reports it: no fill of its own, a 1px border, and the
+ * page's own white showing through. Five of the first seven captures off real
+ * sites looked like this, and the transparent value was all the engine got.
+ */
+const GHOST_BUTTON: Record<string, string> = {
+  ...PILL_BUTTON,
+  backgroundColor: 'rgba(0, 0, 0, 0)',
+  color: 'rgb(28, 30, 38)',
+  borderTopWidth: '1px',
+  borderRightWidth: '1px',
+  borderBottomWidth: '1px',
+  borderLeftWidth: '1px',
+  borderTopStyle: 'solid',
+  borderRightStyle: 'solid',
+  borderBottomStyle: 'solid',
+  borderLeftStyle: 'solid',
+  borderTopColor: 'rgb(214, 216, 222)',
+}
+
 const BOX: Rect = { x: 240, y: 118, width: 132, height: 40 }
 
 function recordFrom(values: Record<string, string>, url: string, path: string): CaptureRecord {
@@ -124,6 +144,26 @@ describe('the record the extension emits', () => {
     // beside the record, never inside it -- a non-null value here fails
     // validation, which is the schema saying the same thing.
     expect(record.screenshot).toBeNull()
+  })
+
+  it('carries the background a transparent element is sitting on, past both validators', () => {
+    // The field travels beside `styles`, not inside it: it is the ancestor's
+    // value, and `styles` is what the browser reported for this box.
+    const ghost: CaptureRecord = {
+      ...recordFrom(GHOST_BUTTON, 'https://betterstack.com/log-management', 'html/body/main/div/a'),
+      inheritedBackgroundColor: 'rgb(255, 255, 255)',
+    }
+    expect(ghost.styles.backgroundColor).toBe('rgba(0, 0, 0, 0)')
+    expect(() => validateCaptureRecord(ghost)).not.toThrow()
+    const set = {
+      schemaVersion: 1,
+      id: 'extension-capture',
+      name: 'Captured with the extension',
+      description: 'A ghost button, which paints no fill of its own.',
+      captures: [ghost],
+    }
+    expect(validateSet(set), explain(validateSet.errors)).toBe(true)
+    expect(() => validateCaptureSet(set)).not.toThrow()
   })
 
   it('makes a set of captures from two pages, with ids the schema accepts', () => {

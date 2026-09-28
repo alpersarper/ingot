@@ -97,6 +97,20 @@ export interface CaptureRecord {
    */
   screenshot?: null
   styles: CapturedStyles
+  /**
+   * The background actually painted behind the element, when its own
+   * `styles.backgroundColor` is fully transparent.
+   *
+   * Not a computed style of this element, which is why it sits here rather than
+   * in {@link CapturedStyles}: it is the nearest ancestor's fill, measured by
+   * walking up from the element, and the split is what keeps the record honest
+   * about which value the browser reported *for this box*. Both travel --
+   * `styles.backgroundColor` stays whatever the browser said -- and
+   * `capture/surface.ts` owns the decision about which one an answer is built
+   * from. Omitted when the element paints its own fill, or when nothing up the
+   * chain painted one either.
+   */
+  inheritedBackgroundColor?: string
   /** Free-text human note. Never read by the engine. */
   notes?: string
 }

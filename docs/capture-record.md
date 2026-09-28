@@ -40,6 +40,7 @@ so write them for the developer who will read the spec.
   "capturedAt": "2026-02-11T09:14:22.000Z",
   "screenshot": null,               // reserved; see below
   "styles": { /* computed styles */ },
+  "inheritedBackgroundColor": "rgb(255, 255, 255)",  // optional, only when transparent
   "notes": "Primary CTA in the page header."   // optional, never read by the engine
 }
 ```
@@ -70,6 +71,34 @@ Reserved. Must be `null` when present. Screenshots are out of scope for the
 engine, which never reads pixels; the field exists so that adding screenshot
 capture later does not change the record shape.
 
+### `inheritedBackgroundColor`
+
+The background **actually painted behind** the element, measured by walking its
+ancestors until one paints a colour. Set only when the element's own
+`styles.backgroundColor` is fully transparent; omitted otherwise, and omitted
+when nothing up the chain paints one either.
+
+It sits beside `styles` rather than inside it because it is not a computed
+property of this box -- `styles` is what the browser reported for the element,
+and that stays true. `styles.backgroundColor` still carries the transparent
+value it always did.
+
+Without it, a ghost button, a heading, or a bordered card on a tinted section
+contributes **no background evidence at all**: a fully transparent colour is read
+as "no colour" everywhere in the engine. A library captured mostly that way
+distils its surface from the two or three captures that happened to paint their
+own fill. The engine decides what to do with the pair in
+`packages/engine/src/capture/surface.ts`, and the rule is asymmetric on purpose:
+
+- **colour evidence** uses the painted background, own fill first, inherited
+  second;
+- **what a component draws** does not. A ghost button on a white page is a ghost
+  button, not a white one, so `hasOpaqueFill` reads `styles.backgroundColor`
+  directly.
+
+When authoring a capture by hand, leave it out unless the element really was
+transparent; a value here is a claim about the page, not about the element.
+
 ## `styles`
 
 Keys mirror CSSOM camelCase property names. Values mirror what
@@ -79,7 +108,7 @@ what was relevant to the element, and a typography capture has no border.
 
 | Group | Properties | Notes |
 | ----- | ---------- | ----- |
-| Colour | `color`, `backgroundColor`, `borderColor` | Any CSS colour syntax culori parses. Fully transparent values are read as "no colour" and contribute nothing -- `rgba(0, 0, 0, 0)` must not become evidence of a black background. |
+| Colour | `color`, `backgroundColor`, `borderColor` | Any CSS colour syntax culori parses. Fully transparent values are read as "no colour" and contribute nothing -- `rgba(0, 0, 0, 0)` must not become evidence of a black background. What *was* behind a transparent element travels in [`inheritedBackgroundColor`](#inheritedbackgroundcolor). |
 | Type | `fontFamily`, `fontSize`, `fontWeight`, `lineHeight`, `letterSpacing` | `fontSize` and `letterSpacing` in px. `fontWeight` numeric as a string (`"500"`); keywords are rejected. `lineHeight` may be px or a unitless ratio; `"normal"` is ignored because its resolved value depends on the font. |
 | Spacing | `paddingTop/Right/Bottom/Left`, `marginTop/Right/Bottom/Left`, `gap` | px. Negative margins are dropped: they are layout escape hatches, not evidence of a scale. |
 | Border | `borderTopWidth/RightWidth/BottomWidth/LeftWidth`, `borderStyle` | px. |

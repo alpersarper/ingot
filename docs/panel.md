@@ -287,6 +287,22 @@ selection bar, which states the count, the **type mix** ("4 buttons Â· 3 cards Â
 delete it. The mix earns its space because "6 selected" says nothing about
 whether the evidence is worth distilling and "6 buttons" says everything.
 
+Two things about a selection are worse than uninformative, and the bar
+**warns** about them before a generation is spent on it
+(`apps/panel/src/workbench/selection.ts`). A selection that is **all one type**
+leaves the engine with no evidence for the other three, so it states sanctioned
+defaults instead and the kit comes back looking finished and thin. A selection
+that **mixes clearly light and clearly dark surfaces** -- measured on the
+painted background of each capture, the engine's `surfaceTone`, so a transparent
+capture is judged by what was behind it and a brand-blue fill is not mistaken
+for a dark theme -- is two kits: one background is chosen and every contrast pair
+is held against it, so the minority is re-derived rather than kept. Each warning
+states the fact and names the way out, and neither disables anything: a
+deliberately button-only kit is a legitimate thing to want, and a workbench that
+refuses to distil what it was pointed at is one that gets worked around. The
+same two warnings sit in the empty middle column, about the scope, when nothing
+is ticked.
+
 A selection is a *set*: the server hands the ids to the engine in the library's
 own insertion order, so the same captures ticked in any order produce the same
 bytes. The kit it makes takes the next **library** version and reviews under the

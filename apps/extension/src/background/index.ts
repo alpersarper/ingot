@@ -13,6 +13,7 @@ import type { CaptureRecord } from '@ingot/engine'
 import { cropDataUrl } from './crop'
 import { chromeLocalStore, readSettings } from '../shared/settings'
 import { createQueue } from '../shared/queue'
+import { bumpTally, readTally } from '../shared/tally'
 import { saveCapture } from '../shared/save'
 import type { DrainReport, Queue, QueueCounts } from '../shared/queue'
 import { createTransport } from '../shared/transport'
@@ -119,6 +120,9 @@ function buildRecord(picked: PickedElement): CaptureRecord {
     capturedAt: new Date().toISOString(),
     screenshot: null,
     styles: picked.styles,
+    ...(picked.inheritedBackgroundColor === undefined
+      ? {}
+      : { inheritedBackgroundColor: picked.inheritedBackgroundColor }),
   })
 }
 
@@ -132,7 +136,18 @@ function buildRecord(picked: PickedElement): CaptureRecord {
  * is the worker's own, alarm and badge included.
  */
 async function handleSave(picked: PickedElement, screenshot: ScreenshotBlob | null): Promise<SaveResult> {
-  return saveCapture({ queue, drain: drainNow }, () => buildRecord(picked), screenshot, new Date().toISOString())
+  const result = await saveCapture(
+    { queue, drain: drainNow },
+    () => buildRecord(picked),
+    screenshot,
+    new Date().toISOString(),
+  )
+  // Counted only when the capture got in: the tally's whole job is to say what
+  // evidence the library has, and a capture the buffer refused is not evidence.
+  // A storage failure here must not turn an accepted capture into a reported
+  // one, so the tally's own write cannot change the answer.
+  if (result.ok) await bumpTally(store, picked.componentType).catch(() => undefined)
+  return result
 }
 
 async function handleShoot(tabId: number, message: Extract<PickerMessage, { type: 'ingot:shoot' }>): Promise<ShootResult> {
@@ -227,6 +242,9 @@ chrome.runtime.onMessage.addListener((message: PickerMessage | OptionsMessage, s
       }
       case 'ingot:save':
         respond(await handleSave(message.picked, message.screenshot))
+        return
+      case 'ingot:tally':
+        respond(await readTally(store))
         return
       case 'ingot:status':
         respond(await queue.status())

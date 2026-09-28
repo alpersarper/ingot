@@ -5,6 +5,7 @@
  * what lets the selection bar's two claims -- how many captures, and of what --
  * be tested without rendering anything.
  */
+import { surfaceTone } from '@ingot/engine'
 import type { CaptureSummary, GroupSummary } from '@/lib/api'
 
 /**
@@ -72,6 +73,68 @@ function compare(a: string, b: string): number {
  */
 export const SIZING_GUIDANCE =
   'Around 8-15 captures with a mix of types distils best -- a kit is a small system, not a catalogue.'
+
+/* --------------------------------------------------------- what will hurt -- */
+
+/**
+ * Something true about this set of captures that will make the kit worse, and
+ * what to do instead.
+ *
+ * It is a warning and never a block. The reviewer may know exactly what they are
+ * doing -- a deliberately button-only kit is a legitimate thing to want -- and a
+ * workbench that refuses to distil what it was pointed at is a workbench that
+ * gets worked around. What it must not do is stay quiet: both of these are
+ * invisible on screen and expensive to discover, because the symptom is a kit
+ * that looks fine and is thin.
+ */
+export interface SelectionWarning {
+  /** Stable key. Also what a test names. */
+  id: 'one-type' | 'mixed-tone'
+  /** What is true about these captures. */
+  text: string
+  /** The way out. Concrete, and never "don't". */
+  remedy: string
+}
+
+/**
+ * Below this many captures, a single type is not yet a finding.
+ *
+ * Two of a kind is what a selection looks like halfway through being made, and a
+ * warning that fires there is one the reviewer learns to ignore before it is
+ * ever true.
+ */
+const ONE_TYPE_MIN = 3
+
+export function selectionWarnings(captures: readonly CaptureSummary[]): SelectionWarning[] {
+  const warnings: SelectionWarning[] = []
+
+  const types = new Set(captures.map((capture) => capture.componentType))
+  const only = [...types][0]
+  if (captures.length >= ONE_TYPE_MIN && types.size === 1 && only !== undefined) {
+    const label = TYPE_LABEL[only] ?? { one: only, many: `${only}s` }
+    warnings.push({
+      id: 'one-type',
+      text: `All ${captures.length} of these are ${label.many}.`,
+      remedy:
+        'The engine has no evidence for the other three, so it states sanctioned defaults instead -- an input\'s padding, the type scale, a card\'s surface. Capture a few of each and the kit stops guessing.',
+    })
+  }
+
+  // Deliberately counted rather than merely detected: "4 light, 2 dark" tells the
+  // reviewer which way the split falls, and so which group is the odd one out.
+  const light = captures.filter((capture) => surfaceTone(capture.record) === 'light').length
+  const dark = captures.filter((capture) => surfaceTone(capture.record) === 'dark').length
+  if (light > 0 && dark > 0) {
+    warnings.push({
+      id: 'mixed-tone',
+      text: `These mix light and dark surfaces (${light} light, ${dark} dark).`,
+      remedy:
+        'One kit is one theme: a single background is chosen and every contrast pair is held against it, so whichever side loses gets re-derived rather than kept. Group them separately and distil one kit each.',
+    })
+  }
+
+  return warnings
+}
 
 /**
  * A slug for a group the user is naming, unique against the ones that exist.

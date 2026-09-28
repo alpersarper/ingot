@@ -30,6 +30,7 @@ function repositoryRoot(): string {
 
 const ROOT = repositoryRoot()
 const CAPTURE_SET = JSON.parse(readFileSync(join(ROOT, 'fixtures/ghost-warm/set.json'), 'utf8')) as unknown
+const DARK_SET = JSON.parse(readFileSync(join(ROOT, 'fixtures/linear-dark/set.json'), 'utf8')) as unknown
 
 let harness: Harness
 
@@ -64,6 +65,14 @@ async function reachTheLibrary(user: ReturnType<typeof userEvent.setup>): Promis
   await waitFor(() => expect(screen.getByText('ghost-btn-primary')).toBeTruthy())
 }
 
+/** Import another set into the same library. */
+async function alsoImport(user: ReturnType<typeof userEvent.setup>, set: unknown, firstId: string): Promise<void> {
+  await user.click(screen.getByRole('button', { name: /Paste a capture set/ }))
+  fireEvent.change(screen.getByLabelText('Capture set JSON'), { target: { value: JSON.stringify(set) } })
+  await user.click(screen.getByRole('button', { name: 'Import set' }))
+  await waitFor(() => expect(screen.getByText(firstId)).toBeTruthy())
+}
+
 /** Tick captures by their ids. */
 async function select(user: ReturnType<typeof userEvent.setup>, ...ids: string[]): Promise<void> {
   for (const id of ids) await user.click(screen.getByLabelText(`Select ${id}`))
@@ -89,6 +98,43 @@ describe('selecting captures', () => {
     expect(within(bar).getByTestId('type-mix').textContent).toBe('2 buttons · 1 card · 1 input')
     // ...and the sizing guidance sits with it, once, quietly.
     expect(within(bar).getByText(/8-15 captures/)).toBeTruthy()
+  })
+
+  it('warns that a selection is all one type, without disabling anything', async () => {
+    // The complaint this exists for: seven captures, every one of them a card,
+    // and the panel said nothing until a kit had been distilled from them.
+    const user = userEvent.setup()
+    await reachTheLibrary(user)
+    await select(user, 'ghost-type-page-title', 'ghost-type-section-heading', 'ghost-type-error')
+
+    const bar = screen.getByRole('region', { name: 'Selection' })
+    expect(within(bar).getByTestId('warning-one-type').textContent).toContain('All 3 of these are type')
+    // A warning, not a gate.
+    expect(within(bar).getByRole('button', { name: /Generate from selection/ }).hasAttribute('disabled')).toBe(false)
+  })
+
+  it('warns that a selection mixes a light theme with a dark one', async () => {
+    const user = userEvent.setup()
+    await reachTheLibrary(user)
+    await user.click(within(collection()).getByRole('button', { name: /Whole library/ }))
+    await alsoImport(user, DARK_SET, 'linear-btn-primary')
+    await user.click(within(collection()).getByRole('button', { name: /Whole library/ }))
+    await waitFor(() => expect(screen.getByText('ghost-card-post')).toBeTruthy())
+
+    await select(user, 'ghost-card-post', 'linear-card-issue')
+    const bar = screen.getByRole('region', { name: 'Selection' })
+    expect(within(bar).getByTestId('warning-mixed-tone').textContent).toContain('(1 light, 1 dark)')
+    expect(within(bar).getByTestId('warning-mixed-tone').textContent).toContain('one kit each')
+  })
+
+  it('says nothing about a selection that is a coherent mix', async () => {
+    const user = userEvent.setup()
+    await reachTheLibrary(user)
+    await select(user, 'ghost-btn-primary', 'ghost-card-post', 'ghost-input-email')
+
+    const bar = screen.getByRole('region', { name: 'Selection' })
+    expect(within(bar).queryByTestId('warning-one-type')).toBeNull()
+    expect(within(bar).queryByTestId('warning-mixed-tone')).toBeNull()
   })
 
   it('drops the selection when the scope changes, rather than acting on rows nobody can see', async () => {
